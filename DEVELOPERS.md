@@ -34,19 +34,16 @@ ARM) on every push to `main`. A tag `v*` (for example `v0.1.0`) publishes
 that APK as a release.
 
 Release builds are signed with one fixed key, so an update installs over
-the app already on a phone. The key is never in the repository. CI takes it
-from these repository secrets:
+the app already on a phone. The key is public on purpose:
+`android/app/mcore-sideload.jks` (alias `mcore`, password
+`mcore-sideload`), so CI and anyone building locally make APKs that update
+each other. It does not prove who built an APK - which is why users should
+install MCore only from this repository's Releases.
 
-| Secret | Value |
-| --- | --- |
-| `MCORE_KEYSTORE_BASE64` | the keystore file, base64 (`base64 -w0 key.jks`) |
-| `MCORE_KEYSTORE_PASSWORD` | its password |
-| `MCORE_KEY_ALIAS` | the key's alias |
-| `MCORE_KEY_PASSWORD` | the key's password (if different) |
-
-Locally the same environment variables work, with `MCORE_KEYSTORE` set to
-the keystore's path; without them a release build is signed with the debug
-key (fine for trying it, but it won't install over a signed build).
+To sign with a different key, set `MCORE_KEYSTORE` (its path),
+`MCORE_KEYSTORE_PASSWORD`, `MCORE_KEY_ALIAS` and, if different,
+`MCORE_KEY_PASSWORD`. A build signed with another key will not install
+over the official one.
 
 ## Version
 

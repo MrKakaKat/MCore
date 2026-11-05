@@ -7,8 +7,9 @@ build/
 .idea/
 pubspec.lock
 
-# never public: the signing key and machine paths
+# machine paths and other keys (the release key, mcore-sideload.jks, is public on purpose)
 *.jks
 *.keystore
+!android/app/mcore-sideload.jks
 key.properties
 android/local.properties

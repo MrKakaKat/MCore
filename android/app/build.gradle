@@ -30,19 +30,21 @@ android {
     }
 
     // One fixed key for every build, so an update installs over the app
-    // already there and keeps its projects. The key is never in the
-    // repository: CI writes it from secrets and passes these variables
-    // (see DEVELOPERS.md); a local build without them is signed with the
-    // debug key.
-    def keystorePath = System.getenv("MCORE_KEYSTORE")
-    def hasKey = keystorePath != null && file(keystorePath).exists()
+    // already there and keeps its projects. The key is public, in the
+    // repository (android/app/mcore-sideload.jks): it only ties updates
+    // together, it does not prove where an APK came from - install MCore
+    // from this repository's Releases only (see README.md). The variables
+    // below can point a build at another key instead.
+    def keystorePath = System.getenv("MCORE_KEYSTORE") ?: "mcore-sideload.jks"
+    def hasKey = file(keystorePath).exists()
+    def storePass = System.getenv("MCORE_KEYSTORE_PASSWORD") ?: "mcore-sideload"
     signingConfigs {
         if (hasKey) {
             release {
                 storeFile = file(keystorePath)
-                storePassword = System.getenv("MCORE_KEYSTORE_PASSWORD")
+                storePassword = storePass
                 keyAlias = System.getenv("MCORE_KEY_ALIAS") ?: "mcore"
-                keyPassword = System.getenv("MCORE_KEY_PASSWORD") ?: System.getenv("MCORE_KEYSTORE_PASSWORD")
+                keyPassword = System.getenv("MCORE_KEY_PASSWORD") ?: storePass
             }
         }
     }

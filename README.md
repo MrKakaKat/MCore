@@ -12,6 +12,12 @@ Download the APK from [Releases](../../releases) and install it on an
 Android phone (Android 7.0 or newer, 64-bit). Updates install over the
 previous version and keep your projects.
 
+> **Install MCore only from this repository's
+> [Releases](../../releases).** The signing key is public (so anyone can
+> build the app themselves), which means an APK from anywhere else could
+> be a modified copy that still installs over yours - and gets your
+> projects.
+
 ## Build it yourself
 
 With [Flutter](https://flutter.dev) (stable) and the Android SDK:
