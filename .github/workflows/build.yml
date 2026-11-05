@@ -39,13 +39,17 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
 
-      - run: flutter pub get
+      - name: Dependencies
+        run: |
+          flutter pub get
+          (cd packages/movement_core && dart pub get)
 
+      # deprecation notes from newer Flutter releases do not fail the build.
       - name: Checks
         run: |
-          flutter analyze
+          flutter analyze --no-fatal-infos
           flutter test
-          (cd packages/movement_core && dart pub get && dart analyze && dart test)
+          (cd packages/movement_core && dart analyze --no-fatal-infos && dart test)
 
       # pull requests and forks have no key: they only run the checks.
       - name: Signing key
