@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="45 45 700 670">
+  <defs>
+    <!-- subtle paper gradations -->
+    <linearGradient id="body" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#58C4F6"/>
+      <stop offset="1" stop-color="#66CDFA"/>
+    </linearGradient>
+    <linearGradient id="headL" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#5CC8F8"/>
+      <stop offset="1" stop-color="#6BCFFA"/>
+    </linearGradient>
+    <linearGradient id="headR" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2DB4F4"/>
+      <stop offset="1" stop-color="#38BAF6"/>
+    </linearGradient>
+    <linearGradient id="dark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A5FA6"/>
+      <stop offset="1" stop-color="#0B57A0"/>
+    </linearGradient>
+    <!-- shadow: darkest at the right vertex, fading toward the base -->
+    <linearGradient id="shadow" gradientUnits="userSpaceOnUse" x1="360" y1="240" x2="270" y2="250">
+      <stop offset="0" stop-color="#0D47A1" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#0D47A1" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Geometry: every edge is horizontal, vertical or at 45°.
+       All gaps are parallel edges spaced 40 px apart (56.6 along the axis). -->
+
+  <!-- head: top (240,120), left (120,240), right (360,240), center (240,240), bottom (240,360) -->
+  <polygon points="240,120 120,240 240,240" fill="url(#headL)"/>
+  <polygon points="240,120 240,240 360,240" fill="url(#headR)"/>
+  <polygon points="240,240 360,240 240,360" fill="url(#dark)"/>
+  <!-- shadow: apex at the right vertex, 25°, along the top edge, 3/4 of the way to the base -->
+  <polygon points="360,240 270,240 270,282" fill="url(#shadow)"/>
+
+  <!-- wing: left vertex directly below the head's bottom vertex (x = 240).
+       Right angles at the left and bottom vertices; the top edge is horizontal.
+       The left edge is parallel to the head's dark edge (gap 40). -->
+  <polygon points="456.6,200 736.6,200 380,556.6 240,416.6" fill="url(#body)"/>
+
+  <!-- tail: twice the size of a head triangle (area of two), hypotenuse 240.
+       Upper edge parallel to the wing's right edge (gap 40).
+       Lower edge lies on the line of the wing's base (bottom edge), 40 from the wing's bottom vertex. -->
+  <polygon points="528.3,464.9 528.3,704.9 408.3,584.9" fill="url(#dark)"/>
+</svg>

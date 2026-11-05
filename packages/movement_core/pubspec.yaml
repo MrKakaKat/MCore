@@ -1,0 +1,19 @@
+name: movement_core
+description: >
+  The MCore animation engine: project model, keyframes, effects, contours,
+  physics, text and lines, import / export - pure Dart, no Flutter, tested
+  with `dart test` and usable from any renderer.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.4.0
+
+dependencies:
+  characters: ^1.3.0
+  collection: ^1.18.0
+  xml: ^6.5.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^4.0.0

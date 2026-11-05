@@ -1,0 +1,14 @@
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+pubspec.lock
+
+# never public: the signing key and machine paths
+*.jks
+*.keystore
+key.properties
+android/local.properties

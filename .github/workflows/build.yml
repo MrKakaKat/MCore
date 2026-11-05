@@ -1,0 +1,89 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      - run: flutter pub get
+
+      - name: Checks
+        run: |
+          flutter analyze
+          flutter test
+          (cd packages/movement_core && dart pub get && dart analyze && dart test)
+
+      # pull requests and forks have no key: they only run the checks.
+      - name: Signing key
+        if: github.event_name != 'pull_request'
+        env:
+          KEY: ${{ secrets.MCORE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "$KEY" | base64 -d > "$RUNNER_TEMP/mcore.jks"
+            echo "MCORE_KEYSTORE=$RUNNER_TEMP/mcore.jks" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # a release signed with a throwaway key would not update installed copies.
+            echo "::error::MCORE_KEYSTORE_BASE64 is not set: add the signing secrets before tagging a release."
+            exit 1
+          fi
+
+      - name: Build APK
+        if: github.event_name != 'pull_request'
+        env:
+          MCORE_KEYSTORE_PASSWORD: ${{ secrets.MCORE_KEYSTORE_PASSWORD }}
+          MCORE_KEY_ALIAS: ${{ secrets.MCORE_KEY_ALIAS }}
+          MCORE_KEY_PASSWORD: ${{ secrets.MCORE_KEY_PASSWORD }}
+        run: |
+          flutter build apk --release --target-platform android-arm64 \
+            --split-debug-info=build/symbols --build-number=${{ github.run_number }}
+          cp build/app/outputs/flutter-apk/app-release.apk "MCore-${GITHUB_REF_NAME//\//-}.apk"
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/')
+        with:
+          name: MCore-apk
+          path: MCore-*.apk
+          retention-days: 7
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MCore ${{ github.ref_name }}
+          files: MCore-*.apk
+          fail_on_unmatched_files: true

@@ -1,0 +1,760 @@
+{
+  "version": 1,
+  "project": {
+    "layers": [
+      {
+        "id": "L_parent",
+        "name": "controller",
+        "parentId": null,
+        "startFrame": 0,
+        "durationFrames": 180,
+        "transform": {
+          "anchor": {
+            "default": [
+              0.5,
+              0.55
+            ],
+            "spatial": true,
+            "keyframes": []
+          },
+          "scale": {
+            "default": [
+              1,
+              1
+            ],
+            "spatial": false,
+            "keyframes": []
+          },
+          "rotation": {
+            "default": 0,
+            "spatial": false,
+            "keyframes": []
+          },
+          "opacity": {
+            "default": 1,
+            "spatial": false,
+            "keyframes": []
+          },
+          "pathFollow": {
+            "enabled": false,
+            "sourceLayerId": null,
+            "t": {
+              "default": 0,
+              "spatial": false,
+              "keyframes": []
+            },
+            "parametrization": "arcLength"
+          }
+        },
+        "content": {
+          "shape": "rect",
+          "offset": [
+            0,
+            0
+          ],
+          "size": [
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "id": "L_child",
+        "name": "object_a",
+        "parentId": "L_parent",
+        "startFrame": 0,
+        "durationFrames": 180,
+        "transform": {
+          "anchor": {
+            "default": [
+              0,
+              0
+            ],
+            "spatial": true,
+            "keyframes": []
+          },
+          "scale": {
+            "default": [
+              1,
+              1
+            ],
+            "spatial": false,
+            "keyframes": []
+          },
+          "rotation": {
+            "default": 0,
+            "spatial": false,
+            "keyframes": []
+          },
+          "opacity": {
+            "default": 1,
+            "spatial": false,
+            "keyframes": []
+          },
+          "pathFollow": {
+            "enabled": false,
+            "sourceLayerId": null,
+            "t": {
+              "default": 0,
+              "spatial": false,
+              "keyframes": []
+            },
+            "parametrization": "arcLength"
+          }
+        },
+        "content": {
+          "shape": "rect",
+          "offset": [
+            0,
+            0
+          ],
+          "size": [
+            46,
+            46
+          ]
+        },
+        "masks": [],
+        "effectStack": [],
+        "color": "#d8d8d8",
+        "renderMode": "fill",
+        "hidden": false,
+        "motionBlur": {
+          "enabled": false,
+          "shutterAngle": 180,
+          "samples": 8
+        },
+        "wiggle": {
+          "enabled": false,
+          "speed": 30,
+          "amplitude": 20,
+          "smoothness": 70
+        },
+        "pendulum": {
+          "enabled": false,
+          "frequency": 20,
+          "damping": 50,
+          "sensitivity": 50,
+          "pivotOffset": {
+            "default": [
+              0,
+              0
+            ],
+            "spatial": true,
+            "keyframes": []
+          },
+          "maxAngle": 40,
+          "freeze": 60,
+          "rotateWithLine": true
+        }
+      },
+      {
+        "id": "L_mu82u93d1",
+        "name": "js_reference_layer",
+        "parentId": "L_child",
+        "startFrame": 0,
+        "durationFrames": 180,
+        "transform": {
+          "anchor": {
+            "default": [
+              0.5,
+              0.5
+            ],
+            "spatial": true,
+            "keyframes": [
+              {
+                "frame": 0,
+                "value": [
+                  0.1,
+                  0.2
+                ],
+                "temporal": {
+                  "x1": 0.42,
+                  "y1": 0,
+                  "x2": 1,
+                  "y2": 1
+                },
+                "spatialTangent": {
+                  "out": [
+                    0.035,
+                    0.04666666666666666
+                  ],
+                  "in": [
+                    -0.035,
+                    -0.04666666666666666
+                  ]
+                }
+              },
+              {
+                "frame": 30,
+                "value": [
+                  0.4,
+                  0.6
+                ],
+                "temporal": {
+                  "x1": 0.42,
+                  "y1": 0,
+                  "x2": 0.58,
+                  "y2": 1
+                },
+                "spatialTangent": {
+                  "out": [
+                    0.04666666666666666,
+                    -0.0029166666666666677
+                  ],
+                  "in": [
+                    -0.04666666666666666,
+                    0.0029166666666666677
+                  ]
+                }
+              },
+              {
+                "frame": 60,
+                "value": [
+                  0.9,
+                  0.15
+                ],
+                "temporal": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 0.58,
+                  "y2": 1
+                },
+                "spatialTangent": {
+                  "out": [
+                    0.05833333333333333,
+                    -0.05249999999999999
+                  ],
+                  "in": [
+                    -0.05833333333333333,
+                    0.05249999999999999
+                  ]
+                }
+              }
+            ],
+            "tension": 0.65,
+            "loop": true,
+            "globalEasing": {
+              "x1": 0.33,
+              "y1": 0,
+              "x2": 0.67,
+              "y2": 1
+            }
+          },
+          "scale": {
+            "default": [
+              1,
+              1
+            ],
+            "spatial": false,
+            "keyframes": []
+          },
+          "rotation": {
+            "default": 0,
+            "spatial": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "value": 0,
+                "temporal": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 1,
+                  "y2": 1
+                },
+                "spatialTangent": {
+                  "in": [
+                    0,
+                    0
+                  ],
+                  "out": [
+                    0,
+                    0
+                  ]
+                }
+              },
+              {
+                "frame": 60,
+                "value": 270,
+                "temporal": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 1,
+                  "y2": 1
+                },
+                "spatialTangent": {
+                  "in": [
+                    0,
+                    0
+                  ],
+                  "out": [
+                    0,
+                    0
+                  ]
+                }
+              }
+            ],
+            "expression": "layer('js_reference_layer').rotation + 5"
+          },
+          "opacity": {
+            "default": 1,
+            "spatial": false,
+            "keyframes": [
+              {
+                "frame": 0,
+                "value": 1,
+                "temporal": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 1,
+                  "y2": 1
+                },
+                "spatialTangent": {
+                  "in": [
+                    0,
+                    0
+                  ],
+                  "out": [
+                    0,
+                    0
+                  ]
+                }
+              },
+              {
+                "frame": 60,
+                "value": 0.25,
+                "temporal": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 0.58,
+                  "y2": 1
+                },
+                "spatialTangent": {
+                  "in": [
+                    0,
+                    0
+                  ],
+                  "out": [
+                    0,
+                    0
+                  ]
+                }
+              }
+            ]
+          },
+          "pathFollow": {
+            "enabled": false,
+            "sourceLayerId": null,
+            "t": {
+              "default": 0,
+              "spatial": false,
+              "keyframes": []
+            },
+            "parametrization": "arcLength"
+          }
+        },
+        "content": {
+          "shape": "rect",
+          "offset": [
+            0,
+            0
+          ],
+          "size": [
+            46,
+            46
+          ],
+          "sides": 6
+        },
+        "masks": [
+          {
+            "enabled": true,
+            "mode": "intersect",
+            "sourceLayerId": "L_child",
+            "feather": {
+              "default": 0,
+              "spatial": false,
+              "keyframes": [
+                {
+                  "frame": 0,
+                  "value": 4,
+                  "temporal": {
+                    "x1": 0,
+                    "y1": 0,
+                    "x2": 1,
+                    "y2": 1
+                  },
+                  "spatialTangent": {
+                    "in": [
+                      0,
+                      0
+                    ],
+                    "out": [
+                      0,
+                      0
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "effectStack": [
+          {
+            "id": "fx_mesh_1",
+            "effectId": "mesh_warp",
+            "enabled": true,
+            "params": {
+              "rows": 4,
+              "cols": 4,
+              "r0c0": {
+                "default": [
+                  0.02,
+                  -0.03
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r0c1": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r0c2": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r0c3": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r1c0": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r1c1": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r1c2": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r1c3": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r2c0": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r2c1": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r2c2": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r2c3": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r3c0": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r3c1": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r3c2": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": []
+              },
+              "r3c3": {
+                "default": [
+                  0,
+                  0
+                ],
+                "spatial": false,
+                "keyframes": [
+                  {
+                    "frame": 0,
+                    "value": [
+                      0,
+                      0
+                    ],
+                    "temporal": {
+                      "x1": 0.42,
+                      "y1": 0,
+                      "x2": 0.58,
+                      "y2": 1
+                    },
+                    "spatialTangent": {
+                      "in": [
+                        0,
+                        0
+                      ],
+                      "out": [
+                        0,
+                        0
+                      ]
+                    }
+                  },
+                  {
+                    "frame": 60,
+                    "value": [
+                      0.07,
+                      0.11
+                    ],
+                    "temporal": {
+                      "x1": 0.42,
+                      "y1": 0,
+                      "x2": 0.58,
+                      "y2": 1
+                    },
+                    "spatialTangent": {
+                      "in": [
+                        0,
+                        0
+                      ],
+                      "out": [
+                        0,
+                        0
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "color": "#e0a06a",
+        "renderMode": "fill",
+        "hidden": false,
+        "motionBlur": {
+          "enabled": true,
+          "shutterAngle": 270,
+          "samples": 12
+        },
+        "wiggle": {
+          "enabled": true,
+          "speed": 12,
+          "amplitude": 33,
+          "smoothness": 55
+        },
+        "pendulum": {
+          "enabled": true,
+          "frequency": 44,
+          "damping": 15,
+          "sensitivity": 77,
+          "pivotOffset": {
+            "default": [
+              0.01,
+              -0.02
+            ],
+            "spatial": true,
+            "keyframes": [
+              {
+                "frame": 0,
+                "value": [
+                  0,
+                  0
+                ],
+                "temporal": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 1,
+                  "y2": 1
+                },
+                "spatialTangent": {
+                  "out": [
+                    0,
+                    0
+                  ],
+                  "in": [
+                    0,
+                    0
+                  ]
+                }
+              },
+              {
+                "frame": 30,
+                "value": [
+                  0.02,
+                  0.03
+                ],
+                "temporal": {
+                  "x1": 0,
+                  "y1": 0,
+                  "x2": 1,
+                  "y2": 1
+                },
+                "spatialTangent": {
+                  "out": [
+                    0,
+                    0
+                  ],
+                  "in": [
+                    0,
+                    0
+                  ]
+                }
+              }
+            ]
+          },
+          "maxAngle": 35,
+          "freeze": 45,
+          "rotateWithLine": false
+        }
+      },
+      {
+        "id": "L_mu82u93e2",
+        "name": "js_null_layer",
+        "parentId": null,
+        "startFrame": 0,
+        "durationFrames": 180,
+        "transform": {
+          "anchor": {
+            "default": [
+              0.5,
+              0.5
+            ],
+            "spatial": true,
+            "keyframes": []
+          },
+          "scale": {
+            "default": [
+              1,
+              1
+            ],
+            "spatial": false,
+            "keyframes": []
+          },
+          "rotation": {
+            "default": 0,
+            "spatial": false,
+            "keyframes": []
+          },
+          "opacity": {
+            "default": 1,
+            "spatial": false,
+            "keyframes": []
+          },
+          "pathFollow": {
+            "enabled": false,
+            "sourceLayerId": null,
+            "t": {
+              "default": 0,
+              "spatial": false,
+              "keyframes": []
+            },
+            "parametrization": "arcLength"
+          }
+        },
+        "content": {
+          "shape": "null",
+          "offset": [
+            0,
+            0
+          ],
+          "size": [
+            46,
+            46
+          ],
+          "sides": 6
+        },
+        "masks": [],
+        "effectStack": [],
+        "color": null,
+        "renderMode": "fill",
+        "hidden": false,
+        "motionBlur": {
+          "enabled": false,
+          "shutterAngle": 180,
+          "samples": 8
+        },
+        "wiggle": {
+          "enabled": false,
+          "speed": 30,
+          "amplitude": 20,
+          "smoothness": 70
+        },
+        "pendulum": {
+          "enabled": false,
+          "frequency": 20,
+          "damping": 50,
+          "sensitivity": 50,
+          "pivotOffset": {
+            "default": [
+              0,
+              0
+            ],
+            "spatial": true,
+            "keyframes": []
+          },
+          "maxAngle": 40,
+          "freeze": 60,
+          "rotateWithLine": true
+        }
+      }
+    ]
+  },
+  "maxFrame": 240,
+  "playbackSpeed": 1.5,
+  "selectedLayer": "L_mu82u93d1"
+}

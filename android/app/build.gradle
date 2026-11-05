@@ -1,0 +1,63 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+    namespace = "slop.nut"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8
+    }
+
+    defaultConfig {
+        applicationId = "slop.nut"
+        // 24: what the media code (MediaCodec input images, Opus, frame
+        // batches checked at run time) is written against.
+        minSdk = 24
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+
+    // One fixed key for every build, so an update installs over the app
+    // already there and keeps its projects. The key is never in the
+    // repository: CI writes it from secrets and passes these variables
+    // (see DEVELOPERS.md); a local build without them is signed with the
+    // debug key.
+    def keystorePath = System.getenv("MCORE_KEYSTORE")
+    def hasKey = keystorePath != null && file(keystorePath).exists()
+    signingConfigs {
+        if (hasKey) {
+            release {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("MCORE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MCORE_KEY_ALIAS") ?: "mcore"
+                keyPassword = System.getenv("MCORE_KEY_PASSWORD") ?: System.getenv("MCORE_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = hasKey ? signingConfigs.release : signingConfigs.debug
+            // phones of today only (64-bit ARM).
+            ndk {
+                abiFilters "arm64-v8a"
+            }
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
