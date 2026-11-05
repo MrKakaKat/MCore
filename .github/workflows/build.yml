@@ -49,7 +49,7 @@ jobs:
         run: |
           flutter analyze --no-fatal-infos
           flutter test
-          (cd packages/movement_core && dart analyze --no-fatal-infos && dart test)
+          (cd packages/movement_core && dart analyze && dart test)
 
       - name: Build APK
         if: github.event_name != 'pull_request'
