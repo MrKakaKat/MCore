@@ -5,7 +5,13 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
-  workflow_dispatch: {}
+  # a manual run can publish a release too (it creates the tag).
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Release tag to publish, e.g. v0.1.0 (empty: just build)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -18,6 +24,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      VERSION: ${{ inputs.release || github.ref_name }}
+      RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') || (inputs.release || '') != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -54,21 +63,24 @@ jobs:
       - name: Build APK
         if: github.event_name != 'pull_request'
         run: |
+          # build numbers only grow, past the early test builds (up to 99).
           flutter build apk --release --target-platform android-arm64 \
-            --split-debug-info=build/symbols --build-number=${{ github.run_number }}
-          cp build/app/outputs/flutter-apk/app-release.apk "MCore-${GITHUB_REF_NAME//\//-}.apk"
+            --split-debug-info=build/symbols --build-number=$(( ${{ github.run_number }} + 100 ))
+          cp build/app/outputs/flutter-apk/app-release.apk "MCore-${VERSION//\//-}.apk"
 
       - uses: actions/upload-artifact@v4
-        if: github.event_name != 'pull_request' && !startsWith(github.ref, 'refs/tags/')
+        if: github.event_name != 'pull_request' && env.RELEASE != 'true'
         with:
           name: MCore-apk
           path: MCore-*.apk
           retention-days: 7
 
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          name: MCore ${{ github.ref_name }}
+          tag_name: ${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          name: MCore ${{ env.VERSION }}
           files: MCore-*.apk
           fail_on_unmatched_files: true
