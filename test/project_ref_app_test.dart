@@ -39,7 +39,7 @@ void main() {
     return [for (var k = 0; k < 4; k++) bytes.getUint8(i + k)];
   }
 
-  test('a project id survives rename and save; a duplicate gets a new one; the revision counts saves', () async {
+  test('a project id survives rename and save; a duplicate gets a new one; the revision counts changed saves', () async {
     final file = await store.create('A', 200, 100);
     final id = await idOf(file);
     expect(id, matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')));
@@ -51,6 +51,14 @@ void main() {
     await app.saveNow();
     expect(await idOf(file), id);
     expect(await revisionOf(file), r0 + 1);
+    // nothing changed since: the revision and the file's date stay (the
+    // project keeps its place in the list).
+    final date = await file.lastModified();
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    await app.saveNow();
+    expect(await revisionOf(file), r0 + 1);
+    expect(await file.lastModified(), date);
+    app.addLayer('circle');
     await app.saveNow();
     expect(await revisionOf(file), r0 + 2);
     app.dispose();

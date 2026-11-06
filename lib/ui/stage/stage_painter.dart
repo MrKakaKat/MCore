@@ -3,7 +3,9 @@ import 'dart:ui' as ui;
 
 import 'package:movement_core/movement_core.dart';
 
-import '../common/param_editor.dart' show stageRulerZoom;
+import 'package:flutter/scheduler.dart' show SchedulerBinding;
+
+import '../common/param_editor.dart' show stageRulerZoom, stageRulerZoomNotifier;
 import 'stage_camera.dart';
 import 'stage_gesture_controller.dart';
 
@@ -136,6 +138,10 @@ void paintStage({
   stageHandleScale = inv;
   // the parameter rulers go finer as the stage zooms in.
   stageRulerZoom = camera.scale;
+  if (stageRulerZoomNotifier.value != camera.scale) {
+    final z = camera.scale;
+    SchedulerBinding.instance.addPostFrameCallback((_) => stageRulerZoomNotifier.value = z);
+  }
 
   canvas.save();
   // Settings' stage turn: the whole view about the viewport centre.
@@ -200,7 +206,11 @@ void paintStage({
     if (showPropLinks) _paintPropLinks(canvas, project, globalFrame, inv);
     final mrSel = selectedLayer?.maskRegions;
     if (selectedLayer != null && mrSel != null && mrSel.enabled && mrSel.sources.isNotEmpty) {
-      if (showRegionTints || stageRegionPickActive || regionsPanelOpen > 0) _paintRegionTints(canvas, project, selectedLayer, globalFrame, inv);
+      // the panel open shows the picked one; the tints are the switch's
+      // (and a pick's).
+      if (showRegionTints || stageRegionPickActive || regionsPanelOpen > 0) {
+        _paintRegionTints(canvas, project, selectedLayer, globalFrame, inv, tints: showRegionTints || stageRegionPickActive);
+      }
       if (showFootprints) _paintFootprints(canvas, project, selectedLayer, globalFrame, inv);
     }
     if (showMaskViz && selectedLayer != null && selectedLayer.masks.isNotEmpty) {
@@ -350,7 +360,7 @@ void paintStage({
   // handles hidden: the open tab's own tools (crop box, gradient points,
   // chroma region) stay - hiding handles must not lock the tabs out.
   if (hideHandles && !cameraViewActive && selectedLayer != null && selectedInRange) {
-    if (cropEditing) {
+    if (cropEditing || pieceInsets != null) {
       _paintCrop(canvas, project, selectedLayer, globalFrame, activeDrag, inv);
     } else if (glowHandlesVisible && selectedLayer.fill.active) {
       _paintGlowHandles(canvas, project, selectedLayer, globalFrame, activeDrag, inv);
@@ -506,7 +516,26 @@ void _paintMaskSteps(ui.Canvas canvas, Project project, Layer layer, int globalF
     return p;
   }
 
+  // outlines that lie on each other (masks over the same spot) stack
+  // outward: each later one a step further out, so all stay visible.
+  final level = <int>[];
+  final bounds = <ui.Rect?>[];
   for (final st in steps) {
+    final b = st.raster || st.source.isEmpty ? null : path(st.source).getBounds();
+    var k = 0;
+    for (var j = 0; j < bounds.length; j++) {
+      final o = bounds[j];
+      if (b != null && o != null && o.inflate(2 * inv).overlaps(b)) k = math.max(k, level[j] + 1);
+    }
+    level.add(k);
+    bounds.add(b);
+  }
+  const gap = 5.0;
+  // the furthest out first, so each nearer one sits on top.
+  final order = [for (var i = 0; i < steps.length; i++) i]..sort((a, b) => level[b].compareTo(level[a]));
+  for (final si in order) {
+    final st = steps[si];
+    final out = level[si] * gap;
     final color = _maskVizColors[st.index % _maskVizColors.length];
     // a picture source: no outline to show - say so where it is.
     if (st.raster) {
@@ -517,9 +546,11 @@ void _paintMaskSteps(ui.Canvas canvas, Project project, Layer layer, int globalF
             ..addText('image source - not drawn'))
           .build()
         ..layout(ui.ParagraphConstraints(width: 200 * inv));
-      canvas.drawRect(ui.Rect.fromLTWH(at[0] - 3 * inv, at[1] - 2 * inv, text.maxIntrinsicWidth + 6 * inv, text.height + 4 * inv),
+      // just above the mask, not over it.
+      final y = at[1] - text.height - 8 * inv;
+      canvas.drawRect(ui.Rect.fromLTWH(at[0] - 3 * inv, y - 2 * inv, text.maxIntrinsicWidth + 6 * inv, text.height + 4 * inv),
           ui.Paint()..color = const ui.Color(0xAA000000));
-      canvas.drawParagraph(text, ui.Offset(at[0], at[1]));
+      canvas.drawParagraph(text, ui.Offset(at[0], y));
       continue;
     }
     ui.Paint stroke(double w, ui.Color c) => ui.Paint()
@@ -527,16 +558,30 @@ void _paintMaskSteps(ui.Canvas canvas, Project project, Layer layer, int globalF
       ..style = ui.PaintingStyle.stroke
       ..strokeWidth = w * inv
       ..strokeJoin = ui.StrokeJoin.round;
+    // a line `w` wide, pushed `out` px outside the shape (a stacked one).
+    void edge(ui.Path p, double w, ui.Color c) {
+      if (out <= 0) {
+        canvas.drawPath(p, stroke(w, c));
+        return;
+      }
+      canvas.save();
+      final b = p.getBounds().inflate((out + w) * 2 * inv);
+      canvas.clipPath(ui.Path.combine(ui.PathOperation.difference, ui.Path()..addRect(b), p));
+      // from the edge out; the nearer ones, drawn after, cover its inner part.
+      canvas.drawPath(p, stroke(2 * (out + w / 2), c));
+      canvas.restore();
+    }
+
     if (st.gained.isNotEmpty) {
       final p = path(st.gained);
-      canvas.drawPath(p, ui.Paint()..color = color.withOpacity(0.12));
-      canvas.drawPath(p, stroke(4, color));
+      if (out <= 0) canvas.drawPath(p, ui.Paint()..color = color.withOpacity(0.12));
+      edge(p, 4, color);
     }
-    if (st.lost.isNotEmpty) canvas.drawPath(path(st.lost), stroke(1, color));
+    if (st.lost.isNotEmpty) edge(path(st.lost), 1, color);
     if (st.unchanged) {
       final p = path(st.source);
-      canvas.drawPath(p, stroke(6, color));
-      canvas.drawPath(p, stroke(2.5, const ui.Color(0xCC000000)));
+      edge(p, 6, color);
+      if (out <= 0) canvas.drawPath(p, stroke(2.5, const ui.Color(0xCC000000)));
     }
   }
 }
@@ -561,20 +606,40 @@ ui.Path _ringsPath(List<List<List<double>>> rings) {
 /// 0) hatched. The picked one is outlined - once per level it lies under
 /// the top one at the tapped spot (1: the top, 2: the next...) - with its
 /// owner layer's outline. The piece numbers are cut out of the picture.
-void _paintRegionTints(ui.Canvas canvas, Project project, Layer layer, int globalFrame, double inv) {
+void _paintRegionTints(ui.Canvas canvas, Project project, Layer layer, int globalFrame, double inv, {bool tints = true}) {
   final geo = maskRegionGeometry(project, layer, globalFrame);
   if (geo == null) return;
   final mr = layer.maskRegions!;
   final bake = regionEpisodesReady(project, layer);
   final owned = ownedRegionSigs(layer).toSet();
   final outerEmpty = regionOuterEmpty(layer);
+  // a shape's Outer: the frame outside every shape (it has no pixels of
+  // the layer, but it is where the shapes are not).
+  if (tints && outerEmpty && owned.contains(0)) {
+    var shapes = ui.Path();
+    for (final g in geo) {
+      if (g.sig != 0 && g.rings.isNotEmpty) shapes = ui.Path.combine(ui.PathOperation.union, shapes, _ringsPath(g.rings));
+    }
+    final frame = ui.Path()..addRect(ui.Rect.fromLTWH(0, 0, stageSize.width, stageSize.height));
+    final outer = ui.Path.combine(ui.PathOperation.difference, frame, shapes);
+    final color = regionColor(0);
+    canvas.drawPath(outer, ui.Paint()..color = color.withOpacity(0.12));
+    if (stageSelectedRegionSig == 0) {
+      canvas.drawPath(
+          outer,
+          ui.Paint()
+            ..color = color
+            ..style = ui.PaintingStyle.stroke
+            ..strokeWidth = 3 * inv);
+    }
+  }
   for (final g in geo) {
     if (g.rings.isEmpty || !owned.contains(g.sig) || (g.sig == 0 && outerEmpty)) continue;
     final path = _ringsPath(g.rings);
     final color = regionColor(g.sig);
     final op = regionOpacityAt(project, layer, bake, g.sig, null, globalFrame);
-    canvas.drawPath(path, ui.Paint()..color = color.withOpacity(0.18));
-    if (op <= 0) {
+    if (tints) canvas.drawPath(path, ui.Paint()..color = color.withOpacity(0.18));
+    if (tints && op <= 0) {
       // hatched: diagonal lines clipped to it.
       canvas.save();
       canvas.clipPath(path);
@@ -939,7 +1004,7 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
           ..strokeWidth = 1.5 * inv);
     return;
   }
-  if (cropEditing) {
+  if (cropEditing || pieceInsets != null) {
     _paintCrop(canvas, project, layer, globalFrame, activeDrag, inv);
     return;
   }
@@ -991,6 +1056,19 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
       final active = activeDrag?.family == 'origami' && activeDrag?.activeKey == '${f.inst.id}:${f.key}';
       canvas.drawCircle(ui.Offset(f.mid[0], f.mid[1]), 6 * inv, ui.Paint()..color = const ui.Color(0xFFFFD54F));
       if (!active) canvas.drawCircle(ui.Offset(f.mid[0], f.mid[1]), 3.5 * inv, ui.Paint()..color = const ui.Color(0xFF000000));
+    }
+    // at one end of the first fold: a turn handle (the folds' direction).
+    for (final h in origamiDirectionHandlesFrame(project, layer, globalFrame)) {
+      final active = activeDrag?.family == 'origami' && activeDrag?.activeKey == '${h.inst.id}:direction';
+      final c = ui.Offset(h.p[0], h.p[1]);
+      canvas.drawCircle(c, 6.5 * inv, ui.Paint()..color = const ui.Color(0xFFFFD54F));
+      canvas.drawCircle(
+          c,
+          4 * inv,
+          ui.Paint()
+            ..color = const ui.Color(0xFF000000)
+            ..style = active ? ui.PaintingStyle.fill : ui.PaintingStyle.stroke
+            ..strokeWidth = 1.5 * inv);
     }
   }
   // rounded corners: what the rounding cuts off (red) or fills in
@@ -1117,7 +1195,9 @@ void _paintLineHandles(ui.Canvas canvas, Project project, Layer layer, int globa
 
 void _paintCrop(ui.Canvas canvas, Project project, Layer layer,
     int globalFrame, ActiveDragInfo? activeDrag, double inv) {
-  final h = getCropHandles(project, layer, globalFrame);
+  // the piece rect (Detach a piece) when that tool is on, else the crop.
+  final piece = !cropEditing && pieceInsets != null;
+  final h = getCropHandles(project, layer, globalFrame, insets: piece ? pieceInsets : null);
   ui.Path outline(BoundingBox b) {
     final pts = [
       [b.minX, b.minY],

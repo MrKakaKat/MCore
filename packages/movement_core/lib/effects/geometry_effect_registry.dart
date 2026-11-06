@@ -21,6 +21,7 @@ import '../core/state_cache.dart' show getLayerStateAt;
 import '../geometry/shapes.dart' show buildGrid, shapeBoundingBox;
 import '../model/project.dart';
 import 'builtins/bend_arc.dart' show applyBendGroup, bendPhysicsAngle, bendV2Keys, isBendV2;
+import 'builtins/origami_fold.dart' show origamiScale, origamiGridScaled, origamiHintsScaled;
 
 typedef GridPoint = List<double>;
 typedef Grid = List<List<GridPoint>>;
@@ -170,7 +171,10 @@ Grid applyEffectStack(Layer layer, Grid grid, int globalFrame, {Project? project
       g = applyBendGroup(g, rest, group, shapeBoundingBox(layer.content));
       continue;
     }
-    g = effectRegistry[inst.effectId]!.apply(g, resolveEffectParams(inst, localFrame), localFrame);
+    final fs = inst.effectId == 'origami_fold' ? origamiScale(layer, localFrame) : null;
+    g = fs != null
+        ? origamiGridScaled(g, resolveEffectParams(inst, localFrame), localFrame, fs)
+        : effectRegistry[inst.effectId]!.apply(g, resolveEffectParams(inst, localFrame), localFrame);
     i++;
   }
   return g;
@@ -196,7 +200,8 @@ Grid buildEffectGrid(Layer layer, Content content, int globalFrame, {Project? pr
     final def = effectRegistry[inst.effectId];
     if (def == null) continue;
     final params = isBendV2(inst) ? _resolveBend(project, layer, inst, localFrame) : resolveEffectParams(inst, localFrame);
-    final h = def.gridHints?.call(params, uniform) ?? const <GridHint>[];
+    final fs = inst.effectId == 'origami_fold' ? origamiScale(layer, localFrame) : null;
+    final h = fs != null ? origamiHintsScaled(params, uniform, fs) : def.gridHints?.call(params, uniform) ?? const <GridHint>[];
     if (h.isEmpty) {
       others = true;
     } else {

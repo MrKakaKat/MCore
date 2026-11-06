@@ -562,9 +562,9 @@ class EffectsView extends StatelessWidget {
   /// slider over the range.
   ParamScale _scaleFor(EffectInstance inst, String key) {
     // Origami's added folds.
-    if (inst.effectId == 'origami_fold' && RegExp(r'^(fold\d+_angle|angle\d)$').hasMatch(key)) return ParamScale.degrees;
-    if (inst.effectId == 'origami_fold' && RegExp(r'^(fold\d+_position|position\d)$').hasMatch(key)) {
-      return const ParamScale.slider(0, 1, decimals: 3);
+    if (inst.effectId == 'origami_fold') {
+      if (RegExp(r'^(angle|fold\d+_angle|angle\d)$').hasMatch(key)) return ParamScale.degreesWith(origamiAngleStops);
+      if (RegExp(r'^(position|fold\d+_position|position\d)$').hasMatch(key)) return ParamScale.quarters;
     }
     final defs = effectRegistry[inst.effectId]?.params ?? const <ParamDef>[];
     final def = defs.where((d) => d.key == key).firstOrNull;

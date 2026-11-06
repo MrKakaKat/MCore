@@ -194,7 +194,7 @@ void main() {
     expect(find.descendant(of: card, matching: find.text('Appears')), findsOneWidget);
     expect(find.descendant(of: card, matching: find.text('Disappear')), findsOneWidget);
     final c = s.t.maskRegions!.commands.single;
-    expect(c.timed, isTrue, reason: 'gradually by default');
+    expect(c.timed, isFalse, reason: 'at once by default');
     // it works: when the overlap appears, it fades out.
     final bake = regionEpisodes(app.project, s.t);
     final e = bake.episodes.firstWhere((x) => x.sig == 3).start;

@@ -51,3 +51,13 @@ List<double> invertAffine(List<double> m) {
 List<double> applyAffine(List<double> m, List<double> p) {
   return [m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5]];
 }
+
+/// `v` stuck to the nearest of `stops` within `tolerance` (unchanged when
+/// none is that close).
+double snapToStops(double v, List<double> stops, double tolerance) {
+  double? best;
+  for (final st in stops) {
+    if ((v - st).abs() <= tolerance && (best == null || (v - st).abs() < (v - best).abs())) best = st;
+  }
+  return best ?? v;
+}

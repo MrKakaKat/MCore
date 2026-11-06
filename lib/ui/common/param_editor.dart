@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart' show DragStartBehavior;
 import 'package:flutter/material.dart';
+import 'package:movement_core/movement_core.dart' show snapToStops;
 
 import 'reset_button.dart';
 
@@ -27,10 +28,18 @@ class ParamScale {
   final double majorTick;
   final String suffix;
 
+  /// Built-in stops: the value sticks to them while dragged (the user can
+  /// replace them with their own).
+  final List<double> stops;
+
+  /// Degrees (stops compare round the circle; the stage zoom leaves it).
+  final bool isAngle;
+
   const ParamScale.slider(this.min, this.max,
-      {this.decimals = 2, this.integer = false, int? labelDecimals, this.suffix = ''})
+      {this.decimals = 2, this.integer = false, int? labelDecimals, this.suffix = '', this.stops = const []})
       : labelDecimals = labelDecimals ?? (integer ? 0 : decimals),
         isRuler = false,
+        isAngle = false,
         unitsPerPixel = 0,
         minorTick = 0,
         majorTick = 0;
@@ -44,14 +53,31 @@ class ParamScale {
     this.decimals = 2,
     int? labelDecimals,
     this.suffix = '',
+    this.stops = const [],
+    this.isAngle = false,
   })  : labelDecimals = labelDecimals ?? decimals,
         isRuler = true,
         integer = false;
 
   /// Degrees: 0.5 deg per pixel, a tick every 15 deg, labels every 90.
   static const degrees = ParamScale.ruler(
-      unitsPerPixel: 0.5, minorTick: 15, majorTick: 90, decimals: 1, labelDecimals: 0, suffix: '°');
+      unitsPerPixel: 0.5,
+      minorTick: 15,
+      majorTick: 90,
+      decimals: 1,
+      labelDecimals: 0,
+      suffix: '°',
+      stops: [0.0, 45.0, 90.0],
+      isAngle: true);
+
+  /// Degrees with these stops instead.
+  static ParamScale degreesWith(List<double> stops) => ParamScale.ruler(
+      unitsPerPixel: 0.5, minorTick: 15, majorTick: 90, decimals: 1, labelDecimals: 0, suffix: '°', stops: stops, isAngle: true);
+
+  /// 0..1 with stops at the quarters and the middle.
+  static const quarters = ParamScale.slider(0, 1, decimals: 3, stops: [0.25, 0.5, 0.75]);
 }
+
 
 /// A parameter row a header line with the name (its current value), the
 /// caller's icons (ease / reset / key), the switch between sliders and number
@@ -125,7 +151,7 @@ class ParamEditor extends StatefulWidget {
   /// A ruler's stations: the user's list, or (never edited) the built-in
   /// ones for angles - those can be removed too.
   static List<double> stationsFor(String prefKey, ParamScale s) =>
-      stations[prefKey] ?? (identical(s, ParamScale.degrees) ? angleStations : const <double>[]);
+      stations[prefKey] ?? s.stops;
 
   /// The copied values (Copy under the number fields); Paste is there
   /// while it holds some.
@@ -346,7 +372,7 @@ class _ParamEditorState extends State<ParamEditor> {
         header,
         Padding(padding: const EdgeInsets.fromLTRB(4, 0, 4, 6), child: body),
         // the user's own stations, right under the ruler.
-        if (!_fields && widget.scale.isRuler && widget.values.length == 1) _stationRow(context),
+        if (!_fields && widget.values.length == 1) _stationRow(context),
       ],
     );
   }
@@ -484,14 +510,15 @@ class _ParamEditorState extends State<ParamEditor> {
         stations: [
           if (widget.values.length == 1)
             ...ParamEditor.stationsFor(widget.prefKey, s)
-          else if (identical(s, ParamScale.degrees))
-            ...ParamEditor.angleStations,
+          else if (s.isAngle)
+            ...s.stops,
         ],
       );
     }
     // same size as a ruler: the value on top, the track across the whole
     // width below it.
     final accent = Theme.of(context).colorScheme.primary;
+    final stops = widget.values.length == 1 ? ParamEditor.stationsFor(widget.prefKey, s) : s.stops;
     return SizedBox(
       height: controlHeight,
       child: Column(children: [
@@ -508,19 +535,57 @@ class _ParamEditorState extends State<ParamEditor> {
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),
-            child: Slider(
-              value: v.clamp(s.min, s.max).toDouble(),
-              min: s.min,
-              max: s.max,
-              divisions: s.integer ? (s.max - s.min).round() : null,
-              onChangeStart: (_) => widget.onEditStart(),
-              onChanged: (nv) => widget.onChanged(_with(i, s.integer ? nv.roundToDouble() : nv)),
-            ),
+            child: Stack(alignment: Alignment.center, children: [
+              // the stops: small marks under the track.
+              if (stops.isNotEmpty)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(painter: _SliderStopsPainter(stops, s.min, s.max, accent)),
+                  ),
+                ),
+              Slider(
+                value: v.clamp(s.min, s.max).toDouble(),
+                min: s.min,
+                max: s.max,
+                divisions: s.integer ? (s.max - s.min).round() : null,
+                onChangeStart: (_) => widget.onEditStart(),
+                onChanged: (nv) {
+                  var x = snapToStops(nv, stops, (s.max - s.min) * 0.025);
+                  if (s.integer) x = x.roundToDouble();
+                  widget.onChanged(_with(i, x));
+                },
+              ),
+            ]),
           ),
         ),
       ]),
     );
   }
+}
+
+/// A slider's stops: a short mark under the track at each.
+class _SliderStopsPainter extends CustomPainter {
+  final List<double> stops;
+  final double min, max;
+  final Color color;
+  _SliderStopsPainter(this.stops, this.min, this.max, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (max <= min) return;
+    const inset = 8.0;
+    final paint = Paint()
+      ..color = color.withAlpha(153)
+      ..strokeWidth = 1.5;
+    for (final st in stops) {
+      if (st < min || st > max) continue;
+      final x = inset + (size.width - 2 * inset) * (st - min) / (max - min);
+      canvas.drawLine(Offset(x, size.height / 2 + 5), Offset(x, size.height / 2 + 9), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SliderStopsPainter old) => old.stops != stops || old.min != min || old.max != max;
 }
 
 /// A slider track that spans the whole control (minus the thumb radius at
@@ -551,9 +616,13 @@ double rulerLengthScale = 1;
 /// go finer by as much (angles excepted), so moving things stays easy.
 double stageRulerZoom = 1;
 
+/// The stage zoom the rulers last drew with: they redraw as it changes
+/// (set after the stage's frame, never while it paints).
+final ValueNotifier<double> stageRulerZoomNotifier = ValueNotifier(1);
+
 /// Value units per ruler pixel now.
 double rulerUnitsPerPixel(ParamScale s) =>
-    s.unitsPerPixel * rulerLengthScale / (identical(s, ParamScale.degrees) ? 1 : math.max(1.0, stageRulerZoom));
+    s.unitsPerPixel * rulerLengthScale / (s.isAngle ? 1 : math.max(1.0, stageRulerZoom));
 
 /// A tape ruler under a fixed centre marker: drag it sideways to change
 /// the value, as far as you like in either direction (angles past 360,
@@ -606,7 +675,7 @@ class _EndlessRulerState extends State<EndlessRuler> {
         var v = (start - _dx * rulerUnitsPerPixel(s)).clamp(s.min, s.max).toDouble();
         // a station within 6 px pulls the value onto it.
         final reach = 6 * rulerUnitsPerPixel(s);
-        final round = identical(s, ParamScale.degrees);
+        final round = s.isAngle;
         for (final st in widget.stations) {
           final diff = round ? ((v - st) % 360 + 540) % 360 - 180 : v - st;
           if (diff.abs() <= reach) {
@@ -622,7 +691,12 @@ class _EndlessRulerState extends State<EndlessRuler> {
         height: 34,
         child: CustomPaint(
           painter: _RulerPainter(
-              value: widget.value, scale: widget.scale, color: color, accent: accent, stations: widget.stations),
+              value: widget.value,
+              scale: widget.scale,
+              color: color,
+              accent: accent,
+              stations: widget.stations,
+              zoom: stageRulerZoomNotifier),
           size: Size.infinite,
         ),
       ),
@@ -636,8 +710,15 @@ class _RulerPainter extends CustomPainter {
   final Color color;
   final Color accent;
   final List<double> stations;
+  final ValueNotifier<double>? zoom;
   _RulerPainter(
-      {required this.value, required this.scale, required this.color, required this.accent, this.stations = const []});
+      {required this.value,
+      required this.scale,
+      required this.color,
+      required this.accent,
+      this.stations = const [],
+      this.zoom})
+      : super(repaint: zoom);
 
   // the current value in full: 1 shows as 1.000.
   String _fmtLabel(double v) => v.toStringAsFixed(math.max(3, scale.labelDecimals));
@@ -660,6 +741,14 @@ class _RulerPainter extends CustomPainter {
       minor *= 2;
       major *= 2;
     }
+    // zoomed in, finer ticks come in (down to a thousandth of the usual).
+    while (!scale.isAngle && stageRulerZoom > 1 && minor / upp >= 8 && minor > scale.minorTick / 1000) {
+      minor /= 2;
+      major /= 2;
+    }
+    // the ticks that go at the next thinning fade out on the way there
+    // (no jump while the stage zooms).
+    final fade = ((minor / upp - 4) / 4).clamp(0.0, 1.0);
     final tickPaint = Paint()
       ..color = color.withOpacity(0.45)
       ..strokeWidth = 1;
@@ -673,6 +762,13 @@ class _RulerPainter extends CustomPainter {
       if (t < scale.min || t > scale.max) continue;
       final x = cx + (t - value) / upp;
       final isMajor = ((t / major) - (t / major).roundToDouble()).abs() < 1e-6;
+      if (!isMajor && i.isOdd && fade < 1) {
+        if (fade <= 0) continue;
+        canvas.drawLine(Offset(x, base), Offset(x, base - 5), Paint()
+          ..color = color.withOpacity(0.45 * fade)
+          ..strokeWidth = 1);
+        continue;
+      }
       canvas.drawLine(Offset(x, base), Offset(x, base - (isMajor ? 10 : 5)), isMajor ? majorPaint : tickPaint);
       if (isMajor) {
         final tp = TextPainter(
@@ -685,7 +781,7 @@ class _RulerPainter extends CustomPainter {
     }
     // the snap stations: small marks (round the circle for degrees).
     final stationPaint = Paint()..color = accent.withOpacity(0.7);
-    final round = identical(scale, ParamScale.degrees);
+    final round = scale.isAngle;
     for (final st in stations) {
       for (var k = round ? ((value - halfUnits - st) / 360).floor() : 0;
           k <= (round ? ((value + halfUnits - st) / 360).ceil() : 0);

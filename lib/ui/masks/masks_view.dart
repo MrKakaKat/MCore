@@ -593,7 +593,7 @@ class MasksView extends StatelessWidget {
                     ),
                   if (mr.numbered) pieceField('rc-target-n-$i', c.targetSig, c.targetNumber, (v) => c.targetNumber = v),
                 ]),
-                // how: gradually (on by default) or at once.
+                // how: at once (the default) or gradually.
                 const Divider(height: 20),
                 Row(children: [
                   const Expanded(child: Text('Gradually', style: label)),

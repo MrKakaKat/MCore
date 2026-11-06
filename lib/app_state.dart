@@ -1200,6 +1200,15 @@ class AppState extends ChangeNotifier {
     final m = getTransformBoxHandles(project, l, currentFrame).mCanvas;
     final local = applyAffine(invertAffine(m), fp);
     pushUndo();
+    // on the line itself: a point goes in there.
+    final k = math.sqrt((m[0] * m[3] - m[1] * m[2]).abs());
+    final inside = insertLinePointOn(c, local, k <= 1e-9 ? 12 : 14 / k);
+    if (inside != null) {
+      lineSelectedPoint = inside;
+      centerLinePivot(project, l, currentFrame);
+      commitEdit();
+      return;
+    }
     final sel = lineSelectedPoint.clamp(0, c.lineNodes!.length - 1);
     final i = addLinePointAt(c, sel, local);
     if (i != null) {
@@ -1228,6 +1237,60 @@ class AppState extends ChangeNotifier {
     lineSelectedPoint = 1;
     centerLinePivot(project, branch, currentFrame);
     commitEdit();
+  }
+
+  /// Line tab: the line splits in two at the selected point (a loop opens
+  /// there); the second half becomes its own line, right above.
+  void splitSelectedLine() {
+    final l = findLayer(project, selection.selectedLayer);
+    if (l == null || !isNodeLine(l.content)) return;
+    final sel = lineSelectedPoint.clamp(0, l.content.lineNodes!.length - 1);
+    pushUndo();
+    final rest = splitLineAt(l.content, sel);
+    if (rest == null) {
+      undo.discardLastUndoState();
+      return;
+    }
+    if (rest.isNotEmpty) {
+      final part = cloneLayer(l);
+      layerCounter++;
+      part
+        ..id = 'L_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}$layerCounter'
+        ..rowId = null;
+      part.content
+        ..lineNodes = rest
+        ..lineClosed = false
+        ..lineFilled = false;
+      syncLineBox(part.content);
+      project.layers.insert(project.layers.indexOf(l) + 1, part);
+      ensureUniqueLayerNames(project);
+      normalizeTimelineRows(project);
+      centerLinePivot(project, part, currentFrame);
+    }
+    centerLinePivot(project, l, currentFrame);
+    commitEdit();
+  }
+
+  /// The other lines with a point where line `layer`'s point `i` is now
+  /// (a shared station): their names.
+  List<String> linesSharingPoint(Layer layer, int i) {
+    final nodes = layer.content.lineNodes;
+    if (nodes == null || i >= nodes.length) return const [];
+    final m = getTransformBoxHandles(project, layer, currentFrame).mCanvas;
+    final p = applyAffine(m, [nodes[i].x, nodes[i].y]);
+    final out = <String>[];
+    for (final o in project.layers) {
+      if (o.id == layer.id || !isNodeLine(o.content)) continue;
+      final om = getTransformBoxHandles(project, o, currentFrame).mCanvas;
+      for (final n in o.content.lineNodes!) {
+        final q = applyAffine(om, [n.x, n.y]);
+        if ((q[0] - p[0]).abs() < 0.75 && (q[1] - p[1]).abs() < 0.75) {
+          out.add(o.name);
+          break;
+        }
+      }
+    }
+    return out;
   }
 
   /// A line's points were dragged: its pivot goes back to their middle.
@@ -1676,6 +1739,7 @@ class AppState extends ChangeNotifier {
     // kfSelectedFrames: clearing it on selection change is the UI
     // layer's job, not keyframe_strip.dart's).
     cropEditing = false; // crop handles belong to the layer they were opened on
+    pieceInsets = null;
     selectedTextPart = null; // so does an open text part
     pieceRectTool = false;
     chromaTool = 'none'; // so do the chroma tools
@@ -2154,8 +2218,40 @@ class AppState extends ChangeNotifier {
   /// Crop tab: the stage rectangle tool for detaching a piece.
   void togglePieceRectTool() {
     pieceRectTool = !pieceRectTool;
-    if (pieceRectTool) cropEditing = false;
+    if (pieceRectTool) {
+      cropEditing = false;
+      pieceInsets = null;
+    }
     notifyListeners();
+  }
+
+  /// Crop tab, Detach a piece: the part set like a crop (four sides and
+  /// handles on the stage), then detached with a button.
+  void togglePieceCropTool() {
+    pieceInsets = pieceInsets == null ? [0.25, 0.25, 0.25, 0.25] : null;
+    if (pieceInsets != null) {
+      cropEditing = false;
+      pieceRectTool = false;
+    }
+    notifyListeners();
+  }
+
+  /// One side of the piece rect (0..0.95), kept from crossing the other.
+  void setPieceInset(int i, double v) {
+    final p = pieceInsets;
+    if (p == null) return;
+    final other = p[i < 2 ? i + 2 : i - 2];
+    p[i] = v.clamp(0.0, math.max(0.0, 0.95 - other)).toDouble();
+    notifyListeners();
+  }
+
+  /// Detaches the piece rect; the tool closes.
+  Layer? detachPieceInsets(String layerId) {
+    if (pieceInsets == null) return null;
+    final piece = _detach(layerId, (l) => pieceRectRing(l));
+    pieceInsets = null;
+    notifyListeners();
+    return piece;
   }
 
   /// Detaches `region` (content-local) of a layer into a new layer above
@@ -2254,7 +2350,10 @@ class AppState extends ChangeNotifier {
     final layer = _selected;
     if (layer == null) return;
     pushUndo();
-    if (horizontal) {
+    if (isNodeLine(layer.content)) {
+      // a line flips its own points (its handles on the stage with them).
+      flipLineNodes(layer.content, horizontal: horizontal);
+    } else if (horizontal) {
       layer.mirrorX = !layer.mirrorX;
     } else {
       layer.mirrorY = !layer.mirrorY;
@@ -3598,6 +3697,7 @@ class AppState extends ChangeNotifier {
         normalizeTimelineRows(project);
         dissolveLonelyTimeLinks(project); // files saved with a lone link
         applyProjectUiState(data.ui);
+        _savedContent = _contentSignature();
         currentFrame = currentFrame.clamp(0, maxFrame);
         _render();
         notifyListeners();
@@ -3620,6 +3720,26 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  /// What the project is, without the view (selection, toggles): a save
+  /// that changes none of it keeps the file's date, so opening a project
+  /// doesn't move it up the list.
+  String? _savedContent;
+
+  String _contentSignature() => jsonEncode([
+        projectLayersToJson(project),
+        project.stageWalls,
+        maxFrame,
+        playbackSpeed,
+        projectName,
+        frameWidth,
+        frameHeight,
+        background?.value,
+        _explicitTimelineLength,
+        stageMirrorX,
+        stageMirrorY,
+        fps,
+      ]);
+
   Future<void> _writeAutosave() async {
     final file = _autosaveFile;
     if (file == null) return;
@@ -3628,7 +3748,26 @@ class AppState extends ChangeNotifier {
       final src = l.content.shape == 'projectRef' ? refSourceOf(l.content, refSources) : null;
       if (src != null && l.content.refEmbedded == null) l.content.refLastSeenRevision = src.revision;
     }
-    projectRevision++;
+    final content = _contentSignature();
+    final same = content == _savedContent;
+    DateTime? keepDate;
+    if (same) {
+      try {
+        if (await file.exists()) keepDate = await file.lastModified();
+      } catch (_) {}
+    } else {
+      projectRevision++;
+    }
+    _savedContent = content;
+    await _saveFile(file);
+    if (keepDate != null) {
+      try {
+        await file.setLastModified(keepDate);
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _saveFile(File file) async {
     await saveProjectToFile(file, project,
         projectId: projectId,
         revision: projectRevision,
@@ -3689,6 +3828,7 @@ class AppState extends ChangeNotifier {
     'snapLineAngle': (() => snapLineAngleEnabled, (v) => snapLineAngleEnabled = v as bool, true),
     'snapLineLength': (() => snapLineLengthEnabled, (v) => snapLineLengthEnabled = v as bool, true),
     'snapLinePoints': (() => snapLinePointsEnabled, (v) => snapLinePointsEnabled = v as bool, true),
+    'scaleKeepsOppositeEdge': (() => scaleKeepsOppositeEdge, (v) => scaleKeepsOppositeEdge = v as bool, false),
     'lineHandlesMirrored': (() => lineHandlesMirrored, (v) => lineHandlesMirrored = v as bool, true),
     'placeOnStage': (() => placeOnStage, (v) => placeOnStage = v as bool, false),
     'resizeEvenly': (() => resizeEvenly, (v) => resizeEvenly = v as bool, true),
@@ -3821,12 +3961,14 @@ class AppState extends ChangeNotifier {
   bool timelineFrameCounts = false;
 
   /// Flips one of the Settings tab's app preferences above.
+  /// Sets one of the remembered toggles / values, wherever it is kept
+  /// (per app or per project).
   void setAppPreference(String name, Object value) {
-    _appUi[name]!.$2(value);
+    (_appUi[name] ?? _projectUi[name]!).$2(value);
     notifyListeners();
   }
 
-  bool appPreference(String name) => _appUi[name]!.$1() as bool;
+  bool appPreference(String name) => (_appUi[name] ?? _projectUi[name]!).$1() as bool;
 
   /// Snapping tab: "Enable all" - snapping and every category and sub-
   /// option on.

@@ -632,7 +632,7 @@ SnapGuideLine _axisGuide(SnapCategory category, bool isX, double snappedValue,
 /// expressed via two throwaway point conversions rather than a
 /// separately-derived linear-part-only matrix multiply, so it's
 /// obviously correct by inspection.
-List<double> _frameDeltaToLocal(Project project, Layer layer, int globalFrame,
+List<double> frameDeltaToLocal(Project project, Layer layer, int globalFrame,
     List<double> from, List<double> delta) {
   final parentMatrix = layer.parentId != null
       ? parentMatrixFor(project, layer, globalFrame)
@@ -749,7 +749,7 @@ AnchorSnapResult computeAnchorSnap({
     return AnchorSnapResult(newLocal: newLocal, guides: const []);
   }
 
-  final localDelta = _frameDeltaToLocal(
+  final localDelta = frameDeltaToLocal(
       project, layer, globalFrame, own.center, [deltaX, deltaY]);
   return AnchorSnapResult(
       newLocal: [newLocal[0] + localDelta[0], newLocal[1] + localDelta[1]],

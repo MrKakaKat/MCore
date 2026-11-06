@@ -156,7 +156,7 @@ void main() {
   test('command: when A·B appears, a region fades to 0 over 10 frames', () {
     final s = scene([(0, 380, 500), (60, 620, 500)]);
     s.t.maskRegions!.opacity[1] = track(1.0);
-    s.t.maskRegions!.commands.add(RegionCommand(when: 'appears', whenSig: 3, targetSig: 1, opacity: 0, frames: 10, ease: 'linear'));
+    s.t.maskRegions!.commands.add(RegionCommand(when: 'appears', whenSig: 3, targetSig: 1, opacity: 0, frames: 10, ease: 'linear', timed: true));
     final bake = regionEpisodes(s.p, s.t);
     final e = overlaps(bake).single.start;
     expect(regionOpacityAt(s.p, s.t, bake, 1, null, e - 1), 1.0);

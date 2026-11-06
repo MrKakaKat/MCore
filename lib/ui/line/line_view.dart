@@ -82,6 +82,13 @@ class _LineViewState extends State<LineView> {
             tooltip: 'add a point after the selected one',
             onPressed: () => app.editLine(id, (c) => lineSelectedPoint = addPointAfter(c, sel)),
           ),
+          // the line splits in two at the selected point (a loop opens).
+          IconButton(
+            key: const ValueKey('line-split'),
+            icon: const Icon(Icons.content_cut, size: 20),
+            tooltip: 'split the line at the selected point',
+            onPressed: c.lineClosed || (sel > 0 && sel < n - 1) ? app.splitSelectedLine : null,
+          ),
           IconButton(
             key: const ValueKey('line-point-remove'),
             icon: const Icon(Icons.remove_circle_outline, size: 20),
@@ -117,12 +124,20 @@ class _LineViewState extends State<LineView> {
         ]),
         Wrap(spacing: 6, runSpacing: 6, children: [
           for (var i = 0; i < n; i++)
-            ChoiceChip(
-              key: ValueKey('line-point-$i'),
-              label: Text('${i + 1}'),
-              selected: i == sel,
-              onSelected: (_) => app.selectLinePoint(i),
-            ),
+            () {
+              // a station another line starts from (or passes): its name.
+              final shared = app.linesSharingPoint(layer, i);
+              return Tooltip(
+                message: shared.isEmpty ? 'point ${i + 1}' : 'point ${i + 1} - also on ${shared.join(', ')}',
+                child: ChoiceChip(
+                  key: ValueKey('line-point-$i'),
+                  avatar: shared.isEmpty ? null : const Icon(Icons.call_split, size: 14),
+                  label: Text(shared.isEmpty ? '${i + 1}' : '${i + 1} · ${shared.join(', ')}'),
+                  selected: i == sel,
+                  onSelected: (_) => app.selectLinePoint(i),
+                ),
+              );
+            }(),
         ]),
         if (app.lineTapAdd)
           hint(sel == 0 || sel == n - 1
@@ -130,7 +145,11 @@ class _LineViewState extends State<LineView> {
                   : 'Tap the stage: a new line starts from point ${sel + 1}.') ??
               const SizedBox.shrink(),
         const SizedBox(height: 8),
+        // the station's own place (keys), then its curve and - for a
+        // bezier - its handles' places (keys).
+        _pointAnchor(c, id, sel, nodes[sel], local.round()),
         ..._curveType(c, id, sel, nodes, before, after, local),
+        if (linePointKind(c, sel) == 'bezier') _handleAnchors(c, id, sel, nodes[sel], local.round()),
         ..._pointExtras(c, id, sel, nodes[sel], before != null && after != null),
         const Divider(height: 20),
         ..._endsAndJoins(c, id),
@@ -204,6 +223,60 @@ class _LineViewState extends State<LineView> {
         hint('Draws the line along its length: animate where it starts and ends (0-1).') ?? const SizedBox.shrink(),
         _trackRow('line.start', 'start', c.lineTrimStart ??= track(0.0), local, 0.0),
         _trackRow('line.end', 'end', c.lineTrimEnd ??= track(1.0), local, 1.0),
+      ],
+    );
+  }
+
+  /// A row for a point / handle place: x and y, with a key toggle.
+  Widget _xyRow(String key, String label, List<double> v, bool keyed, void Function(List<double> v) set, VoidCallback toggleKey) =>
+      ParamEditor(
+        key: ValueKey(key),
+        prefKey: key,
+        label: label,
+        values: v,
+        componentLabels: const ['x', 'y'],
+        scale: const ParamScale.ruler(unitsPerPixel: 0.25, minorTick: 5, majorTick: 25, decimals: 1),
+        onEditStart: app.pushUndo,
+        onChanged: set,
+        onCommit: set,
+        trailing: [
+          IconButton(
+            key: ValueKey('$key-key'),
+            icon: Icon(keyed ? Icons.diamond : Icons.diamond_outlined, size: 16),
+            tooltip: 'toggle keyframe at current frame',
+            visualDensity: VisualDensity.compact,
+            onPressed: toggleKey,
+          ),
+        ],
+      );
+
+  /// Folded: the selected station's place (x / y, with keys).
+  Widget _pointAnchor(Content c, String id, int sel, LineNode node, int f) => ExpansionTile(
+        key: const ValueKey('line-point-anchor'),
+        tilePadding: EdgeInsets.zero,
+        dense: true,
+        title: Text('Point ${sel + 1} anchor', style: const TextStyle(fontSize: 13)),
+        children: [
+          _xyRow('line-point-pos', 'position', [node.x, node.y], node.posT?.keyframes.any((k) => k.frame == f) ?? false,
+              (v) => app.editLineLive(id, (c) => setLinePointPos(c, sel, v, f)),
+              () => app.editLine(id, (c) => toggleLinePointKey(c, sel, f))),
+        ],
+      );
+
+  /// Folded, under the curve type: the bezier handles' places (relative to
+  /// the point, with keys).
+  Widget _handleAnchors(Content c, String id, int sel, LineNode node, int f) {
+    bool keyed(String name) => node.keys[name]?.keyframes.any((k) => k.frame == f) ?? false;
+    return ExpansionTile(
+      key: const ValueKey('line-handle-anchors'),
+      tilePadding: EdgeInsets.zero,
+      dense: true,
+      title: const Text('Handle anchors', style: TextStyle(fontSize: 13)),
+      children: [
+        for (final (name, label) in const [('hIn', 'handle in'), ('hOut', 'handle out')])
+          _xyRow('line-handle-$name', label, name == 'hIn' ? node.hIn : node.hOut, keyed(name),
+              (v) => app.editLineLive(id, (c) => setLineHandle(c, sel, name, v, f)),
+              () => app.editLine(id, (c) => toggleLineHandleKey(c, sel, name, f))),
       ],
     );
   }

@@ -155,7 +155,7 @@ class StageGestureController {
     }
     // handles hidden: only the open tab's own tools (crop, gradient points)
     // can still be grabbed.
-    if (layer != null && hideHandles && !app.cameraView && (cropEditing || glowHandlesVisible)) {
+    if (layer != null && hideHandles && !app.cameraView && (cropEditing || pieceInsets != null || glowHandlesVisible)) {
       final fp = camera.screenToFrame(screenPos);
       final captured = _magnetCapture(layer, [fp.dx, fp.dy], tabToolsOnly: true);
       if (captured != null) {
@@ -190,8 +190,9 @@ class StageGestureController {
 
     // crop editing (Crop tab): the crop handles are the only handles -
     // they sit on the same box midpoints/corners the transform box uses.
-    if (cropEditing) {
-      final h = getCropHandles(project, layer, globalFrame);
+    if (cropEditing || pieceInsets != null) {
+      final piece = !cropEditing;
+      final h = getCropHandles(project, layer, globalFrame, insets: piece ? pieceInsets : null);
       String? bestCrop;
       var bestCropDist = handleRadius;
       for (final e in h.screen.entries) {
@@ -203,7 +204,7 @@ class StageGestureController {
       }
       return bestCrop == null
           ? null
-          : ActiveDragInfo(family: 'crop', activeKey: bestCrop, op: CropDragOp(layer: layer, handle: bestCrop));
+          : ActiveDragInfo(family: 'crop', activeKey: bestCrop, op: CropDragOp(layer: layer, handle: bestCrop, piece: piece));
     }
 
     // tier 1: corner-pin / mesh-warp / pendulum-pivot, closest wins.
@@ -300,6 +301,13 @@ class StageGestureController {
         if (d < bestDist) {
           bestDist = d;
           best = ActiveDragInfo(family: 'origami', activeKey: '${f.inst.id}:${f.key}', op: OrigamiFoldDragOp(layer, f.inst, f.key));
+        }
+      }
+      for (final h in origamiDirectionHandlesFrame(project, layer, globalFrame)) {
+        final d = _dist(fp, h.p);
+        if (d < bestDist) {
+          bestDist = d;
+          best = ActiveDragInfo(family: 'origami', activeKey: '${h.inst.id}:direction', op: OrigamiDirectionDragOp(layer, h.inst));
         }
       }
     }
@@ -611,6 +619,7 @@ class StageGestureController {
 
   ui.Offset? _lastRegionTap;
   int _regionCycle = 0;
+  String? _regionPrefer;
 
   /// With the regions shown (Masks tab): a tap picks the top region under
   /// the finger (of every layer with regions, top layer first); another
@@ -654,6 +663,16 @@ class StageGestureController {
     if (stack.isEmpty) return false;
     final last = _lastRegionTap;
     final again = last != null && (screenPos - last).distance < 16;
+    // the selected layer's own regions first: a tap picks in its own list
+    // (tapping again on the spot goes on to the other layers' - in the
+    // order of the first tap there).
+    if (!again) _regionPrefer = app.selection.selectedLayer;
+    final own = [for (final e in stack) if (e.$1.id == _regionPrefer) e];
+    final others = [for (final e in stack) if (e.$1.id != _regionPrefer) e];
+    stack
+      ..clear()
+      ..addAll(own)
+      ..addAll(others);
     _regionCycle = again ? (_regionCycle + 1) % stack.length : 0;
     _lastRegionTap = screenPos;
     final (layer, sig, number) = stack[_regionCycle];

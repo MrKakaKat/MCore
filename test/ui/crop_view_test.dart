@@ -32,6 +32,8 @@ void main() {
 
     await tester.scrollUntilVisible(find.widgetWithText(FilterChip, 'Horizontal'), 200,
         scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.widgetWithText(FilterChip, 'Horizontal'));
+    await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilterChip, 'Horizontal'));
     await tester.pump();
     expect(layer.mirrorX, isTrue);

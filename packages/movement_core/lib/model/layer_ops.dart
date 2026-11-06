@@ -90,6 +90,7 @@ void copyLayerParams(Layer source, Layer target) {
   target.cropAspect = source.cropAspect;
   target.mirrorX = source.mirrorX;
   target.mirrorY = source.mirrorY;
+  target.foldsIgnoreScale = source.foldsIgnoreScale;
 }
 
 // approximate x/y "how much bigger does this matrix make things" factors,

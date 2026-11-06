@@ -1,7 +1,8 @@
 import 'dart:math' as math;
 
 import '../geometry_effect_registry.dart';
-import '../../model/project.dart' show EffectInstance, Track, track;
+import '../../core/interpolation.dart' show evaluateTrack;
+import '../../model/project.dart' show EffectInstance, Layer, Track, track;
 import 'bend_arc.dart' show gridBox;
 
 /// "Origami": folds the object like paper, in 3D, along straight lines
@@ -92,40 +93,123 @@ void removeOrigamiFold(EffectInstance inst, int n) {
     ..remove('fold${n}_position');
 }
 
+/// The angles a fold sticks to (its control and nothing else).
+const origamiAngleStops = [0.0, 45.0, 90.0, 135.0, 180.0, -45.0, -90.0, -135.0, -180.0];
+
+/// The positions a fold line sticks to, in its control and on the stage.
+const origamiPositionStops = [0.25, 0.5, 0.75];
+
 /// Stage: the fold lines can be dragged (Origami card, next to position).
 bool origamiFoldsOnStage = true;
 
 /// Each fold line across the layer's box, content space: its position
-/// param, the line's two ends.
-List<({String key, List<double> a, List<double> b})> origamiFoldLines(Map<String, dynamic> params, Grid rest) {
-  final box = gridBox(rest);
+/// param, the line's two ends. `scale`: the layer's, when the folds keep
+/// their angles on screen (see [origamiScale]).
+List<({String key, List<double> a, List<double> b})> origamiFoldLines(Map<String, dynamic> params, Grid rest,
+    {List<double>? scale}) {
+  final sc = scale ?? const [1.0, 1.0];
+  final c0 = _centre(rest);
+  final g = scale == null ? rest : scaleGridAbout(rest, c0, sc);
+  final box = gridBox(g);
   final w = box.maxX - box.minX, h = box.maxY - box.minY;
   final ang = _num(params['direction'], 0) * math.pi / 180;
   final u = [math.cos(ang), math.sin(ang)], n = [-u[1], u[0]];
   final reach = (w / 2 * u[0]).abs() + (h / 2 * u[1]).abs();
   final across = (w / 2 * n[0]).abs() + (h / 2 * n[1]).abs();
   final c = [(box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2];
+  List<double> back(List<double> p) => [c0[0] + (p[0] - c0[0]) / sc[0], c0[1] + (p[1] - c0[1]) / sc[1]];
   return [
     for (final (_, pk, pd) in origamiFoldKeys(params))
       () {
         final s = -reach + 2 * reach * _num(params[pk], pd).clamp(0.0, 1.0);
         final m = [c[0] + u[0] * s, c[1] + u[1] * s];
-        return (key: pk, a: [m[0] - n[0] * across, m[1] - n[1] * across], b: [m[0] + n[0] * across, m[1] + n[1] * across]);
+        return (
+          key: pk,
+          a: back([m[0] - n[0] * across, m[1] - n[1] * across]),
+          b: back([m[0] + n[0] * across, m[1] + n[1] * across])
+        );
       }()
   ];
 }
 
 /// The position (0..1) a content-space point sets a fold line to.
-double origamiPositionAt(Map<String, dynamic> params, Grid rest, List<double> p) {
-  final box = gridBox(rest);
+double origamiPositionAt(Map<String, dynamic> params, Grid rest, List<double> p, {List<double>? scale}) {
+  final sc = scale ?? const [1.0, 1.0];
+  final c0 = _centre(rest);
+  final g = scale == null ? rest : scaleGridAbout(rest, c0, sc);
+  final box = gridBox(g);
   final w = box.maxX - box.minX, h = box.maxY - box.minY;
   final ang = _num(params['direction'], 0) * math.pi / 180;
   final u = [math.cos(ang), math.sin(ang)];
   final reach = (w / 2 * u[0]).abs() + (h / 2 * u[1]).abs();
   if (reach <= 1e-9) return 0.5;
   final c = [(box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2];
-  final s = (p[0] - c[0]) * u[0] + (p[1] - c[1]) * u[1];
+  final q = [c0[0] + (p[0] - c0[0]) * sc[0], c0[1] + (p[1] - c0[1]) * sc[1]];
+  final s = (q[0] - c[0]) * u[0] + (q[1] - c[1]) * u[1];
   return ((s + reach) / (2 * reach)).clamp(0.0, 1.0);
+}
+
+/// The fold direction (degrees) that points from the box's middle to a
+/// content-space point.
+double origamiDirectionAt(Grid rest, List<double> p, {List<double>? scale}) {
+  final sc = scale ?? const [1.0, 1.0];
+  final c0 = _centre(rest);
+  final d = math.atan2((p[1] - c0[1]) * sc[1], (p[0] - c0[0]) * sc[0]) * 180 / math.pi;
+  return (d + 360) % 360;
+}
+
+List<double> _centre(Grid g) {
+  final b = gridBox(g);
+  return [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2];
+}
+
+/// `g` stretched by `s` about `c`.
+Grid scaleGridAbout(Grid g, List<double> c, List<double> s) => [
+      for (final row in g) [for (final p in row) [c[0] + (p[0] - c[0]) * s[0], c[1] + (p[1] - c[1]) * s[1]]]
+    ];
+
+/// The layer's scale at `localFrame` when its folds keep their angles on
+/// screen and it is stretched unevenly; null otherwise (nothing to undo).
+List<double>? origamiScale(Layer layer, double localFrame) {
+  if (!layer.foldsIgnoreScale) return null;
+  final v = evaluateTrack(null, layer.transform.scale, localFrame);
+  if (v is! List || v.length < 2) return null;
+  final sx = (v[0] as num).toDouble().abs(), sy = (v[1] as num).toDouble().abs();
+  if (sx < 1e-6 || sy < 1e-6 || (sx - sy).abs() < 1e-9) return null;
+  return [sx, sy];
+}
+
+/// Origami in on-screen proportions: the grid stretched by `s`, folded,
+/// and stretched back - so a stretched layer folds at the angles shown.
+Grid origamiGridScaled(Grid grid, Map<String, dynamic> params, double localFrame, List<double> s) {
+  final c = _centre(grid);
+  final folded = origamiGrid(scaleGridAbout(grid, c, s), params, localFrame);
+  return scaleGridAbout(folded, c, [1 / s[0], 1 / s[1]]);
+}
+
+/// The grid hints of origami in on-screen proportions, turned back into
+/// the layer's own space.
+List<GridHint> origamiHintsScaled(Map<String, dynamic> params, Grid rest, List<double> s) {
+  final c = _centre(rest);
+  final hints = effectRegistry['origami_fold']!.gridHints!(params, scaleGridAbout(rest, c, s));
+  return [
+    for (final h in hints)
+      () {
+        final a = h.axisAngle * math.pi / 180;
+        final us = [math.cos(a), math.sin(a)];
+        // the fold line's way across, in the layer's own space.
+        final nc0 = [-us[1] / s[0], us[0] / s[1]];
+        final nl = math.sqrt(nc0[0] * nc0[0] + nc0[1] * nc0[1]);
+        var uc = [nc0[1] / nl, -nc0[0] / nl];
+        final ud = [us[0] / s[0], us[1] / s[1]];
+        var k = ud[0] * uc[0] + ud[1] * uc[1];
+        if (k < 0) {
+          uc = [-uc[0], -uc[1]];
+          k = -k;
+        }
+        return GridHint(axisAngle: math.atan2(uc[1], uc[0]) * 180 / math.pi, from: h.from * k, to: h.to * k, rows: h.rows);
+      }()
+  ];
 }
 
 class _Hinge {

@@ -66,7 +66,7 @@ class CropView extends StatelessWidget {
                     prefKey: 'crop.${_sides[i]}',
                     label: _sides[i],
                     values: [layer.crop[i] * 100],
-                    scale: const ParamScale.slider(0, 95, decimals: 0, suffix: '%'),
+                    scale: const ParamScale.slider(0, 95, decimals: 0, suffix: '%', stops: [25, 50, 75]),
                     onEditStart: app.pushUndo,
                     onChanged: (v) => app.setCropInsetLive(i, v.first / 100),
                     onCommit: (v) => app.setCropInset(i, v.first / 100),
@@ -162,7 +162,8 @@ class _DetachSectionState extends State<_DetachSection> {
 
   @override
   void dispose() {
-    pieceRectTool = false; // the stage tool belongs to this tab
+    pieceRectTool = false; // the stage tools belong to this tab
+    pieceInsets = null;
     super.dispose();
   }
 
@@ -188,6 +189,37 @@ class _DetachSectionState extends State<_DetachSection> {
         ),
         if (pieceRectTool)
           const Hint('Drag over the object; lifting the finger detaches what is inside.'),
+        // the same frame as Crop: four sides (stops at the quarters) and
+        // the handles on the stage, then detach.
+        FilterChip(
+          key: const ValueKey('piece-crop-tool'),
+          avatar: const Icon(Icons.crop, size: 16),
+          label: const Text('Select like a crop'),
+          selected: pieceInsets != null,
+          onSelected: (_) => app.togglePieceCropTool(),
+        ),
+        if (pieceInsets != null) ...[
+          for (var i = 0; i < 4; i++)
+            ParamEditor(
+              key: ValueKey('piece-inset-$i'),
+              prefKey: 'piece.${CropView._sides[i]}',
+              label: CropView._sides[i],
+              values: [pieceInsets![i] * 100],
+              scale: const ParamScale.slider(0, 95, decimals: 0, suffix: '%', stops: [25, 50, 75]),
+              onEditStart: () {},
+              onChanged: (v) => app.setPieceInset(i, v.first / 100),
+              onCommit: (v) => app.setPieceInset(i, v.first / 100),
+            ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.icon(
+              key: const ValueKey('piece-crop-detach'),
+              onPressed: () => app.detachPieceInsets(layer.id),
+              icon: const Icon(Icons.content_cut, size: 18),
+              label: const Text('Detach this part'),
+            ),
+          ),
+        ],
         const SizedBox(height: 6),
         Row(
           children: [

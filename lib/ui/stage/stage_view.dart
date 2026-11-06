@@ -274,37 +274,52 @@ class _StageViewState extends State<StageView> {
           ),
         ),
       ),
-      // who is selected, in the corner.
+      // who is selected, in the corner: the shape's name in one block, the
+      // picked region (as the list names it) or "mask" in the next.
       if (selectedLayer != null)
         Positioned(
           key: const ValueKey('stage-selected-name'),
           left: 8,
           bottom: 6,
-          child: IgnorePointer(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(color: const Color(0x99000000), borderRadius: BorderRadius.circular(4)),
-              child: Text(
-                [
-                  // the picked region of it, after its name.
-                  selectedLayer.maskRegions != null &&
-                          selectedLayer.maskRegions!.enabled &&
-                          widget.app.selectedRegionSig != null &&
-                          widget.app.selectedRegionSig! < selectedLayer.maskRegions!.signatureCount
-                      ? '${selectedLayer.name}  ·  ${regionLabel(widget.app.project, selectedLayer, widget.app.selectedRegionSig!)}'
-                          '${widget.app.selectedRegionNumber == null ? '' : ' #${widget.app.selectedRegionNumber}'}'
-                      : selectedLayer.name,
-                  if (widget.app.multiSelection.isNotEmpty) '+${widget.app.multiSelection.length}',
-                  if (selectedLayer.locked) '(locked)',
-                ].join(' '),
-                style: const TextStyle(color: Colors.white70, fontSize: 11),
-              ),
-            ),
-          ),
+          child: IgnorePointer(child: _cornerBlocks(selectedLayer)),
         ),
       ]),
       );
     });
+  }
+
+  Widget _cornerBlocks(Layer layer) {
+    final app = widget.app;
+    Widget block(String text, {Color? edge, Key? key}) => Container(
+          key: key,
+          margin: const EdgeInsets.only(right: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0x99000000),
+            borderRadius: BorderRadius.circular(4),
+            border: edge == null ? null : Border(left: BorderSide(color: edge, width: 3)),
+          ),
+          child: Text(text, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        );
+    final mr = layer.maskRegions;
+    final sig = app.selectedRegionSig;
+    final region = mr != null && mr.enabled && sig != null && sig < mr.signatureCount;
+    // a layer that masks others: just "mask" after its name.
+    final masks = !region &&
+        app.project.layers.any((l) => l.id != layer.id && l.masks.any((m) => m.enabled && m.sourceLayerId == layer.id));
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      block([
+        layer.name,
+        if (app.multiSelection.isNotEmpty) '+${app.multiSelection.length}',
+        if (layer.locked) '(locked)',
+      ].join(' ')),
+      if (region)
+        block(
+            '${regionLabel(app.project, layer, sig)}${app.selectedRegionNumber == null ? '' : ' #${app.selectedRegionNumber}'}',
+            edge: regionColor(sig),
+            key: const ValueKey('stage-selected-region')),
+      if (masks) block('mask', key: const ValueKey('stage-selected-mask')),
+    ]);
   }
 
   /// "Show contour" (Effects tab): the rings of those layers, in frame

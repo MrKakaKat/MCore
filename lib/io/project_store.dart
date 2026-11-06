@@ -189,7 +189,9 @@ class ProjectStore {
   Future<void> addPerfScenes() async {
     await _dir.create(recursive: true);
     var n = 0;
-    for (final scene in perfReferenceScenes()) {
+    // the timing-only scenes (static shapes, pendulum chain, motion blur,
+    // mesh warp) stay for the benchmarks, not the project list.
+    for (final scene in perfReferenceScenes().where((s) => !s.name.startsWith('Perf:'))) {
       final file = File('${_dir.path}/${DateTime.now().microsecondsSinceEpoch}_${n++}.json');
       await saveProjectToFile(file, scene.project,
           maxFrame: scene.maxFrame,

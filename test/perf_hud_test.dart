@@ -229,10 +229,6 @@ void main() {
     expect(names, [
       'Masks: Add, Subtract, Intersect, Exclude',
       'Masks: logic (Implication, Equivalence, Invert)',
-      'Perf: mesh warp',
-      'Perf: motion blur',
-      'Perf: pendulum chain',
-      'Perf: static shapes',
-    ]);
+    ], reason: 'the timing-only scenes are not added');
   });
 }

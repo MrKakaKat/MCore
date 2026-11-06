@@ -78,6 +78,17 @@ class LineNode {
     return switch (name) { 'w' => w, 'round' => round, _ => roundK };
   }
 
+  /// A bezier handle ('hIn' / 'hOut', relative to the point) at local
+  /// frame `f`: its keys (in [keys]), else as it is.
+  List<double> handleAt(String name, num? f) {
+    final t = keys[name];
+    if (f != null && t != null && t.keyframes.isNotEmpty) {
+      final v = evaluateTrack(null, t, f.toDouble()) as List;
+      return [(v[0] as num).toDouble(), (v[1] as num).toDouble()];
+    }
+    return name == 'hIn' ? hIn : hOut;
+  }
+
   /// The line's width at this point, px (null: the line's own width).
   /// Between points the width changes evenly.
   double? w;
@@ -235,6 +246,8 @@ List<List<double>> sampleLineWidths(List<LineNode> nodes,
             return n.copy()
               ..x = x
               ..y = y
+              ..hIn = n.handleAt('hIn', frame)
+              ..hOut = n.handleAt('hOut', frame)
               ..w = n.valueAt('w', frame)
               ..round = n.valueAt('round', frame)!
               ..roundK = n.valueAt('roundK', frame)!;
@@ -668,6 +681,16 @@ class LineHandleDragOp implements DragOp {
         setTrackValueAt(t, localFrameOf(layer, globalFrame), name == 'round' ? node.round : node.roundK);
       }
     }
+    // keyed bezier handles: the move (and the mirrored partner's) is a key.
+    if (key[0] == 'i' || key[0] == 'o') {
+      final node = layer.content.lineNodes![int.parse(key.substring(1))];
+      for (final name in const ['hIn', 'hOut']) {
+        final t = node.keys[name];
+        if (t != null && t.keyframes.isNotEmpty) {
+          setTrackValueAt(t, localFrameOf(layer, globalFrame), <double>[...(name == 'hIn' ? node.hIn : node.hOut)]);
+        }
+      }
+    }
     // a point with keys: the move is a key at this frame.
     if (key[0] == 'n') {
       final node = layer.content.lineNodes![int.parse(key.substring(1))];
@@ -701,8 +724,11 @@ class LineHandleDragOp implements DragOp {
 
   // 1. onto a point: other lines' points, this line's other points, the
   // corners / middles of shapes, the frame's corners and middle.
-  if (snapLinePointsEnabled && isPoint) {
-    final r = snapCornerToCornerFrameRadius;
+  // (with the centres' snapping on, any handle - bezier ones too - also
+  // lands on a shape's centre.)
+  final points = snapLinePointsEnabled && isPoint;
+  if (points || snapCenterToCenterEnabled) {
+    final r = points ? snapCornerToCornerFrameRadius : snapCenterToCenterFrameRadius;
     List<double>? best;
     var bestD = r;
     void consider(List<double> q) {
@@ -715,6 +741,13 @@ class LineHandleDragOp implements DragOp {
 
     for (final l in project.layers) {
       if (l.hidden) continue;
+      if (!points) {
+        // centres only: every other shape's middle.
+        if (l == layer || l.content.shape == 'audio' || l.content.shape == 'camera') continue;
+        final b = layerFrameBounds(project, l, globalFrame);
+        if (b != null) consider([(b.$1 + b.$3) / 2, (b.$2 + b.$4) / 2]);
+        continue;
+      }
       if (isNodeLine(l.content)) {
         final lm = getTransformBoxHandles(project, l, globalFrame).mCanvas;
         final ln = l.content.lineNodes!;
@@ -738,7 +771,7 @@ class LineHandleDragOp implements DragOp {
     final w = stageSize.width, h = stageSize.height;
     for (final x in [0.0, w / 2, w]) {
       for (final y in [0.0, h / 2, h]) {
-        consider([x, y]);
+        if (points || (x == w / 2 && y == h / 2)) consider([x, y]);
       }
     }
     if (best != null) {
@@ -847,6 +880,8 @@ void syncLineToFrame(Layer layer, int globalFrame) {
     n
       ..x = x
       ..y = y
+      ..hIn = [...n.handleAt('hIn', f)]
+      ..hOut = [...n.handleAt('hOut', f)]
       ..w = n.valueAt('w', f)
       ..round = n.valueAt('round', f)!
       ..roundK = n.valueAt('roundK', f)!;
@@ -1156,4 +1191,146 @@ List<List<List<double>>> lineOutlineRings(Content c, {num? frame}) {
   return [
     [...left, ...right.reversed]
   ];
+}
+
+
+/// Sets point `i`'s position (content-local) - a key at local frame `f`
+/// when it has keys.
+void setLinePointPos(Content c, int i, List<double> p, int f) {
+  final n = c.lineNodes![i];
+  n
+    ..x = p[0]
+    ..y = p[1];
+  final t = n.posT;
+  if (t != null && t.keyframes.isNotEmpty) setTrackValueAt(t, f, <double>[p[0], p[1]]);
+  syncLineBox(c);
+}
+
+/// Sets point `i`'s bezier handle ('hIn' / 'hOut', relative to the point)
+/// - a key at local frame `f` when it has keys.
+void setLineHandle(Content c, int i, String name, List<double> v, int f) {
+  final n = c.lineNodes![i];
+  name == 'hIn' ? n.hIn = [v[0], v[1]] : n.hOut = [v[0], v[1]];
+  final t = n.keys[name];
+  if (t != null && t.keyframes.isNotEmpty) setTrackValueAt(t, f, <double>[v[0], v[1]]);
+  syncLineBox(c);
+}
+
+/// Keys point `i`'s handle `name` at local frame `f` (or takes the key
+/// away).
+void toggleLineHandleKey(Content c, int i, String name, int f) {
+  final n = c.lineNodes![i];
+  final v = <double>[...(name == 'hIn' ? n.hIn : n.hOut)];
+  final t = n.keys[name] ??= Track(v, false);
+  final at = t.keyframes.indexWhere((k) => k.frame == f);
+  if (at >= 0) {
+    t.keyframes.removeAt(at);
+  } else {
+    t.keyframes
+      ..add(Keyframe(frame: f, value: v))
+      ..sort((a, b) => a.frame.compareTo(b.frame));
+  }
+}
+
+/// A point put into the line where `p` (content-local) lies on it, within
+/// `reach` px: between the two points of that stretch (its shape kept as
+/// near as it goes). Returns its index, or null when `p` is off the line.
+int? insertLinePointOn(Content c, List<double> p, double reach) {
+  final nodes = c.lineNodes!;
+  final n = nodes.length;
+  final segs = c.lineClosed ? n : n - 1;
+  var best = reach;
+  int? at;
+  for (var s = 0; s < segs; s++) {
+    final a = nodes[s], b = nodes[(s + 1) % n];
+    for (var k = 0; k <= 24; k++) {
+      final q = _segPoint(a, b, b.kind, k / 24);
+      final d = math.sqrt(math.pow(q[0] - p[0], 2) + math.pow(q[1] - p[1], 2));
+      if (d < best) {
+        best = d;
+        at = s;
+      }
+    }
+  }
+  if (at == null) return null;
+  final b = nodes[(at + 1) % n];
+  final node = LineNode(p[0], p[1], kind: b.kind == 'bezier' ? 'line' : b.kind, w: b.w)
+    ..ampT = cloneTrack(b.ampT)
+    ..wavesT = cloneTrack(b.wavesT);
+  nodes.insert(at + 1, node);
+  syncLineBox(c);
+  return at + 1;
+}
+
+/// The line flipped about its own middle (sideways or upside down): its
+/// points, handles and keys - the handles on the stage go with it.
+void flipLineNodes(Content c, {required bool horizontal}) {
+  final nodes = c.lineNodes!;
+  final i = horizontal ? 0 : 1;
+  final mid = c.offset[i];
+  List<double> pt(List v) {
+    final q = [for (final e in v) (e as num).toDouble()];
+    q[i] = 2 * mid - q[i];
+    return q;
+  }
+
+  List<double> vec(List v) {
+    final q = [for (final e in v) (e as num).toDouble()];
+    q[i] = -q[i];
+    return q;
+  }
+
+  for (final n in nodes) {
+    final q = pt([n.x, n.y]);
+    n
+      ..x = q[0]
+      ..y = q[1]
+      ..hIn = vec(n.hIn)
+      ..hOut = vec(n.hOut);
+    final t = n.posT;
+    if (t != null) {
+      t.defaultValue = pt(t.defaultValue as List);
+      for (final k in t.keyframes) {
+        k.value = pt(k.value as List);
+      }
+    }
+    for (final name in const ['hIn', 'hOut']) {
+      final h = n.keys[name];
+      if (h == null) continue;
+      h.defaultValue = vec(h.defaultValue as List);
+      for (final k in h.keyframes) {
+        k.value = vec(k.value as List);
+      }
+    }
+    // a sine / arc bulges to the other side now.
+    n.ampT.defaultValue = -(n.ampT.defaultValue as num).toDouble();
+    for (final k in n.ampT.keyframes) {
+      k.value = -(k.value as num).toDouble();
+    }
+  }
+  syncLineBox(c);
+}
+
+/// Splits an open line at point `i` (a middle one): this line keeps the
+/// points up to it, the returned list is the rest (from it on). A loop is
+/// opened there instead (returns an empty list). Null when there is
+/// nothing to split (an end point).
+List<LineNode>? splitLineAt(Content c, int i) {
+  final nodes = c.lineNodes!;
+  if (c.lineClosed) {
+    // open the loop at the point: it becomes both ends.
+    final rot = [...nodes.sublist(i), ...nodes.sublist(0, i), nodes[i].copy()..kind = nodes[i].kind];
+    rot.first.kind = 'line';
+    c
+      ..lineNodes = rot
+      ..lineClosed = false
+      ..lineFilled = false;
+    syncLineBox(c);
+    return const [];
+  }
+  if (i <= 0 || i >= nodes.length - 1) return null;
+  final rest = [nodes[i].copy()..kind = 'line', ...nodes.sublist(i + 1)];
+  c.lineNodes = nodes.sublist(0, i + 1);
+  syncLineBox(c);
+  return rest;
 }

@@ -26,11 +26,17 @@ const cropAspectOptions = ['free', 'original', '1:1', '4:3', '16:9', '9:16'];
 // the smallest a cropped side can get, as a fraction of the full box.
 const double _minCropFraction = 0.05;
 
-/// The visible part of the content box, in content-local coordinates.
-BoundingBox croppedBox(Layer layer) {
+/// Detach a piece (Crop tab): the part to detach set like a crop - four
+/// insets of the content box, with the same handles on the stage. Null:
+/// the tool is off.
+List<double>? pieceInsets;
+
+/// The visible part of the content box, in content-local coordinates
+/// (`insets`: another set of insets, e.g. [pieceInsets]).
+BoundingBox croppedBox(Layer layer, [List<double>? insets]) {
   final b = shapeBoundingBox(layer.content);
   final w = b.maxX - b.minX, h = b.maxY - b.minY;
-  final c = layer.crop;
+  final c = insets ?? layer.crop;
   return BoundingBox(
     minX: b.minX + c[0] * w,
     minY: b.minY + c[1] * h,
@@ -61,15 +67,27 @@ double? cropAspectRatio(Layer layer, List<double> displayScale) {
   }
 }
 
-void _setCropRect(Layer layer, double minX, double minY, double maxX, double maxY) {
+void _setCropRect(Layer layer, double minX, double minY, double maxX, double maxY, {bool piece = false}) {
   final b = shapeBoundingBox(layer.content);
   final w = b.maxX - b.minX, h = b.maxY - b.minY;
   if (w <= 0 || h <= 0) return;
-  layer.crop = [
+  final next = [
     ((minX - b.minX) / w).clamp(0.0, 1.0),
     ((minY - b.minY) / h).clamp(0.0, 1.0),
     ((b.maxX - maxX) / w).clamp(0.0, 1.0),
     ((b.maxY - maxY) / h).clamp(0.0, 1.0),
+  ];
+  piece ? pieceInsets = next : layer.crop = next;
+}
+
+/// The piece rect (Detach a piece), content-local, as a ring.
+List<List<double>> pieceRectRing(Layer layer) {
+  final c = croppedBox(layer, pieceInsets ?? const [0.25, 0.25, 0.25, 0.25]);
+  return [
+    [c.minX, c.minY],
+    [c.maxX, c.minY],
+    [c.maxX, c.maxY],
+    [c.minX, c.maxY],
   ];
 }
 
@@ -107,9 +125,9 @@ class CropHandles {
   CropHandles({required this.full, required this.crop, required this.mCanvas, required this.screen});
 }
 
-CropHandles getCropHandles(Project project, Layer layer, int globalFrame) {
+CropHandles getCropHandles(Project project, Layer layer, int globalFrame, {List<double>? insets}) {
   final full = shapeBoundingBox(layer.content);
-  final c = croppedBox(layer);
+  final c = croppedBox(layer, insets);
   final mCanvas = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
   final midX = (c.minX + c.maxX) / 2, midY = (c.minY + c.maxY) / 2;
   final local = <String, List<double>>{
@@ -136,19 +154,24 @@ CropHandles getCropHandles(Project project, Layer layer, int globalFrame) {
 class CropDragOp implements DragOp {
   final Layer layer;
   final String handle;
-  CropDragOp({required this.layer, required this.handle});
+
+  /// Moves the piece rect ([pieceInsets]) instead of the crop.
+  final bool piece;
+  CropDragOp({required this.layer, required this.handle, this.piece = false});
 
   @override
   List<SnapGuideLine> get snapGuides => const [];
 
   @override
   void apply(Project project, int globalFrame, List<double> framePoint) {
-    final h = getCropHandles(project, layer, globalFrame);
+    final h = getCropHandles(project, layer, globalFrame, insets: piece ? pieceInsets : null);
     final p = applyAffine(invertAffine(h.mCanvas), framePoint);
     final f = h.full, c = h.crop;
     final fw = f.maxX - f.minX, fh = f.maxY - f.minY;
     final minW = fw * _minCropFraction, minH = fh * _minCropFraction;
-    final px = p[0].clamp(f.minX, f.maxX), py = p[1].clamp(f.minY, f.maxY);
+    // the quarters (and the middle) of the full box hold the edge a moment.
+    final px = snapToStops(p[0].clamp(f.minX, f.maxX).toDouble(), [for (final q in const [0.25, 0.5, 0.75]) f.minX + fw * q], fw * 0.025);
+    final py = snapToStops(p[1].clamp(f.minY, f.maxY).toDouble(), [for (final q in const [0.25, 0.5, 0.75]) f.minY + fh * q], fh * 0.025);
 
     var minX = c.minX, minY = c.minY, maxX = c.maxX, maxY = c.maxY;
     final moveLeft = handle == 'left' || handle == 'tl' || handle == 'bl';
@@ -161,7 +184,7 @@ class CropDragOp implements DragOp {
     if (moveBottom) maxY = math.max(py, minY + minH);
 
     final scale = _absScale(project, layer, globalFrame);
-    final r = cropAspectRatio(layer, scale);
+    final r = piece ? null : cropAspectRatio(layer, scale);
     if (r != null) {
       final rl = r * scale[1] / scale[0];
       final horizontal = moveLeft || moveRight, vertical = moveTop || moveBottom;
@@ -208,7 +231,7 @@ class CropDragOp implements DragOp {
       minY += dy;
       maxY += dy;
     }
-    _setCropRect(layer, minX, minY, maxX, maxY);
+    _setCropRect(layer, minX, minY, maxX, maxY, piece: piece);
   }
 }
 

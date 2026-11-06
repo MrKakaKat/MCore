@@ -89,6 +89,7 @@ class ParamsPanelView extends StatelessWidget {
             _pathControls(context, layer.transform.anchor),
             _vecParam(context, 'scale', layer.transform.scale, localFrame, [1.0, 1.0],
                 const ParamScale.ruler(unitsPerPixel: 0.005, minorTick: 0.1, majorTick: 0.5)),
+            _scaleSwitches(layer),
             _scalarParam(context, 'rotation', layer.transform.rotation, localFrame, 0.0, ParamScale.degrees),
             _scalarParam(context, 'opacity', layer.transform.opacity, localFrame, 1.0, const ParamScale.slider(0, 1)),
           ],
@@ -366,6 +367,30 @@ class ParamsPanelView extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Under scale: the size handles keep the far side in place; a stretched
+  /// layer's origami folds keep their angles.
+  Widget _scaleSwitches(Layer layer) {
+    Widget sw(String key, String title, bool value, ValueChanged<bool> set) => SwitchListTile(
+          key: ValueKey(key),
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          contentPadding: const EdgeInsets.only(left: 4),
+          title: Text(title, style: const TextStyle(fontSize: 12)),
+          value: value,
+          onChanged: set,
+        );
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      sw('scale-keeps-opposite', 'Handles keep the opposite side in place', scaleKeepsOppositeEdge,
+          (v) => app.setAppPreference('scaleKeepsOppositeEdge', v)),
+      if (origamiInstances(layer).isNotEmpty)
+        sw('scale-keeps-folds', 'Folds keep their angles when stretched', layer.foldsIgnoreScale, (v) {
+          app.pushUndo();
+          layer.foldsIgnoreScale = v;
+          app.commitEdit();
+        }),
+    ]);
   }
 
   /// Linked scale: whichever of x / y changed, the other follows by the

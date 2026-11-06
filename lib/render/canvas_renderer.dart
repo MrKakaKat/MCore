@@ -879,15 +879,17 @@ class CanvasRenderer implements Renderer {
       List<List<double>> warp(List<List<double>> ring) =>
           warpRingThroughEffects(layer, c, ring, globalFrame, project: project, inherited: true);
       // text: its letters (and block) through the warp, still vectors.
+      // (no early return: the layer is finished below, masks and all.)
       if (c.shape == 'text') {
-        _textWarp = warp;
-        try {
-          _drawVectorContent(contentCanvas, layer, color, outline, localFrameOp, project);
-        } finally {
-          _textWarp = null;
-        }
-        return;
-      }
+        _withGlows(contentCanvas, project, layer, globalFrame, deviceScale, () {
+          _textWarp = warp;
+          try {
+            _drawVectorContent(contentCanvas, layer, color, outline, localFrameOp, project);
+          } finally {
+            _textWarp = null;
+          }
+        });
+      } else {
       _withGlows(contentCanvas, project, layer, globalFrame, deviceScale, () {
         if (c.shape == 'compound') {
           final cc = c.contourColors;
@@ -922,6 +924,7 @@ class CanvasRenderer implements Renderer {
         if (ring.length < 3) return;
         contentCanvas.drawPath(_pathFromPoints(warp(ring), close: true), outline ? strokePaint : fillPaint);
       });
+      }
     } else if (isTextured) {
       final sourceImage = isPrecompose
           ? _renderChildrenToImage(project, layer, globalFrame, depth)

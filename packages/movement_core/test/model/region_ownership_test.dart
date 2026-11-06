@@ -77,7 +77,7 @@ void main() {
   test('older regions on a shape take the shape itself in when loaded, showing the same', () {
     final b = _sq('b', 200, 0.55)
       ..maskRegions = MaskRegions(
-          sources: ['a'], opacity: {1: track(0.0), 0: track(1.0)}, commands: [RegionCommand(whenSig: 1, targetSig: 1)]);
+          sources: ['a'], opacity: {1: track(0.0), 0: track(1.0)}, commands: [RegionCommand(whenSig: 1, targetSig: 1, timed: true)]);
     final json = layerToJson(b);
     final back = layerFromJson(json);
     final mr = back.maskRegions!;

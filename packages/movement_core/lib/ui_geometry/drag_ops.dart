@@ -532,6 +532,10 @@ class ScaleDragOp implements DragOp {
     final trk = layer.transform.scale;
     final current =
         trackValueToEdit(trk, localFrameOf(layer, globalFrame)) as List<double>;
+    if (scaleKeepsOppositeEdge) {
+      _applyFromOppositeEdge(project, globalFrame, tb, localPt, current);
+      return;
+    }
     List<double> newScale;
     if (handle == 'scaleCorner') {
       // keeps the current aspect ratio a non-uniformly scaled object snapped
@@ -573,4 +577,60 @@ class ScaleDragOp implements DragOp {
     _snapGuide = snap.guide;
     setTrackValueAt(trk, localFrameOf(layer, globalFrame), newScale);
   }
+
+  /// The edge (or corner) across from the handle stays where it is: the
+  /// size runs from it to the finger, and the layer moves to keep it.
+  void _applyFromOppositeEdge(
+      Project project, int globalFrame, TransformBoxHandles tb, List<double> localPt, List<double> current) {
+    final b = tb.bbox;
+    final midX = (b.minX + b.maxX) / 2, midY = (b.minY + b.maxY) / 2;
+    final List<double> here, opp;
+    switch (handle) {
+      case 'left':
+        here = [b.minX, midY];
+        opp = [b.maxX, midY];
+      case 'right':
+        here = [b.maxX, midY];
+        opp = [b.minX, midY];
+      case 'top':
+        here = [midX, b.minY];
+        opp = [midX, b.maxY];
+      case 'bottom':
+        here = [midX, b.maxY];
+        opp = [midX, b.minY];
+      default:
+        here = scaleCornerLocal(b);
+        opp = [b.minX + b.maxX - here[0], b.minY + b.maxY - here[1]];
+    }
+    final before = applyAffine(tb.mCanvas, opp);
+    // the finger and the handle, measured from the fixed side (scaled).
+    final fx = localPt[0] - opp[0] * current[0], fy = localPt[1] - opp[1] * current[1];
+    final hx = (here[0] - opp[0]) * current[0], hy = (here[1] - opp[1]) * current[1];
+    List<double> next;
+    if (handle == 'left' || handle == 'right') {
+      next = [hx.abs() < 1e-9 ? current[0] : (current[0] * fx / hx).abs(), current[1]];
+    } else if (handle == 'top' || handle == 'bottom') {
+      next = [current[0], hy.abs() < 1e-9 ? current[1] : (current[1] * fy / hy).abs()];
+    } else {
+      final len2 = hx * hx + hy * hy;
+      final k = len2 < 1e-9 ? 1.0 : ((fx * hx + fy * hy) / len2).abs();
+      next = [current[0] * k, current[1] * k];
+    }
+    next = [math.max(1e-4, next[0]), math.max(1e-4, next[1])];
+    final lf = localFrameOf(layer, globalFrame);
+    setTrackValueAt(layer.transform.scale, lf, next);
+    _snapGuide = null;
+    // move the layer so the fixed side is back where it was (the new
+    // scale, not the cached state).
+    clearStateCaches();
+    final after = applyAffine(getTransformBoxHandles(project, layer, globalFrame).mCanvas, opp);
+    final d = frameDeltaToLocal(project, layer, globalFrame, after, [before[0] - after[0], before[1] - after[1]]);
+    final a = trackValueToEdit(layer.transform.anchor, lf) as List<double>;
+    setTrackValueAt(layer.transform.anchor, lf, [a[0] + d[0], a[1] + d[1]]);
+    clearStateCaches();
+  }
 }
+
+/// Stage: a size handle keeps the edge across from it in place (off: the
+/// object grows / shrinks about its anchor, both sides moving).
+bool scaleKeepsOppositeEdge = false;

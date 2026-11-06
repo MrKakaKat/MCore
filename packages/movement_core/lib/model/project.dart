@@ -1006,7 +1006,7 @@ class RegionCommand {
   int frames;
   String ease;
 
-  /// Gradually (over `frames`, with `ease`); off: at once.
+  /// Gradually (over `frames`, with `ease`); off (the default): at once.
   bool timed;
   RegionCommand(
       {this.when = 'appears',
@@ -1017,7 +1017,7 @@ class RegionCommand {
       this.opacity = 0,
       this.frames = 10,
       this.ease = 'easeInOut',
-      this.timed = true});
+      this.timed = false});
 
   RegionCommand copy() => RegionCommand(
       when: when,
@@ -1039,7 +1039,7 @@ class RegionCommand {
         'opacity': opacity,
         'frames': frames,
         'ease': ease,
-        if (!timed) 'timed': false,
+        'timed': timed,
       };
 
   static RegionCommand fromJson(Map j) => RegionCommand(
@@ -1051,6 +1051,7 @@ class RegionCommand {
         opacity: (j['opacity'] as num?)?.toDouble() ?? 0,
         frames: (j['frames'] as num?)?.toInt() ?? 10,
         ease: j['ease'] as String? ?? 'easeInOut',
+        // saved before it was written out: on then.
         timed: j['timed'] != false,
       );
 }
@@ -1632,6 +1633,10 @@ class Layer {
   bool mirrorX;
   bool mirrorY;
 
+  /// Origami folds keep their angles on screen when the layer is
+  /// stretched (its scale does not skew them).
+  bool foldsIgnoreScale;
+
   /// The Effects tab's list order: effect-instance ids plus 'motionBlur',
   /// 'wiggle' and 'pendulum' (see effectPanelEntries). UI-only - the
   /// render order of geometry effects is effectStack's own.
@@ -1765,6 +1770,7 @@ class Layer {
     this.cropAspect = 'free',
     this.mirrorX = false,
     this.mirrorY = false,
+    this.foldsIgnoreScale = true,
     List<String>? effectPanelOrder,
     this.rowId,
     this.splitRoot,
