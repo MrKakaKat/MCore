@@ -9,7 +9,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final app = AppState();
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SingleChildScrollView(child: ExportView(app: app)))));
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: ExportView(app: app))));
     await tester.pumpAndSettle();
     return app;
   }
@@ -17,16 +17,18 @@ void main() {
   String summary(WidgetTester tester) =>
       (tester.widget<Text>(find.descendant(of: find.byKey(const ValueKey('export-summary')), matching: find.byType(Text)))).data!;
 
-  testWidgets('the project decides the format on open (no Auto button); settings stay folded', (tester) async {
+  testWidgets('the project decides the format on open (no Auto button); its settings are open', (tester) async {
     await pump(tester);
     expect(find.byKey(const ValueKey('export-auto')), findsNothing);
     expect(find.text('Auto'), findsNothing);
     // the default project: short, small, no media - a GIF.
     expect(summary(tester), startsWith('GIF'));
-    expect(find.text('Play in a loop'), findsNothing, reason: 'settings folded');
+    expect(find.text('Play in a loop'), findsOneWidget, reason: 'settings shown');
+    // each format says what it is for.
+    expect(find.text('A short looping animation, no sound'), findsOneWidget);
   });
 
-  testWidgets('switching formats keeps the layout: only the summary changes', (tester) async {
+  testWidgets('switching formats keeps the layout: the summary and Export stay put', (tester) async {
     await pump(tester);
     final buttonTop = tester.getTopLeft(find.byKey(const ValueKey('export-go'))).dy;
     final summaryTop = tester.getTopLeft(find.byKey(const ValueKey('export-summary'))).dy;
@@ -34,8 +36,7 @@ void main() {
       await tester.tap(find.byKey(ValueKey('export-kind-$k')));
       await tester.pumpAndSettle();
       expect(tester.getTopLeft(find.byKey(const ValueKey('export-summary'))).dy, summaryTop);
-      expect((tester.getTopLeft(find.byKey(const ValueKey('export-go'))).dy - buttonTop).abs(), lessThan(60),
-          reason: 'a summary line and the video\'s file size field at most');
+      expect(tester.getTopLeft(find.byKey(const ValueKey('export-go'))).dy, buttonTop, reason: 'at the bottom');
     }
   });
 
@@ -48,8 +49,6 @@ void main() {
     expect(summary(tester), isNot(contains('File: about')), reason: 'in its own field');
     expect(find.descendant(of: find.byKey(const ValueKey('export-file-size')), matching: find.textContaining('File: about')),
         findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('export-settings')));
-    await tester.pumpAndSettle();
     expect(find.text('WebM (VP9)'), findsOneWidget);
     expect(find.text('MP4 (H.264)'), findsOneWidget);
     expect(find.text('Encoding speed'), findsNothing);

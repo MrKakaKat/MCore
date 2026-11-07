@@ -16,7 +16,7 @@
 /// ============================================================
 library;
 
-import 'line_path.dart' show LineNode;
+import 'line_path.dart' show LineNode, isNodeLine, flipLineNodes;
 import '../text/text_animators.dart' show TextAnimator;
 import '../effects/motion/follow.dart' show FollowSettings;
 import 'project.dart';
@@ -538,6 +538,9 @@ Map<String, dynamic> shapeFillToJson(ShapeFill f) => {
           }
       ],
       if (f.cornerRadius > 0) 'cornerRadius': f.cornerRadius,
+      if (f.roundingOn != (f.cornerRadius > 0 || f.outerRadius > 0)) 'roundingOn': f.roundingOn,
+      if (f.lastCornerRadius != 20) 'lastCornerRadius': f.lastCornerRadius,
+      if (f.cornersOn.any((c) => !c)) 'cornersOn': f.cornersOn,
       if (f.cornerShape != 0.5523) 'cornerShape': f.cornerShape,
       if (f.outerRadius > 0) 'outerRadius': f.outerRadius,
       if (!f.cornersKeepRound) 'cornersKeepRound': false,
@@ -632,6 +635,11 @@ ShapeFill shapeFillFromJson(Map<String, dynamic> j) {
     cornerShape: (j['cornerShape'] as num?)?.toDouble() ?? 0.5523,
     outerRadius: (j['outerRadius'] as num?)?.toDouble() ?? 0,
     cornersKeepRound: j['cornersKeepRound'] != false,
+    roundingOn: j['roundingOn'] as bool?,
+    lastCornerRadius: (j['lastCornerRadius'] as num?)?.toDouble() ?? 20,
+    cornersOn: j['cornersOn'] is List && (j['cornersOn'] as List).length == 4
+        ? [for (final c in j['cornersOn'] as List) c == true]
+        : null,
     shadow: j['shadow'] is Map ? _shadowFromJson(j['shadow'] as Map<String, dynamic>) : null,
     paint: j['paint'] is Map ? fillGradientFromJson(j['paint'] as Map<String, dynamic>) : null,
   );
@@ -690,7 +698,8 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.links.isNotEmpty)
         'links': [
           for (final k in l.links)
-            {if (!k.enabled) 'enabled': false, 'source': k.sourceId, 'from': k.from, 'to': k.to, 'factor': k.factor, if (k.base != null) 'base': k.base}
+            {if (!k.enabled) 'enabled': false, 'source': k.sourceId, 'from': k.from, 'to': k.to, 'factor': k.factor, if (k.base != null) 'base': k.base,
+              if (k.fromSound) ...{'min': k.min, 'max': k.max, 'smooth': k.smooth}}
         ],
       if (l.cuts.isNotEmpty)
         'cuts': [
@@ -734,6 +743,14 @@ Layer layerFromJson(Map<String, dynamic> j) {
     for (final h in (j['confirmHistory'] as List? ?? const [])) Map<String, dynamic>.from(h as Map)
   ];
   ensureRegionSelf(l);
+  // a line flipped before lines flipped their own points: its points now.
+  if (isNodeLine(l.content) && (l.mirrorX || l.mirrorY)) {
+    if (l.mirrorX) flipLineNodes(l.content, horizontal: true);
+    if (l.mirrorY) flipLineNodes(l.content, horizontal: false);
+    l
+      ..mirrorX = false
+      ..mirrorY = false;
+  }
   return l;
 }
 
@@ -805,6 +822,9 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
             to: k['to'] as String? ?? 'x',
             factor: (k['factor'] as num?)?.toDouble() ?? 1,
             base: (k['base'] as num?)?.toDouble(),
+            min: (k['min'] as num?)?.toDouble() ?? 0,
+            max: (k['max'] as num?)?.toDouble() ?? 1,
+            smooth: (k['smooth'] as num?)?.toDouble() ?? 0.3,
           )
       ],
       cuts: [

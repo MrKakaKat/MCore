@@ -85,11 +85,56 @@ void main() {
     expect(origamiFoldKeys(inst.params), hasLength(2));
     final lines = origamiFoldLinesFrame(project, l, 0);
     expect(lines, hasLength(2), reason: 'shown even at angle 0');
+    // past the shape's edge, a turn handle at each line's end.
+    expect(origamiDirectionHandlesFrame(project, l, 0), hasLength(2));
     // drag the first line a quarter of the way left.
     final m = getTransformBoxHandles(project, l, 0).mCanvas;
-    OrigamiFoldDragOp(l, inst, 'position').apply(project, 0, applyAffine(m, [l.content.offset[0] - 25, 0]));
+    // (the drag follows the finger from where it went down.)
+    final op = OrigamiFoldDragOp(l, inst, 'position');
+    op.apply(project, 0, applyAffine(m, [l.content.offset[0], 0]));
+    op.apply(project, 0, applyAffine(m, [l.content.offset[0] - 25, 0]));
     expect((inst.params['position'] as Track).defaultValue as double, closeTo(0.25, 1e-6));
     removeOrigamiFold(inst, n);
     expect(origamiFoldKeys(inst.params), hasLength(1));
+  });
+
+  test('folds in different directions, each in its own part, on the folded paper', () {
+    // fold 1: the right half up by 180 (over the left); fold 2 in that
+    // half, its lower part folding (direction 90) by 180.
+    final params = p({'angle': 180.0})
+      ..['fold2_angle'] = 180.0
+      ..['fold2_direction'] = 90.0
+      ..['fold2_position'] = 0.5
+      ..['fold2_in'] = '1:far';
+    final g = origamiGrid(_grid(), params, 0);
+    // the bottom-right corner (100, 100): first down-up onto (100, 0), then
+    // over to (0, 0).
+    expect(g[4][4][0], closeTo(0, 1e-9));
+    expect(g[4][4][1], closeTo(0, 1e-9));
+    // the bottom-left one is in neither: it stays.
+    expect(g[4][0], [0.0, 100.0]);
+    // anywhere: fold 2 folds the left part's bottom too.
+    params['fold2_in'] = 'free';
+    final f = origamiGrid(_grid(), params, 0);
+    expect(f[4][0][1], closeTo(0, 1e-9));
+  });
+
+  test('a rounded crease leaves the parts where they are', () {
+    final sharp = origamiGrid(_grid(), p({'angle': 90.0}), 0);
+    final round = origamiGrid(_grid(), p({'angle': 90.0, 'round': 10.0}), 0);
+    // far from the crease: the same.
+    expect(round[0][0], sharp[0][0]);
+    expect(round[0][4][0], closeTo(sharp[0][4][0], 1e-9));
+  });
+
+  test('a fold through two points', () {
+    final l = createLayer('rect', size: 100);
+    final inst = createEffectInstance('origami_fold', 'o1', l);
+    final rest = buildGrid(l.content, 2, 2);
+    // the diagonal from top-left to bottom-right.
+    origamiFoldThrough(inst, rest, 1, [-50, -50], [50, 50], 0, (t, f, v) => t.defaultValue = v);
+    final d = ((inst.params['direction'] as Track).defaultValue as num).toDouble();
+    expect(d % 180, closeTo(135, 1e-6), reason: "across the diagonal");
+    expect(((inst.params['position'] as Track).defaultValue as num).toDouble(), closeTo(0.5, 1e-6));
   });
 }

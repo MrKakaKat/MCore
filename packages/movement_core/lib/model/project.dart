@@ -1347,6 +1347,15 @@ class ShapeFill {
   /// Rounded corners of a shape, px (0: sharp).
   double cornerRadius;
 
+  /// Rounding switched on (Fill tab): its settings and handles show. Off
+  /// keeps the last radius in [lastCornerRadius].
+  bool roundingOn;
+  double lastCornerRadius;
+
+  /// A rect's corners that round (top left, top right, bottom right,
+  /// bottom left); the others stay sharp.
+  List<bool> cornersOn;
+
   /// The rounded corners stay circles however the layer is scaled (off:
   /// they stretch with it into ovals).
   bool cornersKeepRound;
@@ -1371,18 +1380,26 @@ class ShapeFill {
       {this.gradient = false,
       List<GlowEmitter>? glows,
       this.cornerRadius = 0,
+      bool? roundingOn,
+      this.lastCornerRadius = 20,
+      List<bool>? cornersOn,
       this.cornersKeepRound = true,
       this.cornerShape = 0.5523,
       this.outerRadius = 0,
       TextShadowSpec? shadow,
       this.paint})
       : glows = glows ?? [],
+        roundingOn = roundingOn ?? (cornerRadius > 0 || outerRadius > 0),
+        cornersOn = cornersOn ?? [true, true, true, true],
         shadow = shadow ?? TextShadowSpec();
   bool get active => gradient && glows.any((g) => g.enabled);
   ShapeFill copy() => ShapeFill(
       gradient: gradient,
       glows: [for (final g in glows) g.copy()],
       cornerRadius: cornerRadius,
+      roundingOn: roundingOn,
+      lastCornerRadius: lastCornerRadius,
+      cornersOn: [...cornersOn],
       cornersKeepRound: cornersKeepRound,
       cornerShape: cornerShape,
       outerRadius: outerRadius,
@@ -1452,8 +1469,25 @@ class PropLink {
   /// moves the layer, so a moved source shows at once. Null (older files):
   /// measured from the layer's first frame instead.
   double? base;
-  PropLink({this.enabled = true, this.sourceId, this.from = 'x', this.to = 'x', this.factor = 1, this.base});
-  PropLink copy() => PropLink(enabled: enabled, sourceId: sourceId, from: from, to: to, factor: factor, base: base);
+
+  /// From a sound (`from` == 'sound', the source an audio layer): how
+  /// loud it is sets the property between `min` (silent) and `max`
+  /// (loudest), added to its own value; `smooth` (0..1) evens out the
+  /// noise (0: every beat, 1: only the swell).
+  double min, max, smooth;
+  PropLink(
+      {this.enabled = true,
+      this.sourceId,
+      this.from = 'x',
+      this.to = 'x',
+      this.factor = 1,
+      this.base,
+      this.min = 0,
+      this.max = 1,
+      this.smooth = 0.3});
+  bool get fromSound => from == 'sound';
+  PropLink copy() =>
+      PropLink(enabled: enabled, sourceId: sourceId, from: from, to: to, factor: factor, base: base, min: min, max: max, smooth: smooth);
 }
 
 const linkProps = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity'];

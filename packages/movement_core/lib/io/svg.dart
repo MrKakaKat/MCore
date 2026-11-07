@@ -23,6 +23,8 @@ import '../model/line_path.dart';
 import '../model/line_stroke.dart';
 import 'dart:math' as math;
 
+import '../core/math.dart' show matMul;
+
 import 'package:xml/xml.dart';
 
 import '../core/interpolation.dart';
@@ -66,7 +68,7 @@ String exportProjectToSvg(Project project, int globalFrame, double frameWidth, d
     if (layer.hidden || isMediaShape(layer.content.shape) || isAudioShape(layer.content.shape) || isCameraShape(layer.content.shape)) continue;
     final state = getLayerStateAt(project, layer.id, globalFrame);
     if (!state.inRange) continue;
-    final m = toFrameMatrix(state.matrix);
+    final m = _withLayerMirror(layer, toFrameMatrix(state.matrix));
     final localFrame = layerLocalFrame(layer, globalFrame);
     final opacity = evaluateTrack(project, layer.transform.opacity, localFrame, layer) as double;
     final color = layer.color ?? '#888888';
@@ -179,7 +181,7 @@ String exportProjectToAnimatedSvg(Project project, int startFrame, int endFrame,
     double? lastRot;
     for (final f in frames) {
       final state = getLayerStateAt(project, layer.id, f);
-      final m = toFrameMatrix(state.matrix);
+      final m = _withLayerMirror(layer, toFrameMatrix(state.matrix));
       final a = m[0], b = m[1], c = m[2], d = m[3];
       final sx = math.sqrt(a * a + b * b);
       var r = math.atan2(b, a) * 180 / math.pi;
@@ -1148,4 +1150,14 @@ String _mixHex(String a, String? b, double k) {
     out.write((x + (y - x) * k.clamp(0.0, 1.0)).round().toRadixString(16).padLeft(2, '0'));
   }
   return out.toString();
+}
+
+/// A layer flipped (Crop tab, Mirror) about its own middle: the flip goes
+/// into its matrix, so the SVG shows it flipped too.
+List<double> _withLayerMirror(Layer layer, List<double> m) {
+  if (!layer.mirrorX && !layer.mirrorY) return m;
+  final b = shapeBoundingBox(layer.content);
+  final cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+  final sx = layer.mirrorX ? -1.0 : 1.0, sy = layer.mirrorY ? -1.0 : 1.0;
+  return matMul(m, [sx, 0, 0, sy, (1 - sx) * cx, (1 - sy) * cy]);
 }

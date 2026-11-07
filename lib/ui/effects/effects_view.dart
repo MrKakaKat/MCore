@@ -277,7 +277,10 @@ class EffectsView extends StatelessWidget {
             ),
         if (inst.effectId != 'mesh_warp')
           for (final entry in inst.params.entries)
-            if (entry.value is Track)
+            if (entry.value is Track &&
+                (inst.effectId != 'origami_fold' ||
+                    origamiFoldOf(inst.params, entry.key) == null ||
+                    origamiFoldOf(inst.params, entry.key) == _origamiSelected(inst)))
               _instanceParamRow(
                   context, inst, entry.key, entry.value as Track, localFrame, _paramDefault(inst, entry.key)),
         // non-animated choices (bend's base axis, 3D Rotate's back side)
@@ -391,48 +394,148 @@ class EffectsView extends StatelessWidget {
     app.commitEdit();
   }
 
-  /// Origami: fold lines on the stage (drag their dots), and more folds.
+  /// Origami: which fold is being set (its settings show below).
+  static final Map<String, int> _origamiFold = {};
+
+  int _origamiSelected(EffectInstance inst) {
+    final ns = [for (final f in origamiFolds(inst.params)) f.n];
+    final n = _origamiFold[inst.id];
+    return n != null && ns.contains(n) ? n : ns.first;
+  }
+
+  /// A fold's own settings (older saves shared direction / softness): it
+  /// gets them, at the shared values.
+  void _origamiOwnParams(EffectInstance inst, int n) {
+    final f = origamiFolds(inst.params).firstWhere((x) => x.n == n);
+    double shared(String k, double d) {
+      final t = inst.params[k];
+      return t is Track ? ((t.defaultValue as num?)?.toDouble() ?? d) : d;
+    }
+
+    inst.params.putIfAbsent(f.direction, () => track(shared('direction', 0)));
+    inst.params.putIfAbsent(f.softness, () => track(shared('softness', 0)));
+    inst.params.putIfAbsent(f.round, () => track(0.0));
+  }
+
+  /// Origami: the folds (pick one to set it; add one in a chosen part;
+  /// remove), where it lies, the lines on the stage.
   Widget _origamiControls(EffectInstance inst) {
-    final extra = [
-      for (final k in origamiFoldKeys(inst.params))
-        if (RegExp(r'^fold(\d+)_angle$').firstMatch(k.$1) case final m?) int.parse(m.group(1)!)
-    ];
+    final folds = origamiFolds(inst.params);
+    final sel = _origamiSelected(inst);
+    _origamiOwnParams(inst, sel);
+    String regionLabel(String r) {
+      if (r == 'free') return 'anywhere';
+      final parts = r.split(':');
+      return parts.length > 1 && parts[1] == 'near' ? 'fold ${parts[0]}: the part that stays' : 'fold ${parts[0]}: its folded part';
+    }
+
+    final regions = ['free', for (final f in folds) ...['${f.n}:far', '${f.n}:near']];
+    final region = origamiRegion(inst.params, sel);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        for (final f in folds)
+          InputChip(
+            key: ValueKey('origami-fold-${f.n}'),
+            label: Text('fold ${f.n}'),
+            selected: f.n == sel,
+            visualDensity: VisualDensity.compact,
+            onPressed: () {
+              _origamiFold[inst.id] = f.n;
+              app.notifyListeners();
+            },
+            onDeleted: f.n == 1
+                ? null
+                : () {
+                    app.pushUndo();
+                    removeOrigamiFold(inst, f.n);
+                    app.commitEdit();
+                  },
+          ),
+        // a new fold goes in a part of one already there.
+        PopupMenuButton<String>(
+          key: ValueKey('origami-add-${inst.id}'),
+          tooltip: 'add a fold - pick the part it lies in',
+          onSelected: (r) {
+            app.pushUndo();
+            final n = addOrigamiFold(inst, region: r);
+            _origamiFold[inst.id] = n;
+            app.commitEdit();
+          },
+          itemBuilder: (_) => [
+            for (final r in regions.skip(1)) PopupMenuItem(value: r, child: Text('In ${regionLabel(r)}')),
+            const PopupMenuItem(value: 'free', child: Text('Anywhere (across the others)')),
+          ],
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.add, size: 16), SizedBox(width: 4), Text('Add fold')]),
+          ),
+        ),
+      ]),
+      if (sel != 1)
+        Row(children: [
+          const Text('Lies in', style: TextStyle(fontSize: 12)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButton<String>(
+              key: ValueKey('origami-region-${inst.id}'),
+              isExpanded: true,
+              value: regions.contains(region) ? region : 'free',
+              items: [
+                for (final r in regions)
+                  if (!r.startsWith('$sel:'))
+                    DropdownMenuItem(value: r, child: Text(r == 'free' ? 'anywhere (folds across the others)' : regionLabel(r)))
+              ],
+              onChanged: (v) {
+                if (v == null) return;
+                app.pushUndo();
+                setOrigamiRegion(inst, sel, v);
+                app.commitEdit();
+              },
+            ),
+          ),
+        ]),
+      if (sel != 1) hint('In a part: the fold only bends that part (and moves with it). Anywhere: its crease folds every part it crosses.') ?? const SizedBox.shrink(),
+      OutlinedButton.icon(
+        key: ValueKey('origami-two-points-${inst.id}'),
+        onPressed: () => app.startOrigamiPick(inst.id, sel),
+        icon: Icon(app.origamiPick != null ? Icons.ads_click : Icons.timeline, size: 16),
+        label: Text(app.origamiPick != null ? 'Tap two points on the shape...' : 'Fold \$sel through two points'),
+      ),
+      // shapes joined to the paper: they fold with it where they lie past
+      // a crease (or along an edge, at its angle).
+      OutlinedButton.icon(
+        key: ValueKey('origami-attach-${inst.id}'),
+        onPressed: () {
+          final l = findLayer(app.project, app.selection.selectedLayer);
+          if (l != null) app.startParentPick(l.id);
+        },
+        icon: const Icon(Icons.link, size: 16),
+        label: const Text('Attach shapes (they fold with it)'),
+      ),
       SwitchListTile(
         key: ValueKey('origami-stage-${inst.id}'),
         dense: true,
         contentPadding: EdgeInsets.zero,
         title: const Text('Move folds on the stage'),
-        subtitle: hint('Fold lines show over the shape; drag a line\'s dot to move it'),
+        subtitle: hint('Drag a line\'s middle dot to move it, its end dot to turn it'),
         value: origamiFoldsOnStage,
         onChanged: (v) {
           origamiFoldsOnStage = v;
           app.notifyListeners();
         },
       ),
-      Wrap(spacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
-        OutlinedButton.icon(
-          key: ValueKey('origami-add-${inst.id}'),
-          onPressed: () {
-            app.pushUndo();
-            addOrigamiFold(inst);
-            app.commitEdit();
-          },
-          icon: const Icon(Icons.add, size: 16),
-          label: const Text('Add fold'),
-        ),
-        for (final n in extra)
-          InputChip(
-            key: ValueKey('origami-fold-$n'),
-            label: Text('fold $n'),
-            visualDensity: VisualDensity.compact,
-            onDeleted: () {
-              app.pushUndo();
-              removeOrigamiFold(inst, n);
-              app.commitEdit();
-            },
-          ),
-      ]),
+      SwitchListTile(
+        key: ValueKey('origami-flat-${inst.id}'),
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Lines on the flat shape'),
+        subtitle: hint('Off: the creases sit on the folded paper and move with it'),
+        value: origamiLinesOnFlat,
+        onChanged: (v) {
+          origamiLinesOnFlat = v;
+          app.notifyListeners();
+        },
+      ),
     ]);
   }
 
@@ -531,6 +634,8 @@ class EffectsView extends StatelessWidget {
   dynamic _paramDefault(EffectInstance inst, String key) {
     if (inst.effectId == 'origami_fold' && key.endsWith('_angle')) return 45.0;
     if (inst.effectId == 'origami_fold' && key.endsWith('_position')) return 0.75;
+    if (inst.effectId == 'origami_fold' && (key.endsWith('_direction') || RegExp(r'^direction\d$').hasMatch(key))) return 0.0;
+    if (inst.effectId == 'origami_fold' && (key.endsWith('_softness') || key.endsWith('_round') || RegExp(r'^(softness|round)\d$').hasMatch(key))) return 0.0;
     final defs = effectRegistry[inst.effectId]?.params ?? const <ParamDef>[];
     final def = defs.where((p) => p.key == key);
     final v = def.isEmpty ? const [0.0, 0.0] : def.first.defaultValue;
@@ -565,6 +670,9 @@ class EffectsView extends StatelessWidget {
     if (inst.effectId == 'origami_fold') {
       if (RegExp(r'^(angle|fold\d+_angle|angle\d)$').hasMatch(key)) return ParamScale.degreesWith(origamiAngleStops);
       if (RegExp(r'^(position|fold\d+_position|position\d)$').hasMatch(key)) return ParamScale.quarters;
+      if (RegExp(r'^(direction|fold\d+_direction|direction\d)$').hasMatch(key)) return ParamScale.degrees;
+      if (RegExp(r'^(fold\d+_softness|softness\d)$').hasMatch(key)) return const ParamScale.slider(0, 1);
+      if (RegExp(r'^(round|fold\d+_round|round\d)$').hasMatch(key)) return const ParamScale.slider(0, 200, decimals: 1);
     }
     final defs = effectRegistry[inst.effectId]?.params ?? const <ParamDef>[];
     final def = defs.where((d) => d.key == key).firstOrNull;

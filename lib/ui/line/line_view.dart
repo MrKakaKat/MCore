@@ -380,11 +380,41 @@ class _LineViewState extends State<LineView> {
           const ParamScale.slider(0, 120, decimals: 1), null),
       if (corner || c.lineClosed) ...[
         row('round', 'round the corner', node.round, const ParamScale.slider(0, 200, decimals: 1), 0),
-        if (node.round > 0)
-          row('roundK', 'rounding shape (0 cut, 0.55 circle, 1 sharp)', node.roundK, const ParamScale.slider(0, 1, decimals: 3),
-              circleRoundK),
+        // always there (below the size), so nothing jumps while it is set.
+        row('roundK', 'rounding shape (0 cut, 0.55 circle, 1 sharp)', node.roundK, const ParamScale.slider(0, 1, decimals: 3),
+            circleRoundK),
       ],
+      _cornerList(c, id, f),
     ];
+  }
+
+  /// Every corner of the line with its own rounding (folded).
+  Widget _cornerList(Content c, String id, int f) {
+    final nodes = c.lineNodes!;
+    final n = nodes.length;
+    final corners = [for (var i = 0; i < n; i++) if (c.lineClosed || (i > 0 && i < n - 1)) i];
+    if (corners.isEmpty) return const SizedBox.shrink();
+    final rounded = corners.where((i) => nodes[i].round > 0).length;
+    return ExpansionTile(
+      key: const ValueKey('line-corners'),
+      tilePadding: EdgeInsets.zero,
+      dense: true,
+      title: Text('Each corner\'s rounding ($rounded of ${corners.length} rounded)', style: const TextStyle(fontSize: 13)),
+      children: [
+        for (final i in corners)
+          ParamEditor(
+            key: ValueKey('line-corner-$i'),
+            prefKey: 'line.corner.round',
+            label: 'point ${i + 1}',
+            values: [nodes[i].round],
+            scale: const ParamScale.slider(0, 200, decimals: 1),
+            onEditStart: app.pushUndo,
+            onChanged: (v) => app.editLineLive(id, (c) => setLinePointValue(c, i, 'round', v.first, f)),
+            onCommit: (v) => app.editLineLive(id, (c) => setLinePointValue(c, i, 'round', v.first, f)),
+            trailing: [ResetIconButton(onPressed: () => app.editLine(id, (c) => setLinePointValue(c, i, 'round', 0, f)))],
+          ),
+      ],
+    );
   }
 
   /// The ends of an open line and how it turns at its points.

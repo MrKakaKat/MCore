@@ -194,6 +194,7 @@ class NativeVideoService extends VideoService {
     int? quality,
     VideoProgress? onProgress,
     String? audioPath,
+    int audioKbps = 160,
   }) async {
     if (frameCount <= 0) throw ArgumentError('encodeStream needs at least one frame');
     // the encoders want even sides.
@@ -209,6 +210,7 @@ class NativeVideoService extends VideoService {
       'fps': fps,
       'bitrateKbps': kbps,
       'audioPcm': audioPath,
+      'audioKbps': audioKbps,
       'rate': audioSampleRate,
       'channels': audioChannels,
     });
@@ -261,9 +263,9 @@ class NativeAudioService implements AudioService {
   /// Opus in Ogg (Android 10+), else AAC in .m4a - the file actually
   /// written is returned.
   @override
-  Future<File> encodePcm(File pcm, String outputPath) async {
-    final path = await _m.call<String>(
-        'encodeAudioFile', {'pcm': pcm.path, 'path': outputPath, 'rate': audioSampleRate, 'channels': audioChannels});
+  Future<File> encodePcm(File pcm, String outputPath, {int kbps = 160}) async {
+    final path = await _m.call<String>('encodeAudioFile',
+        {'pcm': pcm.path, 'path': outputPath, 'rate': audioSampleRate, 'channels': audioChannels, 'kbps': kbps});
     return File(path ?? outputPath);
   }
 }

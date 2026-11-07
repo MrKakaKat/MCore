@@ -119,6 +119,43 @@ class _HomeScreenState extends State<HomeScreen> {
     if (meta != null) await _open(meta);
   }
 
+  /// Several picked (a long press starts it, taps add / take out): their
+  /// files' paths, shown tinted.
+  final Set<String> _picked = {};
+
+  void _togglePick(ProjectMeta p) => setState(() => _picked.contains(p.file.path) ? _picked.remove(p.file.path) : _picked.add(p.file.path));
+
+  Future<void> _deletePicked(List<ProjectMeta> all) async {
+    final ps = [for (final p in all) if (_picked.contains(p.file.path)) p];
+    if (ps.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Delete ${ps.length} projects?'),
+        content: Text('${ps.map((p) => p.name).join(', ')}. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(tr('Cancel'))),
+          TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(tr('Delete'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    for (final p in ps) {
+      await widget.store.delete(p.file);
+    }
+    await widget.store.cleanupVideos();
+    _picked.clear();
+    _refresh();
+  }
+
+  Future<void> _duplicatePicked(List<ProjectMeta> all) async {
+    for (final p in all) {
+      if (_picked.contains(p.file.path)) await widget.store.duplicate(p.file);
+    }
+    _picked.clear();
+    _refresh();
+  }
+
   Future<void> _duplicate(ProjectMeta meta) async {
     await widget.store.duplicate(meta.file);
     _refresh();
@@ -246,7 +283,30 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(tr('Projects')), actions: [
+      appBar: _picked.isNotEmpty
+          ? AppBar(
+              leading: IconButton(
+                key: const ValueKey('home-pick-clear'),
+                icon: const Icon(Icons.close),
+                onPressed: () => setState(_picked.clear),
+              ),
+              title: Text('${_picked.length} selected'),
+              actions: [
+                IconButton(
+                  key: const ValueKey('home-pick-duplicate'),
+                  icon: const Icon(Icons.copy_all_outlined),
+                  tooltip: tr('Duplicate'),
+                  onPressed: () async => _duplicatePicked(await _projects),
+                ),
+                IconButton(
+                  key: const ValueKey('home-pick-delete'),
+                  icon: const Icon(Icons.delete_outline),
+                  tooltip: tr('Delete'),
+                  onPressed: () async => _deletePicked(await _projects),
+                ),
+              ],
+            )
+          : AppBar(title: Text(tr('Projects')), actions: [
         IconButton(
           key: const ValueKey('home-settings'),
           icon: const Icon(Icons.settings_outlined),
@@ -300,11 +360,16 @@ class _HomeScreenState extends State<HomeScreen> {
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, i) {
               final p = projects[i];
+              final picked = _picked.contains(p.file.path);
               return ListTile(
+                key: ValueKey('home-project-$i'),
+                // picked: tinted half-see-through.
+                tileColor: picked ? Theme.of(context).colorScheme.primary.withOpacity(0.18) : null,
+                onLongPress: () => _togglePick(p),
                 leading: _AspectThumb(width: p.frameWidth, height: p.frameHeight),
                 title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: hint('${p.frameWidth.round()} × ${p.frameHeight.round()}  ·  ${_formatDate(p.modified)}'),
-                onTap: () => _open(p),
+                onTap: () => _picked.isNotEmpty ? _togglePick(p) : _open(p),
                 trailing: PopupMenuButton<String>(
                   onSelected: (action) => switch (action) {
                     'play' => _open(p, player: true),

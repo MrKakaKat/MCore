@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import '../effects/geometry_effect_registry.dart';
 import '../model/project.dart';
 import '../core/interpolation.dart' show evaluateTrack;
+import '../effects/builtins/origami_fold.dart' show origamiFoldLines, origamiScale;
 import 'contour.dart' show warpPoint, densifyRing;
 
 /// an image layer's content is placed exactly like a "rect" one
@@ -131,7 +132,7 @@ List<List<double>> getContentOutline(Content content, Layer? layer, int? globalF
     // physics and merge all take the rounded one.
     if (layer != null && content.shape == 'rect' && layer.fill.cornerRadius > 0) {
       final (rx, ry) = cornerRadii(layer, globalFrame, project: project);
-      return roundedRectRing(ox, oy, w, h, rx, ry, k: layer.fill.cornerShape);
+      return roundedRectRing(ox, oy, w, h, rx, ry, k: layer.fill.cornerShape, corners: layer.fill.cornersOn);
     }
     return [
       [ox - w / 2, oy - h / 2], [ox + w / 2, oy - h / 2],
@@ -163,6 +164,14 @@ List<List<double>> warpRingThroughEffects(Layer layer, Content content, List<Lis
     offset: [(bbox.minX + bbox.maxX) / 2, (bbox.minY + bbox.maxY) / 2],
     size: [math.max(1e-6, bbox.maxX - bbox.minX), math.max(1e-6, bbox.maxY - bbox.minY)],
   );
+  // point by point effects (origami): the outline goes through them
+  // exactly, no grid in between.
+  final inherits = inherited && project != null && deformingAncestors(project, layer, globalFrame).isNotEmpty;
+  if (deformsPointwise(layer) && !inherits) {
+    final diag = math.sqrt(math.pow(box.size[0], 2) + math.pow(box.size[1], 2));
+    final dense = ring.length < 3 ? ring : densifyRing(ring, diag / 120);
+    return applyEffectStack(layer, [dense], globalFrame, project: project).first;
+  }
   final src = buildEffectGrid(layer, box, globalFrame, project: project, n: 10);
   var dst = applyEffectStack(layer, [for (final row in src) [for (final p in row) [...p]]], globalFrame, project: project);
   if (inherited && project != null) dst = applyInheritedDeform(project, layer, dst, globalFrame);
@@ -194,9 +203,24 @@ List<List<double>> warpRingThroughEffects(Layer layer, Content content, List<Lis
 
 /// A rounded rect's outline: each corner a quarter ellipse (rx, ry).
 List<List<double>> roundedRectRing(double cx, double cy, double w, double h, double rx, double ry,
-    {int perCorner = 10, double k = 0.5523}) {
+    {int perCorner = 10, double k = 0.5523, List<bool>? corners}) {
   final x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2;
   final out = <List<double>>[];
+  // some corners sharp: those are just their point.
+  if (corners != null && corners.any((c) => !c)) {
+    final pts = [
+      [x0, y0],
+      [x1, y0],
+      [x1, y1],
+      [x0, y1]
+    ];
+    final full = roundedRectRing(cx, cy, w, h, rx, ry, perCorner: perCorner, k: k);
+    final per = full.length ~/ 4;
+    for (var i = 0; i < 4; i++) {
+      corners[i] ? out.addAll(full.sublist(i * per, (i + 1) * per)) : out.add(pts[i]);
+    }
+    return out;
+  }
   // a circle's quarter (the usual shape) - or, with another shape factor,
   // a bezier between the two touching points with handles `k` of the way
   // to the corner.
@@ -302,4 +326,111 @@ List<List<double>> layerShapePoints(Layer layer) {
   if (f.cornerRadius <= 0 && f.outerRadius <= 0) return pts;
   if (isRectLikeShape(layer.content.shape) || layer.content.shape == 'circle') return pts;
   return roundRingCorners(pts, f.cornerRadius, f.outerRadius, k: f.cornerShape);
+}
+
+/// The shape's own outline, flat (content space): a rect's four corners
+/// (its rounded corners too), a polygon's points with their rounding.
+List<List<double>> layerFlatOutline(Layer layer, {int? globalFrame, Project? project}) {
+  final c = layer.content;
+  if (c.shape == 'rect') {
+    if (layer.fill.cornerRadius > 0) {
+      final (rx, ry) = cornerRadii(layer, globalFrame, project: project);
+      return roundedRectRing(c.offset[0], c.offset[1], c.size[0], c.size[1], rx, ry,
+          k: layer.fill.cornerShape, corners: layer.fill.cornersOn);
+    }
+    final w = c.size[0] / 2, h = c.size[1] / 2;
+    return [
+      [c.offset[0] - w, c.offset[1] - h], [c.offset[0] + w, c.offset[1] - h],
+      [c.offset[0] + w, c.offset[1] + h], [c.offset[0] - w, c.offset[1] + h],
+    ];
+  }
+  return layerShapePoints(layer);
+}
+
+/// An outline under origami, in pieces: cut along every crease (the
+/// pieces are the paper's parts), each folded point by point and turned
+/// back the right way round where its part lies face down - so parts that
+/// fold over each other add up instead of cancelling. Holes (a ring the
+/// other way round) stay holes. Null when the layer has no origami to do
+/// this for (or a parent's deformation joins in).
+List<List<List<double>>>? origamiRingPieces(Layer layer, List<List<double>> ring, int globalFrame, {Project? project}) {
+  if (!deformsPointwise(layer)) return null;
+  if (project != null && deformingAncestors(project, layer, globalFrame).isNotEmpty) return null;
+  final lf = math.min(layer.durationFrames, math.max(0, layerTimeFrame(layer, globalFrame) - layer.startFrame)).toDouble();
+  final rest = buildGrid(layer.content, 2, 2);
+  final bb = shapeBoundingBox(layer.content);
+  // the creases on the flat shape, content space.
+  final cuts = <(List<double>, List<double>)>[];
+  for (final inst in layer.effectStack) {
+    if (!inst.enabled || inst.effectId != 'origami_fold' || !effectActiveAt(layer, inst.id, lf)) continue;
+    final params = resolveEffectParams(inst, lf)..['_box'] = [bb.minX, bb.minY, bb.maxX, bb.maxY];
+    for (final l in origamiFoldLines(params, rest, scale: origamiScale(layer, lf), flat: true)) {
+      cuts.add((l.a, l.b));
+    }
+  }
+  final diag = math.sqrt(math.pow(bb.maxX - bb.minX, 2) + math.pow(bb.maxY - bb.minY, 2));
+  var cells = <List<List<double>>>[ring];
+  for (final (a, b) in cuts) {
+    final next = <List<List<double>>>[];
+    for (final c in cells) {
+      for (final side in const [1.0, -1.0]) {
+        final piece = _clipHalfPlane(c, a, b, side);
+        if (piece.length >= 3) next.add(piece);
+      }
+    }
+    cells = next;
+  }
+  final out = <List<List<double>>>[];
+  for (final c in cells) {
+    final dense = densifyRing(c, diag / 120);
+    var mapped = applyEffectStack(layer, [dense], globalFrame, project: project).first;
+    // which way round the part lies now: a small triangle inside it.
+    final o = _insidePoint(c);
+    if (o != null) {
+      final e = diag / 1000;
+      final tri = applyEffectStack(layer, [
+        [o, [o[0] + e, o[1]], [o[0], o[1] + e]]
+      ], globalFrame, project: project)
+          .first;
+      final area = (tri[1][0] - tri[0][0]) * (tri[2][1] - tri[0][1]) - (tri[2][0] - tri[0][0]) * (tri[1][1] - tri[0][1]);
+      if (area < 0) mapped = mapped.reversed.toList();
+    }
+    out.add(mapped);
+  }
+  return out;
+}
+
+/// The part of ring `r` on one side (`side` +1 / -1) of the line a-b.
+List<List<double>> _clipHalfPlane(List<List<double>> r, List<double> a, List<double> b, double side) {
+  double f(List<double> p) => side * ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]));
+  final out = <List<double>>[];
+  for (var i = 0; i < r.length; i++) {
+    final p = r[i], q = r[(i + 1) % r.length];
+    final fp = f(p), fq = f(q);
+    if (fp >= 0) out.add(p);
+    if ((fp >= 0) != (fq >= 0)) {
+      final t = fp / (fp - fq);
+      out.add([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+    }
+  }
+  return out;
+}
+
+/// A point inside a ring (not on its edge), or null for a sliver.
+List<double>? _insidePoint(List<List<double>> r) {
+  // the middle of a scanline through the ring's middle height.
+  final ys = r.map((p) => p[1]);
+  final y = (ys.reduce(math.min) + ys.reduce(math.max)) / 2;
+  final xs = <double>[];
+  for (var i = 0; i < r.length; i++) {
+    final p = r[i], q = r[(i + 1) % r.length];
+    if ((p[1] <= y) != (q[1] <= y)) xs.add(p[0] + (y - p[1]) / (q[1] - p[1]) * (q[0] - p[0]));
+  }
+  if (xs.length < 2) return null;
+  xs.sort();
+  var best = 0;
+  for (var i = 0; i + 1 < xs.length; i += 2) {
+    if (xs[i + 1] - xs[i] > xs[best + 1] - xs[best]) best = i;
+  }
+  return [(xs[best] + xs[best + 1]) / 2, y];
 }

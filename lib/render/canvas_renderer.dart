@@ -878,11 +878,14 @@ class CanvasRenderer implements Renderer {
       final c = layer.content;
       List<List<double>> warp(List<List<double>> ring) =>
           warpRingThroughEffects(layer, c, ring, globalFrame, project: project, inherited: true);
+      // origami: in pieces (its parts), so folded-over parts don't cancel.
+      List<List<List<double>>> pieces(List<List<double>> ring) =>
+          origamiRingPieces(layer, ring, globalFrame, project: project) ?? [warp(ring)];
       // text: its letters (and block) through the warp, still vectors.
       // (no early return: the layer is finished below, masks and all.)
       if (c.shape == 'text') {
         _withGlows(contentCanvas, project, layer, globalFrame, deviceScale, () {
-          _textWarp = warp;
+          _textWarp = pieces;
           try {
             _drawVectorContent(contentCanvas, layer, color, outline, localFrameOp, project);
           } finally {
@@ -899,7 +902,11 @@ class CanvasRenderer implements Renderer {
             if (join != null && join.length == rings.length && join[i]) continue;
             final path = ui.Path();
             for (var j = i; j < rings.length && (j == i || (join != null && join.length == rings.length && join[j])); j++) {
-              if (rings[j].length >= 3) path.addPolygon([for (final q in warp(rings[j])) ui.Offset(q[0], q[1])], true);
+              if (rings[j].length >= 3) {
+                for (final piece in pieces(rings[j])) {
+                  path.addPolygon([for (final q in piece) ui.Offset(q[0], q[1])], true);
+                }
+              }
             }
             final own = cc != null && cc.length == rings.length ? _parseColor(cc[i]) : null;
             final col = own == null ? color : own.withOpacity(own.opacity * color.opacity);
@@ -922,7 +929,11 @@ class CanvasRenderer implements Renderer {
               ]
             : layerShapePoints(layer);
         if (ring.length < 3) return;
-        contentCanvas.drawPath(_pathFromPoints(warp(ring), close: true), outline ? strokePaint : fillPaint);
+        final path = ui.Path()..fillType = ui.PathFillType.nonZero;
+        for (final piece in pieces(ring)) {
+          path.addPolygon([for (final q in piece) ui.Offset(q[0], q[1])], true);
+        }
+        contentCanvas.drawPath(path, outline ? strokePaint : fillPaint);
       });
       }
     } else if (isTextured) {
@@ -971,6 +982,20 @@ class CanvasRenderer implements Renderer {
     } else if (layer.content.shape == 'rect' || layer.content.shape == 'line') {
       _withGlows(contentCanvas, project, layer, globalFrame, deviceScale, () {
         final needsSub = needsSubdivision;
+        // a rect under origami: its own outline (rounded corners too), in
+        // the paper's pieces - exact, not a grid.
+        if (needsSub && layer.content.shape == 'rect') {
+          final ring = layerFlatOutline(layer, globalFrame: globalFrame, project: project);
+          final parts = origamiRingPieces(layer, ring, globalFrame, project: project);
+          if (parts != null) {
+            final path = ui.Path()..fillType = ui.PathFillType.nonZero;
+            for (final piece in parts) {
+              path.addPolygon([for (final q in piece) ui.Offset(q[0], q[1])], true);
+            }
+            contentCanvas.drawPath(path, outline ? strokePaint : fillPaint);
+            return;
+          }
+        }
         var grid = needsSub
             ? buildEffectGrid(layer, layer.content, globalFrame, project: project)
             : buildGrid(layer.content, 2, 2);
@@ -978,11 +1003,13 @@ class CanvasRenderer implements Renderer {
         // rounded corners (Fill tab) on an undeformed rect.
         final radius = layer.fill.cornerRadius;
         if (radius > 0 && !needsSub && layer.content.shape == 'rect') {
-          if ((layer.fill.cornerShape - circleRoundK).abs() > 1e-4) {
+          if ((layer.fill.cornerShape - circleRoundK).abs() > 1e-4 || layer.fill.cornersOn.any((c) => !c)) {
             final c = layer.content;
             final (rx, ry) = cornerRadii(layer, _radiiFrame, project: _radiiProject);
             contentCanvas.drawPath(
-                _pathFromPoints(roundedRectRing(c.offset[0], c.offset[1], c.size[0], c.size[1], rx, ry, k: layer.fill.cornerShape),
+                _pathFromPoints(
+                    roundedRectRing(c.offset[0], c.offset[1], c.size[0], c.size[1], rx, ry,
+                        k: layer.fill.cornerShape, corners: layer.fill.cornersOn),
                     close: true),
                 outline ? strokePaint : fillPaint);
             return;
@@ -1248,7 +1275,7 @@ class CanvasRenderer implements Renderer {
 
   /// While a text under a deforming effect is drawn: each outline goes
   /// through the effect grid point by point (the letters stay vectors).
-  List<List<double>> Function(List<List<double>>)? _textWarp;
+  List<List<List<double>>> Function(List<List<double>>)? _textWarp;
 
   ui.Path _pathFromCmds(List<PathCmd> cmds) {
     final warp = _textWarp;
@@ -1256,7 +1283,10 @@ class CanvasRenderer implements Renderer {
       // curves flattened, then every point carried through the warp.
       final path = ui.Path()..fillType = ui.PathFillType.nonZero;
       for (final ring in flattenPath(cmds, segments: 10)) {
-        if (ring.length >= 2) path.addPolygon([for (final q in warp(ring)) ui.Offset(q[0], q[1])], true);
+        if (ring.length < 2) continue;
+        for (final piece in warp(ring)) {
+          path.addPolygon([for (final q in piece) ui.Offset(q[0], q[1])], true);
+        }
       }
       return path;
     }
@@ -1533,7 +1563,11 @@ class CanvasRenderer implements Renderer {
                 [box.left, box.top], [box.right, box.top], [box.right, box.bottom], [box.left, box.bottom]
               ];
         // densified so the warp bends its edges.
-        canvas.drawPath(_pathFromPoints(_textWarp!(densifyRing(ring, math.max(box.width, box.height) / 24)), close: true), paint);
+        final bg = ui.Path();
+        for (final piece in _textWarp!(densifyRing(ring, math.max(box.width, box.height) / 24))) {
+          bg.addPolygon([for (final q in piece) ui.Offset(q[0], q[1])], true);
+        }
+        canvas.drawPath(bg, paint);
       } else if (r <= 0) {
         canvas.drawRect(box, paint);
       } else if ((t.background.radiusShape - circleRoundK).abs() < 1e-4) {
@@ -1600,7 +1634,13 @@ class CanvasRenderer implements Renderer {
     final c = layer.content;
     final r = ui.Rect.fromCenter(center: ui.Offset(c.offset[0], c.offset[1]), width: c.size[0], height: c.size[1]);
     final (rx, ry) = cornerRadii(layer, _radiiFrame, project: _radiiProject);
-    return ui.RRect.fromRectXY(r, rx, ry);
+    final on = layer.fill.cornersOn;
+    final rad = ui.Radius.elliptical(rx, ry);
+    return ui.RRect.fromRectAndCorners(r,
+        topLeft: on[0] ? rad : ui.Radius.zero,
+        topRight: on[1] ? rad : ui.Radius.zero,
+        bottomRight: on[2] ? rad : ui.Radius.zero,
+        bottomLeft: on[3] ? rad : ui.Radius.zero);
   }
 
   /// The outline a shape's shadow takes (content-local); null for content

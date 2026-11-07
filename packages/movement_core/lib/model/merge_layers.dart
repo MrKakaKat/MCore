@@ -17,6 +17,7 @@ import '../core/interpolation.dart' show evaluateTrack;
 import 'project.dart';
 import 'layer_ops.dart' show reparentPreservingWorldPosition;
 import 'timeline_rows.dart' show normalizeTimelineRows;
+import 'line_path.dart' show isNodeLine, lineOutlineRings;
 
 /// Why `layer` can't be merged, or null if it can.
 String? mergeBlocker(Layer layer) {
@@ -125,7 +126,11 @@ Layer? mergeLayers(Project project, List<Layer> layers, String newId, int global
         ? (layerVectorRings(project, l, globalFrame) ?? const <List<List<double>>>[])
         : c.shape == 'compound' && c.contours != null
             ? c.contours!
-            : [getContentOutline(c, l, globalFrame, project: project)];
+            // a line: its drawn outline (the stroke's edge, or its fill),
+            // not its box.
+            : isNodeLine(c)
+                ? lineOutlineRings(c, frame: layerLocalFrame(l, globalFrame))
+                : [getContentOutline(c, l, globalFrame, project: project)];
     var first = true;
     for (var li = 0; li < locals.length; li++) {
       final poly = locals[li];

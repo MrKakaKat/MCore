@@ -56,7 +56,8 @@ class LinksView extends StatelessWidget {
             ]),
             const Hint('One property of this layer moves with one property of another layer - its change since '
                 'this layer starts, times the factor. A linked layer can drive the next one: a chain.'),
-            for (var i = 0; i < layer.links.length; i++) () {
+            for (var i = 0; i < layer.links.length; i++)
+              if (!layer.links[i].fromSound) () {
               final k = layer.links[i];
               return Card(
                 key: ValueKey('link-$i'),
@@ -136,9 +137,104 @@ class LinksView extends StatelessWidget {
                 ),
               );
             }(),
+            const Divider(height: 24),
+            _soundSection(context, layer, set),
           ],
         );
       },
     );
+  }
+
+  /// Sound: a property of this layer follows how loud an audio layer is.
+  Widget _soundSection(BuildContext context, Layer layer, void Function(void Function()) set) {
+    final sounds = [for (final l in app.project.layers) if (isAudioShape(l.content.shape)) l];
+    const defaults = {
+      'x': (0.0, 30.0), 'y': (0.0, -30.0), 'rotation': (0.0, 15.0),
+      'scaleX': (0.0, 0.3), 'scaleY': (0.0, 0.3), 'opacity': (-0.6, 0.0),
+    };
+    Widget num(String key, String label, double v, void Function(double) on) => Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(label, style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 4),
+          SizedBox(width: 64, child: NumField(key: ValueKey(key), value: v, onCommit: (x) => set(() => on(x)))),
+        ]);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        const Expanded(child: Text('Driven by sound', style: TextStyle(fontWeight: FontWeight.bold))),
+        TextButton.icon(
+          key: const ValueKey('sound-link-add'),
+          icon: const Icon(Icons.add, size: 16),
+          label: const Text('Add'),
+          onPressed: sounds.isEmpty
+              ? null
+              : () => set(() => layer.links.add(PropLink(
+                  from: 'sound', to: 'scaleX', sourceId: sounds.first.id, min: defaults['scaleX']!.$1, max: defaults['scaleX']!.$2))),
+        ),
+      ]),
+      Hint(sounds.isEmpty
+          ? 'Add a sound to the project first.'
+          : 'How loud the sound is moves a property: silent gives "quiet", loudest gives "loud" (added to its own value).'),
+      for (var i = 0; i < layer.links.length; i++)
+        if (layer.links[i].fromSound) () {
+          final k = layer.links[i];
+          return Card(
+            key: ValueKey('sound-link-$i'),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Checkbox(value: k.enabled, onChanged: (v) => set(() => k.enabled = v ?? true)),
+                  const Icon(Icons.music_note, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: DropdownButton<String?>(
+                      key: ValueKey('sound-link-source-$i'),
+                      isExpanded: true,
+                      value: sounds.any((l) => l.id == k.sourceId) ? k.sourceId : null,
+                      items: [for (final l in sounds) DropdownMenuItem<String?>(value: l.id, child: Text(l.name, overflow: TextOverflow.ellipsis))],
+                      onChanged: (id) => set(() => k.sourceId = id),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 16),
+                    tooltip: 'remove',
+                    onPressed: () => set(() => layer.links.removeAt(i)),
+                  ),
+                ]),
+                Wrap(spacing: 10, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  DropdownButton<String>(
+                    key: ValueKey('sound-link-to-$i'),
+                    value: k.to,
+                    items: [for (final p in linkProps) DropdownMenuItem(value: p, child: Text('changes ${_propNames[p]}'))],
+                    onChanged: (v) => set(() {
+                      if (v == null || v == k.to) return;
+                      k.to = v;
+                      k.min = defaults[v]!.$1;
+                      k.max = defaults[v]!.$2;
+                    }),
+                  ),
+                  num('sound-link-min-$i', 'quiet', k.min, (x) => k.min = x),
+                  num('sound-link-max-$i', 'loud', k.max, (x) => k.max = x),
+                ]),
+                Row(children: [
+                  const Text('Smoothing', style: TextStyle(fontSize: 12)),
+                  Expanded(
+                    child: Slider(
+                      key: ValueKey('sound-link-smooth-$i'),
+                      value: k.smooth.clamp(0.0, 1.0),
+                      onChangeStart: (_) => app.pushUndo(),
+                      onChanged: (v) {
+                        k.smooth = v;
+                        app.commitEdit();
+                      },
+                    ),
+                  ),
+                  Text('${(k.smooth * 100).round()}%', style: const TextStyle(fontSize: 12)),
+                ]),
+                const Hint('More smoothing: it follows the music\'s swell instead of every beat and noise.'),
+              ]),
+            ),
+          );
+        }(),
+    ]);
   }
 }

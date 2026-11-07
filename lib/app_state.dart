@@ -473,7 +473,8 @@ class AppState extends ChangeNotifier {
   void _prepareAudioSoon() {
     if (audioStore == null || playing || !hasAudio) return;
     _audioPrepTimer?.cancel();
-    _audioPrepTimer = Timer(const Duration(milliseconds: 800), () {
+    // (a while after the last edit: dragging sound around stays light.)
+    _audioPrepTimer = Timer(const Duration(milliseconds: 1500), () {
       if (playing || _loadedMixKey == _audioMixKey()) return;
       unawaited(_loadMix(_playSession).then((_) {}, onError: (Object e) {
         audioError = '$e';
@@ -870,6 +871,8 @@ class AppState extends ChangeNotifier {
   Timer? _autosaveTimer;
 
   AppState() {
+    // sound links read the sounds' waveforms through this.
+    soundPeaksProvider = audioPeaks;
     // the user's own ruler stations are kept with the app's settings.
     ParamEditor.onStationsChanged = () => setAppPreference('paramStations', jsonEncode(ParamEditor.stations));
     registerBuiltinEffects();
@@ -1237,6 +1240,52 @@ class AppState extends ChangeNotifier {
     lineSelectedPoint = 1;
     centerLinePivot(project, branch, currentFrame);
     commitEdit();
+  }
+
+  /// Origami "through two points": the effect and fold waiting for its two
+  /// points (layer-local, snapped to the shape's corners), and those so far.
+  ({String instId, int n, List<List<double>> points})? origamiPick;
+
+  void startOrigamiPick(String instId, int n) {
+    origamiPick = origamiPick == null ? (instId: instId, n: n, points: <List<double>>[]) : null;
+    notifyListeners();
+  }
+
+  /// A tap while picking: the nearest corner of the shape within reach
+  /// (else the spot); the second one sets the fold. True: it was taken.
+  bool origamiPickTap(List<double> fp, double reachFrame) {
+    final pick = origamiPick;
+    if (pick == null) return false;
+    final l = findLayer(project, selection.selectedLayer);
+    final inst = l?.effectStack.where((i) => i.id == pick.instId).firstOrNull;
+    if (l == null || inst == null) {
+      origamiPick = null;
+      notifyListeners();
+      return true;
+    }
+    final m = getTransformBoxHandles(project, l, currentFrame).mCanvas;
+    var p = applyAffine(invertAffine(m), fp);
+    final k = math.sqrt((m[0] * m[3] - m[1] * m[2]).abs());
+    var best = k <= 1e-9 ? 0.0 : reachFrame / k;
+    for (final q in layerFlatOutline(l)) {
+      final d = math.sqrt(math.pow(q[0] - p[0], 2) + math.pow(q[1] - p[1], 2));
+      if (d < best) {
+        best = d;
+        p = q;
+      }
+    }
+    pick.points.add(p);
+    if (pick.points.length >= 2) {
+      pushUndo();
+      final lf = layerLocalFrame(l, currentFrame).round();
+      origamiFoldThrough(inst, buildGrid(l.content, 2, 2), pick.n, pick.points[0], pick.points[1], lf,
+          (t, f, v) => setTrackValueAt(t, f, v));
+      origamiPick = null;
+      commitEdit();
+      return true;
+    }
+    notifyListeners();
+    return true;
   }
 
   /// Line tab: the line splits in two at the selected point (a loop opens
@@ -2424,14 +2473,53 @@ class AppState extends ChangeNotifier {
 
   void startPlacing(String shape) {
     pendingPlaceShape = shape;
-    stageNotice.value = shape == 'line' ? 'Drag on the stage: where the line starts and ends' : 'Drag a box on the stage for it';
+    _pendingLinePoint = null;
+    stageNotice.value =
+        shape == 'line' ? 'Tap the stage: each tap is a point of the line (Done when finished)' : 'Drag a box on the stage for it';
     notifyListeners();
   }
 
   void cancelPlacing() {
     pendingPlaceShape = null;
+    _pendingLinePoint = null;
     notifyListeners();
   }
+
+  /// Shapes window: a drawn box stays square.
+  bool placeSquare = false;
+
+  /// Drawing a line by taps: its first point, waiting for the second.
+  List<double>? _pendingLinePoint;
+
+  /// A tap while drawing a line: the first tap marks the start, the second
+  /// makes the line (the usual width); more taps add points until Done.
+  void placeLinePoint(List<double> p) {
+    final first = _pendingLinePoint;
+    if (first == null) {
+      _pendingLinePoint = p;
+      notifyListeners();
+      return;
+    }
+    if ((first[0] - p[0]).abs() < 2 && (first[1] - p[1]).abs() < 2) return;
+    _pendingLinePoint = null;
+    pendingPlaceShape = null;
+    addLayer('line');
+    final l = project.layers.last;
+    final cx = (first[0] + p[0]) / 2, cy = (first[1] + p[1]) / 2;
+    final anchor = anchorLocalFromScreen(project, l, cx, cy, currentFrame);
+    setTrackValueAt(l.transform.anchor, layerLocalFrame(l, currentFrame).round(), anchor);
+    clearStateCaches();
+    final c = l.content
+      ..lineNodes = [LineNode(first[0] - cx, first[1] - cy), LineNode(p[0] - cx, p[1] - cy)]
+      ..lineWidth = 4;
+    syncLineBox(c);
+    lineSelectedPoint = 1;
+    lineTapAdd = true;
+    commitEdit();
+  }
+
+  /// The first tapped point of a line being drawn (the stage marks it).
+  List<double>? get pendingLinePoint => _pendingLinePoint;
 
   /// The new shape in the frame box from `a` to `b` (frame px).
   void placeShapeIn(List<double> a, List<double> b) {
@@ -3828,9 +3916,11 @@ class AppState extends ChangeNotifier {
     'snapLineAngle': (() => snapLineAngleEnabled, (v) => snapLineAngleEnabled = v as bool, true),
     'snapLineLength': (() => snapLineLengthEnabled, (v) => snapLineLengthEnabled = v as bool, true),
     'snapLinePoints': (() => snapLinePointsEnabled, (v) => snapLinePointsEnabled = v as bool, true),
+    'rectExtendMode': (() => rectExtendMode, (v) => rectExtendMode = v as bool, false),
     'scaleKeepsOppositeEdge': (() => scaleKeepsOppositeEdge, (v) => scaleKeepsOppositeEdge = v as bool, false),
     'lineHandlesMirrored': (() => lineHandlesMirrored, (v) => lineHandlesMirrored = v as bool, true),
     'placeOnStage': (() => placeOnStage, (v) => placeOnStage = v as bool, false),
+    'placeSquare': (() => placeSquare, (v) => placeSquare = v as bool, false),
     'resizeEvenly': (() => resizeEvenly, (v) => resizeEvenly = v as bool, true),
     'groupKeepsShape': (() => groupKeepsShape, (v) => groupKeepsShape = v as bool, true),
     'stageMultiSelect': (() => stageMultiSelect, (v) => stageMultiSelect = v as bool, false),

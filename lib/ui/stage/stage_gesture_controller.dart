@@ -300,19 +300,22 @@ class StageGestureController {
         final d = _dist(fp, f.mid);
         if (d < bestDist) {
           bestDist = d;
-          best = ActiveDragInfo(family: 'origami', activeKey: '${f.inst.id}:${f.key}', op: OrigamiFoldDragOp(layer, f.inst, f.key));
+          best = ActiveDragInfo(family: 'origami', activeKey: '${f.inst.id}:${f.key}', op: OrigamiFoldDragOp(layer, f.inst, f.key, f.n));
         }
       }
       for (final h in origamiDirectionHandlesFrame(project, layer, globalFrame)) {
         final d = _dist(fp, h.p);
         if (d < bestDist) {
           bestDist = d;
-          best = ActiveDragInfo(family: 'origami', activeKey: '${h.inst.id}:direction', op: OrigamiDirectionDragOp(layer, h.inst));
+          best = ActiveDragInfo(
+              family: 'origami', activeKey: '${h.inst.id}:${h.n}:direction', op: OrigamiDirectionDragOp(layer, h.inst, h.n));
         }
       }
     }
     // Fill tab: a rect's / triangle's / polygon's rounding handles.
-    if (cornerHandlesVisible && !isNodeLine(layer.content)) {
+    if (cornerHandlesVisible &&
+        !isNodeLine(layer.content) &&
+        layerShortSideFrame(project, layer, globalFrame) * camera.scale * camera.fitScale >= 140) {
       for (final e in roundHandlesFrame(project, layer, globalFrame).entries) {
         final d = _dist(fp, e.value);
         if (d < bestDist) {
@@ -485,6 +488,12 @@ class StageGestureController {
 
     if (marqueeA != null && event.pointer == _primaryPointerId) {
       marqueeB = event.localPosition;
+      // a new shape kept square: the box's longer side both ways.
+      if (app.pendingPlaceShape != null && app.pendingPlaceShape != 'line' && app.placeSquare) {
+        final d = event.localPosition - marqueeA!;
+        final s = math.max(d.dx.abs(), d.dy.abs());
+        marqueeB = marqueeA! + ui.Offset(d.dx < 0 ? -s : s, d.dy < 0 ? -s : s);
+      }
       if ((event.localPosition - marqueeA!).distance > 8) _primaryMovedPastTapThreshold = true;
       onNeedsRepaint();
       return;
@@ -552,7 +561,12 @@ class StageGestureController {
       _primaryPointerId = null;
       _primaryDownScreen = null;
       _primaryMovedPastTapThreshold = false;
-      app.placeShapeIn([a.dx, a.dy], [b.dx, b.dy]);
+      // a line: each tap is one of its points.
+      if (app.pendingPlaceShape == 'line') {
+        app.placeLinePoint([b.dx, b.dy]);
+      } else {
+        app.placeShapeIn([a.dx, a.dy], [b.dx, b.dy]);
+      }
       onNeedsRepaint();
       return;
     }
@@ -694,6 +708,11 @@ class StageGestureController {
 
   void _handleTap(ui.Offset screenPos) {
     final fp = camera.screenToFrame(screenPos);
+    // Origami, "through two points": the taps are its points.
+    if (app.origamiPickTap([fp.dx, fp.dy], camera.radiusInFrameSpace(18))) {
+      onNeedsRepaint();
+      return;
+    }
     // adding a line's points by tapping (Line tab).
     if (app.lineTapAdd) {
       final sel = findLayer(app.project, app.selection.selectedLayer);

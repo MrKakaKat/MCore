@@ -447,32 +447,8 @@ void paintChromaLoupe(ui.Canvas canvas, ChromaLoupe loupe) {
           ..style = ui.PaintingStyle.stroke
           ..strokeWidth = 1);
   }
-  // the picked colour's code, live, on a tag under the loupe.
-  final col = loupe.color;
-  if (col != null) {
-    final hex = '#${(col.value & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
-    final pb = ui.ParagraphBuilder(ui.ParagraphStyle(fontSize: 12, textAlign: ui.TextAlign.center))
-      ..pushStyle(ui.TextStyle(color: const ui.Color(0xFFFFFFFF)))
-      ..addText(hex);
-    final para = pb.build()..layout(const ui.ParagraphConstraints(width: 72));
-    final tag = ui.Rect.fromCenter(center: c + const ui.Offset(0, r + 18), width: 76, height: 20);
-    canvas.drawRRect(ui.RRect.fromRectAndRadius(tag, const ui.Radius.circular(6)),
-        ui.Paint()..color = const ui.Color(0xCC000000));
-    canvas.drawRect(ui.Rect.fromLTWH(tag.left + 4, tag.top + 4, 12, 12), ui.Paint()..color = col);
-    canvas.drawParagraph(para, ui.Offset(tag.left + 8, tag.top + 3));
-    // and in the top-left corner, under the back button, where the finger
-    // never covers it.
-    const corner = ui.Rect.fromLTWH(8, 56, 96, 26);
-    canvas.drawRRect(ui.RRect.fromRectAndRadius(corner, const ui.Radius.circular(6)),
-        ui.Paint()..color = const ui.Color(0xCC000000));
-    canvas.drawRect(ui.Rect.fromLTWH(corner.left + 6, corner.top + 6, 14, 14), ui.Paint()..color = col);
-    final big = (ui.ParagraphBuilder(ui.ParagraphStyle(fontSize: 13))
-          ..pushStyle(ui.TextStyle(color: const ui.Color(0xFFFFFFFF)))
-          ..addText(hex))
-        .build()
-      ..layout(const ui.ParagraphConstraints(width: 80));
-    canvas.drawParagraph(big, ui.Offset(corner.left + 26, corner.top + 5));
-  }
+  // the picked colour's code shows in the corner, after the layer's name
+  // (stage_view).
 }
 
 /// Masks tab: how the selected layer's masks work, drawn on the stage.
@@ -1045,13 +1021,25 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
       ..color = const ui.Color(0xCCFFD54F)
       ..strokeWidth = 1.5 * inv;
     for (final f in origamiFoldLinesFrame(project, layer, globalFrame)) {
-      // dashed
-      final dx = f.b[0] - f.a[0], dy = f.b[1] - f.a[1];
-      final len = math.sqrt(dx * dx + dy * dy);
+      // dashed, along its points (it bends where it lies on a flap).
       final step = 8 * inv;
-      for (var d = 0.0; d < len; d += step * 2) {
-        final t0 = d / len, t1 = math.min(1.0, (d + step) / len);
-        canvas.drawLine(ui.Offset(f.a[0] + dx * t0, f.a[1] + dy * t0), ui.Offset(f.a[0] + dx * t1, f.a[1] + dy * t1), line);
+      var on = true, left = step;
+      for (var i = 0; i + 1 < f.pts.length; i++) {
+        var a = ui.Offset(f.pts[i][0], f.pts[i][1]);
+        final b = ui.Offset(f.pts[i + 1][0], f.pts[i + 1][1]);
+        var seg = (b - a).distance;
+        while (seg > 1e-9) {
+          final d = math.min(seg, left);
+          final c = a + (b - a) / (b - a).distance * d;
+          if (on) canvas.drawLine(a, c, line);
+          a = c;
+          seg -= d;
+          left -= d;
+          if (left <= 1e-9) {
+            on = !on;
+            left = step;
+          }
+        }
       }
       final active = activeDrag?.family == 'origami' && activeDrag?.activeKey == '${f.inst.id}:${f.key}';
       canvas.drawCircle(ui.Offset(f.mid[0], f.mid[1]), 6 * inv, ui.Paint()..color = const ui.Color(0xFFFFD54F));
@@ -1059,7 +1047,7 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
     }
     // at one end of the first fold: a turn handle (the folds' direction).
     for (final h in origamiDirectionHandlesFrame(project, layer, globalFrame)) {
-      final active = activeDrag?.family == 'origami' && activeDrag?.activeKey == '${h.inst.id}:direction';
+      final active = activeDrag?.family == 'origami' && activeDrag?.activeKey == '${h.inst.id}:${h.n}:direction';
       final c = ui.Offset(h.p[0], h.p[1]);
       canvas.drawCircle(c, 6.5 * inv, ui.Paint()..color = const ui.Color(0xFFFFD54F));
       canvas.drawCircle(
@@ -1088,7 +1076,8 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
             ..strokeWidth = 1 * inv);
     }
   }
-  if (cornerHandlesVisible && !isNodeLine(layer.content)) {
+  // only big enough on the screen to grab them apart from the box's own.
+  if (cornerHandlesVisible && !isNodeLine(layer.content) && layerShortSideFrame(project, layer, globalFrame) / inv >= 140) {
     final rh = roundHandlesFrame(project, layer, globalFrame);
     final paint = ui.Paint()
       ..color = const ui.Color(0xFFFF8A65)

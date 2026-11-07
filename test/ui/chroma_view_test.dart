@@ -106,6 +106,6 @@ void main() {
     expect(at(160, 92), [0, 0, 255], reason: 'right of centre: the blue half');
     expect(at(140, 92 - 41), [0, 255, 0], reason: 'the ring shows the picked colour');
     expect(px.getUint8((185 * 200 + 140) * 4 + 3), 0, reason: 'nothing under the finger');
-    expect(at(14, 69), [0, 255, 0], reason: 'the colour also in the top-left corner');
+    // the colour's code is in the stage's corner blocks now, not drawn here.
   });
 }

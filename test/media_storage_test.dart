@@ -284,7 +284,7 @@ class _FakeEncoders extends VideoService implements AudioService {
   }
 
   @override
-  Future<File> encodePcm(File pcm, String outputPath) async {
+  Future<File> encodePcm(File pcm, String outputPath, {int kbps = 160}) async {
     audioEncodes++;
     return File(outputPath)..writeAsBytesSync(List.filled(pcm.lengthSync() ~/ 20, 2));
   }

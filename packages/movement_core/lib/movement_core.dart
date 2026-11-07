@@ -10,7 +10,26 @@ export 'core/stage_size.dart';
 export 'core/state_cache.dart';
 export 'effects/builtins/builtins.dart';
 export 'effects/builtins/outline.dart' show outlineSmoothness;
-export 'effects/builtins/origami_fold.dart' show origamiGrid, origamiFoldKeys, addOrigamiFold, removeOrigamiFold, origamiFoldsOnStage, origamiFoldLines, origamiPositionAt, origamiAngleStops, origamiPositionStops, origamiDirectionAt, origamiScale;
+export 'effects/builtins/origami_fold.dart'
+    show
+        origamiGrid,
+        origamiFoldKeys,
+        origamiFolds,
+        OrigamiFoldKeys,
+        origamiFoldOf,
+        origamiRegion,
+        setOrigamiRegion,
+        origamiFoldThrough,
+        origamiLinesOnFlat,
+        addOrigamiFold,
+        removeOrigamiFold,
+        origamiFoldsOnStage,
+        origamiFoldLines,
+        origamiPositionAt,
+        origamiAngleStops,
+        origamiPositionStops,
+        origamiDirectionAt,
+        origamiScale;
 export 'effects/builtins/bend_arc.dart' show isBendV2, convertLegacyBend, bendFrameFor, bendMap, BendFrame, applyBendGroup, bendPhysicsAngle, bendChord, gridBox;
 export 'effects/chroma_key.dart';
 export 'effects/geometry_effect_registry.dart';

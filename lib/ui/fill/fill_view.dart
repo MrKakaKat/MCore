@@ -193,6 +193,20 @@ class _FillViewState extends State<FillView> {
     );
   }
 
+  /// Rects: the size handles add to the shape instead of stretching it.
+  Widget _rectExtendSwitch(Layer layer) => layer.content.shape != 'rect'
+      ? const SizedBox.shrink()
+      : SwitchListTile(
+          key: const ValueKey('fill-rect-extend'),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Size handles lengthen it', style: TextStyle(fontSize: 13)),
+          subtitle: hint('The rect grows (more surface, the corners and outline stay as they are) instead of '
+              'stretching; the side across stays put'),
+          value: rectExtendMode,
+          onChanged: (v) => app.setAppPreference('rectExtendMode', v),
+        );
+
   static double _maxCorner(Layer layer) => math.min(layer.content.size[0], layer.content.size[1]).abs() / 2;
 
   /// Rounded corners (rects) and the shape's shadow.
@@ -213,38 +227,83 @@ class _FillViewState extends State<FillView> {
         );
     final shape = layer.content.shape;
     final polyLike = const {'triangle', 'ngon', 'polygon', 'compound'}.contains(shape);
+    // switching rounding off keeps its size for switching it on again.
+    void roundingOn(bool on) => _edit(() {
+          fill.roundingOn = on;
+          if (on) {
+            if (fill.cornerRadius <= 0) fill.cornerRadius = fill.lastCornerRadius;
+          } else {
+            if (fill.cornerRadius > 0) fill.lastCornerRadius = fill.cornerRadius;
+            fill.cornerRadius = 0;
+            fill.outerRadius = 0;
+          }
+        });
+    const corners = ['top left', 'top right', 'bottom right', 'bottom left'];
     return [
-      // triangles, polygons, merged shapes: corners by bezier.
-      if (polyLike)
-        value('corners', 'rounded corners', fill.cornerRadius, 0,
-            const ParamScale.ruler(unitsPerPixel: 0.25, minorTick: 5, majorTick: 25, min: 0, max: 2000),
-            (v) => fill.cornerRadius = v),
-      if (polyLike)
-        value('outer', 'inward corners filled round', fill.outerRadius, 0,
-            const ParamScale.ruler(unitsPerPixel: 0.25, minorTick: 5, majorTick: 25, min: 0, max: 2000),
-            (v) => fill.outerRadius = v),
-      if ((shape == 'rect' || polyLike) && (fill.cornerRadius > 0 || fill.outerRadius > 0))
-        value('cornerShape', 'rounding shape (0 cut, 0.55 circle, 1 sharp)', fill.cornerShape, circleRoundK,
-            const ParamScale.slider(0, 1, decimals: 3), (v) => fill.cornerShape = v),
-      if (shape == 'rect')
-        // at most half the shorter side: there the rect is a pill / circle.
-        value(
-            'corners',
-            'rounded corners',
-            fill.cornerRadius.clamp(0.0, _maxCorner(layer)).toDouble(),
-            0,
-            ParamScale.ruler(unitsPerPixel: 0.25, minorTick: 5, majorTick: 25, min: 0, max: _maxCorner(layer)),
-            (v) => fill.cornerRadius = v),
-      if (layer.content.shape == 'rect' && fill.cornerRadius > 0)
+      if (shape == 'rect' || polyLike)
         SwitchListTile(
-          key: const ValueKey('fill-corners-round'),
+          key: const ValueKey('fill-rounding'),
           dense: true,
           contentPadding: EdgeInsets.zero,
-          title: const Text('Corners stay round when scaled', style: TextStyle(fontSize: 13)),
-          subtitle: hint('Off: the corners stretch with the scale into ovals'),
-          value: fill.cornersKeepRound,
-          onChanged: (v) => _edit(() => fill.cornersKeepRound = v),
+          title: const Text('Round corners', style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: hint('On: its settings, and handles on the stage once it is big enough there'),
+          value: fill.roundingOn,
+          onChanged: roundingOn,
         ),
+      if (fill.roundingOn) ...[
+        // triangles, polygons, merged shapes: corners by bezier.
+        if (polyLike)
+          value('corners', 'rounded corners', fill.cornerRadius, 0,
+              const ParamScale.ruler(unitsPerPixel: 0.25, minorTick: 5, majorTick: 25, min: 0, max: 2000),
+              (v) => fill.cornerRadius = v),
+        if (polyLike)
+          value('outer', 'inward corners filled round', fill.outerRadius, 0,
+              const ParamScale.ruler(unitsPerPixel: 0.25, minorTick: 5, majorTick: 25, min: 0, max: 2000),
+              (v) => fill.outerRadius = v),
+        if (shape == 'rect')
+          // at most half the shorter side: there the rect is a pill / circle.
+          value(
+              'corners',
+              'rounded corners',
+              fill.cornerRadius.clamp(0.0, _maxCorner(layer)).toDouble(),
+              0,
+              ParamScale.ruler(unitsPerPixel: 0.25, minorTick: 5, majorTick: 25, min: 0, max: _maxCorner(layer)),
+              (v) => fill.cornerRadius = v),
+        // always there (below the size), so nothing jumps while it is set.
+        if (shape == 'rect' || polyLike)
+          value('cornerShape', 'rounding shape (0 cut, 0.55 circle, 1 sharp)', fill.cornerShape, circleRoundK,
+              const ParamScale.slider(0, 1, decimals: 3), (v) => fill.cornerShape = v),
+        if (shape == 'rect') ...[
+          SwitchListTile(
+            key: const ValueKey('fill-corners-round'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Corners stay round when scaled', style: TextStyle(fontSize: 13)),
+            subtitle: hint('Off: the corners stretch with the scale into ovals'),
+            value: fill.cornersKeepRound,
+            onChanged: (v) => _edit(() => fill.cornersKeepRound = v),
+          ),
+          ExpansionTile(
+            key: const ValueKey('fill-each-corner'),
+            tilePadding: EdgeInsets.zero,
+            dense: true,
+            title: Text('Each corner (${fill.cornersOn.where((c) => c).length} of 4 round)', style: const TextStyle(fontSize: 13)),
+            children: [
+              for (var i = 0; i < 4; i++)
+                CheckboxListTile(
+                  key: ValueKey('fill-corner-$i'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(corners[i], style: const TextStyle(fontSize: 13)),
+                  value: fill.cornersOn[i],
+                  onChanged: (v) => _edit(() => fill.cornersOn[i] = v ?? true),
+                ),
+            ],
+          ),
+        ],
+        _rectExtendSwitch(layer),
+      ] else if (shape == 'rect')
+        _rectExtendSwitch(layer),
       SwitchListTile(
         key: const ValueKey('fill-shadow'),
         dense: true,

@@ -532,6 +532,10 @@ class ScaleDragOp implements DragOp {
     final trk = layer.transform.scale;
     final current =
         trackValueToEdit(trk, localFrameOf(layer, globalFrame)) as List<double>;
+    if (rectExtendMode && layer.content.shape == 'rect') {
+      _applyExtend(localPt, current);
+      return;
+    }
     if (scaleKeepsOppositeEdge) {
       _applyFromOppositeEdge(project, globalFrame, tb, localPt, current);
       return;
@@ -576,6 +580,28 @@ class ScaleDragOp implements DragOp {
     newScale = snap.newScale;
     _snapGuide = snap.guide;
     setTrackValueAt(trk, localFrameOf(layer, globalFrame), newScale);
+  }
+
+  /// Lengthens the rect: its side (or corner) to the finger, the one
+  /// across where it was (in the layer's own units, so its scale stays).
+  void _applyExtend(List<double> localPt, List<double> current) {
+    final c = layer.content;
+    final sx = current[0].abs() < 1e-9 ? 1.0 : current[0], sy = current[1].abs() < 1e-9 ? 1.0 : current[1];
+    final q = [localPt[0] / sx, localPt[1] / sy];
+    var minX = c.offset[0] - c.size[0] / 2, maxX = c.offset[0] + c.size[0] / 2;
+    var minY = c.offset[1] - c.size[1] / 2, maxY = c.offset[1] + c.size[1] / 2;
+    final left = handle == 'left' || (handle == 'scaleCorner' && q[0] < c.offset[0]);
+    final right = handle == 'right' || (handle == 'scaleCorner' && q[0] >= c.offset[0]);
+    final top = handle == 'top' || (handle == 'scaleCorner' && q[1] < c.offset[1]);
+    final bottom = handle == 'bottom' || (handle == 'scaleCorner' && q[1] >= c.offset[1]);
+    if (left) minX = math.min(q[0], maxX - 1);
+    if (right) maxX = math.max(q[0], minX + 1);
+    if (top) minY = math.min(q[1], maxY - 1);
+    if (bottom) maxY = math.max(q[1], minY + 1);
+    c
+      ..size = [maxX - minX, maxY - minY]
+      ..offset = [(minX + maxX) / 2, (minY + maxY) / 2];
+    _snapGuide = null;
   }
 
   /// The edge (or corner) across from the handle stays where it is: the
@@ -630,6 +656,11 @@ class ScaleDragOp implements DragOp {
     clearStateCaches();
   }
 }
+
+/// Stage, rects: a size handle adds surface instead of stretching (the
+/// rect's own size changes, its corners and outline as they were); the
+/// side across stays put.
+bool rectExtendMode = false;
 
 /// Stage: a size handle keeps the edge across from it in place (off: the
 /// object grows / shrinks about its anchor, both sides moving).

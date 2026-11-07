@@ -355,6 +355,7 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
             call.argument<String>("audioPcm"),
             call.argument<Int>("rate") ?: 48000,
             call.argument<Int>("channels") ?: 2,
+            call.argument<Int>("audioKbps") ?: 160,
         )
         return id
     }
@@ -409,7 +410,8 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
         } else {
             MediaMuxer(path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         }
-        val audio = AudioEncoder(if (opus) MediaFormat.MIMETYPE_AUDIO_OPUS else MediaFormat.MIMETYPE_AUDIO_AAC, rate, channels)
+        val kbps = call.argument<Int>("kbps") ?: 160
+        val audio = AudioEncoder(if (opus) MediaFormat.MIMETYPE_AUDIO_OPUS else MediaFormat.MIMETYPE_AUDIO_AAC, rate, channels, kbps)
         val samples = audio.encodeAll(pcm)
         val track = muxer.addTrack(audio.format!!)
         muxer.start()
@@ -422,12 +424,12 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
     private class Sample(val data: ByteArray, val info: MediaCodec.BufferInfo)
 
     /** PCM file -> encoded samples (whole file, in memory). */
-    private inner class AudioEncoder(val mime: String, val rate: Int, val channels: Int) {
+    private inner class AudioEncoder(val mime: String, val rate: Int, val channels: Int, val kbps: Int = 160) {
         var format: MediaFormat? = null
 
         fun encodeAll(pcm: File): List<Sample> {
             val f = MediaFormat.createAudioFormat(mime, rate, channels)
-            f.setInteger(MediaFormat.KEY_BIT_RATE, 160000)
+            f.setInteger(MediaFormat.KEY_BIT_RATE, kbps * 1000)
             if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) f.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
             f.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
             val codec = MediaCodec.createByCodecName(encoderName(mime) ?: throw IllegalStateException("No $mime encoder"))
@@ -492,7 +494,7 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
      */
     private inner class Encoder(
         val path: String, codecName: String, val width: Int, val height: Int, val fps: Double,
-        bitrateKbps: Int, audioPcm: String?, rate: Int, channels: Int,
+        bitrateKbps: Int, audioPcm: String?, rate: Int, channels: Int, audioKbps: Int = 160,
     ) {
         private val mime = if (codecName == "h264") MediaFormat.MIMETYPE_VIDEO_AVC else MediaFormat.MIMETYPE_VIDEO_VP9
         private val codec: MediaCodec
@@ -521,7 +523,7 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
             if (audioPcm != null) {
                 val audioMime = if (webm) MediaFormat.MIMETYPE_AUDIO_OPUS else MediaFormat.MIMETYPE_AUDIO_AAC
                 if (!webm || (Build.VERSION.SDK_INT >= 29 && encoderName(audioMime) != null)) {
-                    val enc = AudioEncoder(audioMime, rate, channels)
+                    val enc = AudioEncoder(audioMime, rate, channels, audioKbps)
                     audioSamples = enc.encodeAll(File(audioPcm))
                     audioFormat = enc.format
                 }

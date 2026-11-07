@@ -154,6 +154,7 @@ abstract class VideoService {
     int? quality,
     VideoProgress? onProgress,
     String? audioPath,
+    int audioKbps = 160,
   }) =>
       throw UnimplementedError('Video export is not available in this build.');
 

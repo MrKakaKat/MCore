@@ -200,7 +200,7 @@ void main() {
 /// Writes `seconds` of a rising sawtooth instead of decoding.
 class _FakeAudioService implements AudioService {
   @override
-  Future<File> encodePcm(File pcm, String outputPath) => throw UnimplementedError();
+  Future<File> encodePcm(File pcm, String outputPath, {int kbps = 160}) => throw UnimplementedError();
 
   final double seconds;
   bool fail = false;

@@ -4,8 +4,12 @@
 /// scaled, so nothing jumps where the link starts.
 library;
 
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import '../core/interpolation.dart' show evaluateTrack;
 import '../core/stage_size.dart';
+import 'audio.dart' show mediaSourceTime, peakBetween;
 import 'project.dart';
 
 /// A property's own value (keys, before links) at `globalFrame`.
@@ -42,6 +46,12 @@ double linkOffset(Project project, Layer layer, String prop, num globalFrame, [S
     if (!k.enabled || k.to != prop || k.sourceId == null) continue;
     final src = findLayer(project, k.sourceId);
     if (src == null) continue;
+    // a sound: how loud it is now, between min and max.
+    if (k.fromSound) {
+      final level = soundLevelAt(src, globalFrame, smooth: k.smooth);
+      sum += k.min + (k.max - k.min) * level;
+      continue;
+    }
     final now = linkedPropAt(project, src, k.from, globalFrame, {...s});
     final then = k.base ?? linkedPropAt(project, src, k.from, layer.startFrame, {...s});
     sum += k.factor * (now - then);
@@ -69,4 +79,35 @@ bool linkWouldCycle(Project project, Layer layer, String sourceId) {
   }
 
   return reaches(sourceId);
+}
+
+
+/// The waveforms of imported sounds by asset id (set by the app; null:
+/// none known - a sound link then does nothing).
+Uint8List? Function(String assetId)? soundPeaksProvider;
+
+/// How loud audio layer `l` is at `globalFrame`, 0..1 (0 outside its
+/// time). `smooth` (0..1) averages over a longer stretch before it, so the
+/// level follows the swell instead of every hit.
+double soundLevelAt(Layer l, num globalFrame, {double smooth = 0}) {
+  final id = l.content.audioAssetId;
+  final peaks = id == null ? null : soundPeaksProvider?.call(id);
+  if (peaks == null || peaks.isEmpty || l.hidden) return 0;
+  final local = globalFrame - l.startFrame;
+  if (local < 0 || local > l.durationFrames) return 0;
+  final t = mediaSourceTime(l.content, local);
+  final step = 1 / fps;
+  // a window of a frame (none) up to about a second (full).
+  final window = step + smooth.clamp(0.0, 1.0) * 1.0;
+  final n = math.max(1, (window / step).round());
+  var sum = 0.0, w = 0.0;
+  for (var i = 0; i < n; i++) {
+    final t1 = t - i * step;
+    if (t1 < 0) break;
+    // nearer moments count more.
+    final weight = 1.0 - i / (n + 1);
+    sum += peakBetween(peaks, t1, t1 + step) * weight;
+    w += weight;
+  }
+  return w <= 0 ? 0 : (sum / w).clamp(0.0, 1.0);
 }

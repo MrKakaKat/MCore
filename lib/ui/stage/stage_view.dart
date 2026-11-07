@@ -319,6 +319,20 @@ class _StageViewState extends State<StageView> {
             edge: regionColor(sig),
             key: const ValueKey('stage-selected-region')),
       if (masks) block('mask', key: const ValueKey('stage-selected-mask')),
+      // the eyedropper's colour while it picks: a swatch and its code.
+      if (_loupe()?.color case final col?)
+        Container(
+          key: const ValueKey('stage-picked-colour'),
+          margin: const EdgeInsets.only(right: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(color: const Color(0x99000000), borderRadius: BorderRadius.circular(4)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 10, height: 10, color: col),
+            const SizedBox(width: 4),
+            Text('#${(col.value & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}',
+                style: const TextStyle(color: Colors.white70, fontSize: 11)),
+          ]),
+        ),
     ]);
   }
 

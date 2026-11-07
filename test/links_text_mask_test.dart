@@ -242,7 +242,7 @@ class _Frames extends VideoService {
 
 class _Sound implements AudioService {
   @override
-  Future<File> encodePcm(File pcm, String outputPath) => throw UnimplementedError();
+  Future<File> encodePcm(File pcm, String outputPath, {int kbps = 160}) => throw UnimplementedError();
 
   int calls = 0;
   bool silent = false;

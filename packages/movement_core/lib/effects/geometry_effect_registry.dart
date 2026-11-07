@@ -21,7 +21,7 @@ import '../core/state_cache.dart' show getLayerStateAt;
 import '../geometry/shapes.dart' show buildGrid, shapeBoundingBox;
 import '../model/project.dart';
 import 'builtins/bend_arc.dart' show applyBendGroup, bendPhysicsAngle, bendV2Keys, isBendV2;
-import 'builtins/origami_fold.dart' show origamiScale, origamiGridScaled, origamiHintsScaled;
+import 'builtins/origami_fold.dart' show origamiScale, origamiGridScaled, origamiHintsScaled, origamiMixedDirections;
 
 typedef GridPoint = List<double>;
 typedef Grid = List<List<GridPoint>>;
@@ -172,13 +172,25 @@ Grid applyEffectStack(Layer layer, Grid grid, int globalFrame, {Project? project
       continue;
     }
     final fs = inst.effectId == 'origami_fold' ? origamiScale(layer, localFrame) : null;
-    g = fs != null
-        ? origamiGridScaled(g, resolveEffectParams(inst, localFrame), localFrame, fs)
-        : effectRegistry[inst.effectId]!.apply(g, resolveEffectParams(inst, localFrame), localFrame);
+    final params = _withBox(layer, inst, resolveEffectParams(inst, localFrame));
+    g = fs != null ? origamiGridScaled(g, params, localFrame, fs) : effectRegistry[inst.effectId]!.apply(g, params, localFrame);
     i++;
   }
   return g;
 }
+
+/// Origami measures its creases on the layer's own box (whatever grid or
+/// outline it is given).
+Map<String, dynamic> _withBox(Layer layer, EffectInstance inst, Map<String, dynamic> params) {
+  if (inst.effectId != 'origami_fold') return params;
+  final b = shapeBoundingBox(layer.content);
+  return params..['_box'] = [b.minX, b.minY, b.maxX, b.maxY];
+}
+
+/// The effects deforming `layer` act point by point (an outline can go
+/// through them directly, exactly, instead of through a grid).
+bool deformsPointwise(Layer layer) => layer.effectStack.any((i) => i.enabled && i.effectId == 'origami_fold') &&
+    layer.effectStack.every((i) => !i.enabled || !isDeformingEffect(i) || i.effectId == 'origami_fold');
 
 Map<String, dynamic> _resolveBend(Project? project, Layer layer, EffectInstance inst, double localFrame) =>
     resolveEffectParams(inst, localFrame)..['angle'] = bendPhysicsAngle(project, layer, inst, localFrame);
@@ -194,12 +206,19 @@ Grid buildEffectGrid(Layer layer, Content content, int globalFrame, {Project? pr
   final uniform = buildGrid(content, n, n);
   final localFrame = math.min(layer.durationFrames, math.max(0, layerTimeFrame(layer, globalFrame) - layer.startFrame)).toDouble();
   final hints = <GridHint>[];
-  var others = false;
+  var others = false, fine = false;
   for (final inst in layer.effectStack) {
     if (!inst.enabled || !effectActiveAt(layer, inst.id, localFrame)) continue;
     final def = effectRegistry[inst.effectId];
     if (def == null) continue;
-    final params = isBendV2(inst) ? _resolveBend(project, layer, inst, localFrame) : resolveEffectParams(inst, localFrame);
+    final params =
+        isBendV2(inst) ? _resolveBend(project, layer, inst, localFrame) : _withBox(layer, inst, resolveEffectParams(inst, localFrame));
+    // creases in several directions: rows can follow only one - a fine
+    // even grid instead.
+    if (inst.effectId == 'origami_fold' && origamiMixedDirections(params)) {
+      fine = true;
+      continue;
+    }
     final fs = inst.effectId == 'origami_fold' ? origamiScale(layer, localFrame) : null;
     final h = fs != null ? origamiHintsScaled(params, uniform, fs) : def.gridHints?.call(params, uniform) ?? const <GridHint>[];
     if (h.isEmpty) {
@@ -208,6 +227,7 @@ Grid buildEffectGrid(Layer layer, Content content, int globalFrame, {Project? pr
       hints.addAll(h);
     }
   }
+  if (fine) return buildGrid(content, math.max(n, 32), math.max(n, 32));
   if (hints.isEmpty) return uniform;
 
   final a = hints.first.axisAngle * math.pi / 180;
@@ -309,6 +329,14 @@ Grid applyInheritedDeform(Project project, Layer layer, Grid grid, int globalFra
   for (final a in ancestors) {
     final am = px(getLayerStateAt(project, a.id, globalFrame).matrix);
     final inv = invertAffine(am);
+    // origami: the child's points fold with the paper exactly (a shape
+    // joined at a crease or an edge takes the fold's angle).
+    if (deformsPointwise(a)) {
+      final local = [for (final row in g) [for (final p in row) applyAffine(inv, p)]];
+      final folded = applyEffectStack(a, local, globalFrame, project: project);
+      g = [for (final row in folded) [for (final p in row) applyAffine(am, p)]];
+      continue;
+    }
     final rest = buildEffectGrid(a, a.content, globalFrame, project: project);
     final bent = applyEffectStack(a, [for (final row in rest) [for (final p in row) [...p]]], globalFrame, project: project);
     g = [

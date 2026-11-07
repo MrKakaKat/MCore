@@ -151,17 +151,32 @@ RoundedCorner? lineCorner(Content c, int i) {
   return RoundedCorner(pp, _toward(pp, pa, d / la), _toward(pp, pb, d / lb), p.roundK);
 }
 
-/// The rounding handles of the selected shape (frame px), Fill tab open.
+/// The shape's shorter side on the frame, px (the rounding handles show
+/// only once it is big enough on the screen).
+double layerShortSideFrame(Project project, Layer layer, int globalFrame) {
+  final m = getTransformBoxHandles(project, layer, globalFrame).mCanvas;
+  final c = layer.content;
+  final sx = math.sqrt(m[0] * m[0] + m[1] * m[1]), sy = math.sqrt(m[2] * m[2] + m[3] * m[3]);
+  return math.min(c.size[0].abs() * sx, c.size[1].abs() * sy);
+}
+
+/// The rounding handles of the selected shape (frame px), Fill tab open -
+/// once its rounding is switched on, and at the first corner that rounds.
 Map<String, List<double>> roundHandlesFrame(Project project, Layer layer, int globalFrame) {
   final c = layer.content;
+  if (!layer.fill.roundingOn) return const {};
   final m = getTransformBoxHandles(project, layer, globalFrame).mCanvas;
   RoundedCorner? rc;
   if (c.shape == 'rect') {
     final (rx, _) = layer.fill.cornerRadius > 0 ? cornerRadii(layer, globalFrame, project: project) : (0.0, 0.0);
-    final x0 = c.offset[0] - c.size[0] / 2, y0 = c.offset[1] - c.size[1] / 2;
     final r = layer.fill.cornerRadius > 0 ? rx : math.min(12.0, math.min(c.size[0], c.size[1]) / 4);
     final (_, ry) = layer.fill.cornerRadius > 0 ? cornerRadii(layer, globalFrame, project: project) : (r, r);
-    rc = RoundedCorner([x0, y0], [x0, y0 + ry], [x0 + r, y0], layer.fill.cornerShape);
+    final i = layer.fill.cornersOn.indexWhere((on) => on);
+    if (i < 0) return const {};
+    // the corner, and which way its two sides run from it.
+    final sxn = i == 0 || i == 3 ? 1.0 : -1.0, syn = i < 2 ? 1.0 : -1.0;
+    final x0 = c.offset[0] - sxn * c.size[0] / 2, y0 = c.offset[1] - syn * c.size[1] / 2;
+    rc = RoundedCorner([x0, y0], [x0, y0 + syn * ry], [x0 + sxn * r, y0], layer.fill.cornerShape);
   } else if (_polyLike(c.shape)) {
     final pts = shapePoints(c);
     if (pts.length < 3) return const {};
@@ -204,9 +219,12 @@ class RoundDragOp implements DragOp {
     final q = applyAffine(invertAffine(m), framePoint);
     List<double> p, toward;
     if (c.shape == 'rect') {
-      final x0 = c.offset[0] - c.size[0] / 2, y0 = c.offset[1] - c.size[1] / 2;
+      // the handle's corner: the first that rounds.
+      final i = math.max(0, f.cornersOn.indexWhere((on) => on));
+      final sxn = i == 0 || i == 3 ? 1.0 : -1.0, syn = i < 2 ? 1.0 : -1.0;
+      final x0 = c.offset[0] - sxn * c.size[0] / 2, y0 = c.offset[1] - syn * c.size[1] / 2;
       p = [x0, y0];
-      toward = [x0 + 1, y0];
+      toward = [x0 + sxn, y0];
     } else {
       final pts = shapePoints(c);
       if (pts.length < 3) return;
@@ -217,6 +235,7 @@ class RoundDragOp implements DragOp {
     final el = math.sqrt(ex * ex + ey * ey);
     if (el < 1e-9) return;
     if (key == 'rr') {
+      f.roundingOn = true;
       var along = math.max(0.0, ((q[0] - p[0]) * ex + (q[1] - p[1]) * ey) / el);
       // the same size as another rounding, when close (frame px).
       final k = math.sqrt((m[0] * m[3] - m[1] * m[2]).abs());

@@ -28,7 +28,7 @@ abstract class AudioService {
 
   /// Encodes decoded PCM (the format decodeToPcm writes) into a new source
   /// copy at `outputPath` - Opus. Used to rewrite a trimmed sound.
-  Future<File> encodePcm(File pcm, String outputPath);
+  Future<File> encodePcm(File pcm, String outputPath, {int kbps = 160});
 }
 
 AudioService createAudioService() => NativeAudioService();

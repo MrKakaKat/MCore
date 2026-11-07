@@ -46,13 +46,11 @@ void main() {
     expect(find.text('SVG'), findsNothing);
   });
 
-  testWidgets('selecting SVG: animation or one frame, no descriptions', (tester) async {
+  testWidgets('selecting SVG: animation or one frame', (tester) async {
     await pump(tester);
     await tester.tap(find.text('SVG'));
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('export-settings'))); // folded by default
     await tester.pumpAndSettle();
-    expect(find.textContaining('Plays by itself'), findsNothing, reason: 'no descriptions');
+    expect(find.textContaining('Plays by itself'), findsNothing);
     await tester.tap(find.text('One frame'));
     await tester.pump();
     expect(find.textContaining('Current frame'), findsOneWidget);

@@ -92,6 +92,20 @@ Future<void> showAddLayerDialog(BuildContext context, AppState app, {String? rep
                         },
                       ),
                     ),
+                  if (replaceId == null)
+                    StatefulBuilder(
+                      builder: (context, set) => SwitchListTile(
+                        key: const ValueKey('add-shape-square'),
+                        dense: true,
+                        title: const Text('Keep it square'),
+                        subtitle: const Text('the drawn box stays a square, never a stretched rectangle'),
+                        value: app.placeSquare,
+                        onChanged: (v) {
+                          app.setAppPreference('placeSquare', v);
+                          set(() {});
+                        },
+                      ),
+                    ),
                 ],
               ),
             );

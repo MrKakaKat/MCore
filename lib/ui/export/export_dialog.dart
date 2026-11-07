@@ -24,15 +24,20 @@ import '../../io/export.dart';
 Future<void> showExportDialog(BuildContext context, AppState app) {
   return showDialog<void>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Export'),
-      // no Close: tap outside (or back) to leave; Export sits where it was.
-      content: SizedBox(width: 360, child: ExportView(app: app)),
+    // the whole screen: room for the formats and their settings.
+    builder: (context) => Dialog.fullscreen(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Export'),
+          leading: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+        ),
+        body: SafeArea(child: ExportView(app: app)),
+      ),
     ),
   );
 }
 
-enum _ExportKind { image, gif, video, svg }
+enum _ExportKind { image, gif, video, svg, audio }
 
 /// SVG: the whole animation (true) or the current frame.
 bool _svgAnimated = true;
@@ -81,8 +86,11 @@ class _ExportViewState extends State<ExportView> {
   // the project's sound, on whenever there is any.
   bool _videoSound = true;
 
-  // the format's settings, folded until wanted: the project decides them.
-  bool _settingsOpen = false;
+  /// The sound's quality (kbit/s) - in a video and on its own.
+  int _audioKbps = 160;
+
+  /// Sound alone: 'wav' (exact, big) or 'compressed' (Opus / AAC).
+  String _audioFormat = 'compressed';
 
   @override
   void initState() {
@@ -150,113 +158,126 @@ class _ExportViewState extends State<ExportView> {
   bool get _projectIsShapeOnly => widget.app.project.layers.every((l) => l.hidden || !isMediaShape(l.content.shape));
 
   static const _kindLabels = {
-    _ExportKind.image: ('Image', Icons.image_outlined),
-    _ExportKind.gif: ('GIF', Icons.gif_box_outlined),
-    _ExportKind.video: ('Video', Icons.movie_outlined),
-    _ExportKind.svg: ('SVG', Icons.polyline_outlined),
+    _ExportKind.image: ('Image', Icons.image_outlined, 'One picture: the frame under the playhead'),
+    _ExportKind.gif: ('GIF', Icons.gif_box_outlined, 'A short looping animation, no sound'),
+    _ExportKind.video: ('Video', Icons.movie_outlined, 'The whole animation, with its sound'),
+    _ExportKind.svg: ('SVG', Icons.polyline_outlined, 'Shapes as vectors: sharp at any size'),
+    _ExportKind.audio: ('Sound', Icons.music_note_outlined, 'Only the sound, all of it mixed'),
   };
 
   @override
   Widget build(BuildContext context) {
-    final kinds = [_ExportKind.image, _ExportKind.gif, _ExportKind.video, if (_projectIsShapeOnly) _ExportKind.svg];
-    // the settings close together.
+    final kinds = [
+      _ExportKind.image,
+      _ExportKind.gif,
+      _ExportKind.video,
+      if (_projectIsShapeOnly) _ExportKind.svg,
+      if (widget.app.hasAudio) _ExportKind.audio,
+    ];
     final theme = Theme.of(context);
-    return Theme(
-      data: theme.copyWith(
-        visualDensity: VisualDensity.compact,
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        listTileTheme: theme.listTileTheme.copyWith(dense: true, minVerticalPadding: 0, visualDensity: VisualDensity.compact),
-        sliderTheme: theme.sliderTheme.copyWith(overlayShape: const RoundSliderOverlayShape(overlayRadius: 12)),
+    Widget section(String title, Widget child) => Padding(
+          padding: const EdgeInsets.only(bottom: 14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(title, style: theme.textTheme.titleSmall),
+            const SizedBox(height: 6),
+            child,
+          ]),
+        );
+    return Column(children: [
+      Expanded(
+        child: Theme(
+          data: theme.copyWith(
+            visualDensity: VisualDensity.compact,
+            listTileTheme: theme.listTileTheme.copyWith(dense: true, minVerticalPadding: 0, visualDensity: VisualDensity.compact),
+          ),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            children: [
+              // the formats: a name and what it is for, one per line.
+              section(
+                  'Format',
+                  Column(children: [
+                    for (final k in kinds)
+                      Card(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        color: _kind == k ? theme.colorScheme.primaryContainer : null,
+                        child: InkWell(
+                          key: ValueKey('export-kind-${k.name}'),
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: _busy ? null : () => setState(() => _kind = k),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            child: Row(children: [
+                              Icon(_kindLabels[k]!.$2, size: 22),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text(_kindLabels[k]!.$1, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                  Text(_kindLabels[k]!.$3, style: theme.textTheme.bodySmall),
+                                ]),
+                              ),
+                              if (_kind == k) const Icon(Icons.check_circle, size: 20),
+                            ]),
+                          ),
+                        ),
+                      ),
+                  ])),
+              // what will be made.
+              section('You get', Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                _summary(_summaryLines()),
+                if (_kind == _ExportKind.video) ...[
+                  const SizedBox(height: 6),
+                  _summary(['File: about ${_videoBytes()}'], key: const ValueKey('export-file-size')),
+                ],
+              ])),
+              // its settings, open (the project's own values to start with).
+              section(
+                  'Settings',
+                  KeyedSubtree(
+                    key: const ValueKey('export-settings'),
+                    child: switch (_kind) {
+                      _ExportKind.image => _buildImageSection(),
+                      _ExportKind.gif => _buildGifSection(),
+                      _ExportKind.video => _buildVideoSection(),
+                      _ExportKind.svg => _buildSvgSection(),
+                      _ExportKind.audio => _buildAudioSection(),
+                    },
+                  )),
+            ],
+          ),
+        ),
       ),
-      child: SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // one compact row of formats: same height whichever is picked.
-          Row(children: [
-            for (final k in kinds)
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: ChoiceChip(
-                    key: ValueKey('export-kind-${k.name}'),
-                    showCheckmark: false,
-                    visualDensity: VisualDensity.compact,
-                    labelPadding: EdgeInsets.zero,
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    label: SizedBox(
-                      width: double.infinity,
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(_kindLabels[k]!.$2, size: 18),
-                        Text(_kindLabels[k]!.$1, maxLines: 1, style: const TextStyle(fontSize: 12)),
-                      ]),
-                    ),
-                    selected: _kind == k,
-                    onSelected: _busy ? null : (_) => setState(() => _kind = k),
-                  ),
+      // at the bottom, always in reach: progress, what happened, Export.
+      Material(
+        elevation: 4,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (_busy) ...[
+              LinearProgressIndicator(value: _progress),
+              const SizedBox(height: 6),
+            ],
+            if (_status != null) Text(_status!, style: const TextStyle(fontSize: 12)),
+            const SizedBox(height: 6),
+            Row(children: [
+              if (_busy)
+                TextButton(
+                  key: const ValueKey('export-cancel'),
+                  onPressed: _cancelRequested ? null : () => setState(() => _cancelRequested = true),
+                  child: const Text('Cancel'),
                 ),
+              const Spacer(),
+              FilledButton.icon(
+                key: const ValueKey('export-go'),
+                onPressed: _busy ? null : _export,
+                icon: const Icon(Icons.ios_share, size: 18),
+                label: Text(_busy ? 'Exporting...' : 'Export ${_kindLabels[_kind]!.$1}'),
               ),
+            ]),
           ]),
-          const SizedBox(height: 10),
-          // what will be made - always here, in the same place.
-          _summary(_summaryLines()),
-          // a video's file size in a field of its own.
-          if (_kind == _ExportKind.video) ...[
-            const SizedBox(height: 6),
-            _summary(['File: about ${_videoBytes()}'], key: const ValueKey('export-file-size')),
-          ],
-          // the format's settings, folded: only when something should differ
-          // from the project's own.
-          InkWell(
-            key: const ValueKey('export-settings'),
-            onTap: () => setState(() => _settingsOpen = !_settingsOpen),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(children: [
-                const Expanded(child: Text('Settings', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
-                Icon(_settingsOpen ? Icons.expand_less : Icons.expand_more, size: 20),
-              ]),
-            ),
-          ),
-          AnimatedSize(
-            duration: const Duration(milliseconds: 180),
-            alignment: Alignment.topCenter,
-            child: !_settingsOpen
-                ? const SizedBox(width: double.infinity)
-                : switch (_kind) {
-                    _ExportKind.image => _buildImageSection(),
-                    _ExportKind.gif => _buildGifSection(),
-                    _ExportKind.video => _buildVideoSection(),
-                    _ExportKind.svg => _buildSvgSection(),
-                  },
-          ),
-          const SizedBox(height: 8),
-          if (_busy) ...[
-            // a visible progress line for the whole export, not a tiny spinner
-            // inside the button.
-            LinearProgressIndicator(value: _progress),
-            const SizedBox(height: 6),
-          ],
-          if (_status != null) Text(_status!, style: const TextStyle(fontSize: 12)),
-          const SizedBox(height: 8),
-          // where the dialog's Close used to be.
-          Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-            if (_busy)
-              TextButton(
-                key: const ValueKey('export-cancel'),
-                onPressed: _cancelRequested ? null : () => setState(() => _cancelRequested = true),
-                child: const Text('Cancel'),
-              ),
-            TextButton(
-              key: const ValueKey('export-go'),
-              onPressed: _busy ? null : _export,
-              child: Text(_busy ? 'Exporting...' : 'Export'),
-            ),
-          ]),
-        ],
+        ),
       ),
-    ));
+    ]);
   }
 
   /// The summary of what the picked format will make.
@@ -287,6 +308,13 @@ class _ExportViewState extends State<ExportView> {
         return [
           _svgAnimated ? 'SVG animation - frames 0 - ${app.maxFrame}, looping' : 'SVG - frame ${app.currentFrame}',
           size,
+        ];
+      case _ExportKind.audio:
+        return [
+          _audioFormat == 'wav' ? 'Sound - WAV (exact), ${_sec(_seconds)}' : 'Sound - Opus or AAC, ${_sec(_seconds)}',
+          _audioFormat == 'wav'
+              ? 'about ${_mb(_seconds * 48000 * 4)}'
+              : '$_audioKbps kbit/s, about ${_mb(_seconds * _audioKbps * 1000 / 8)}',
         ];
     }
   }
@@ -334,14 +362,15 @@ class _ExportViewState extends State<ExportView> {
     initial ? apply() : setState(apply);
   }
 
-  /// A labelled block: a short title, then its controls (no
-  /// descriptions - `hint` is kept for callers, not shown).
+  /// A labelled block: a short title, its controls, and one short grey
+  /// line on what it changes.
   Widget _group(String title, List<Widget> children, {String? hint}) => Padding(
-        padding: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.only(bottom: 10),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
           const SizedBox(height: 2),
           ...children,
+          if (hint != null) Text(hint, style: const TextStyle(fontSize: 11, color: Colors.grey)),
         ]),
       );
 
@@ -565,8 +594,72 @@ class _ExportViewState extends State<ExportView> {
             value: _videoSound,
             onChanged: (v) => setState(() => _videoSound = v),
           ),
+        if (widget.app.hasAudio && _videoSound) _audioQualityGroup(),
       ],
     );
+  }
+
+  /// The sound's quality, kbit/s.
+  Widget _audioQualityGroup() => _group('Sound quality: $_audioKbps kbit/s', [
+        Wrap(spacing: 6, children: [
+          for (final k in const [96, 128, 160, 256, 320])
+            ChoiceChip(
+              key: ValueKey('audio-kbps-$k'),
+              label: Text('$k'),
+              selected: _audioKbps == k,
+              onSelected: (_) => setState(() => _audioKbps = k),
+            ),
+        ]),
+      ], hint: '128 is fine for speech, 160 - 256 for music');
+
+  Widget _buildAudioSection() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _group('File type', [
+          Wrap(spacing: 6, children: [
+            ChoiceChip(
+              key: const ValueKey('audio-format-compressed'),
+              label: const Text('Opus / AAC'),
+              selected: _audioFormat == 'compressed',
+              onSelected: (_) => setState(() => _audioFormat = 'compressed'),
+            ),
+            ChoiceChip(
+              key: const ValueKey('audio-format-wav'),
+              label: const Text('WAV'),
+              selected: _audioFormat == 'wav',
+              onSelected: (_) => setState(() => _audioFormat = 'wav'),
+            ),
+          ]),
+        ], hint: 'WAV: exact and large. Opus (AAC on older phones): small'),
+        if (_audioFormat != 'wav') _audioQualityGroup(),
+      ]);
+
+  /// Sound alone: every audio layer mixed over the whole timeline.
+  Future<void> _exportAudio() async {
+    final app = widget.app;
+    final tempDir = await Directory.systemTemp.createTemp('movement_mobile_sound_');
+    try {
+      setState(() => _status = 'Mixing sound');
+      final wav = await app.buildAudioMix(into: File('${tempDir.path}/sound.wav'));
+      if (wav == null) {
+        setState(() => _status = 'Nothing to hear');
+        return;
+      }
+      if (_audioFormat == 'wav') {
+        final path = await _saveBytes(exportFileName(app.projectName, 'wav'), await wav.readAsBytes());
+        setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
+        return;
+      }
+      setState(() => _status = 'Encoding sound');
+      // the encoder takes the bare samples (the WAV without its header).
+      final bytes = await wav.readAsBytes();
+      final pcm = File('${tempDir.path}/sound.pcm');
+      await pcm.writeAsBytes(bytes.sublist(44));
+      final out = await app.audioService.encodePcm(pcm, '${tempDir.path}/sound.ogg', kbps: _audioKbps);
+      final ext = out.path.split('.').last;
+      final path = await _saveBytes(exportFileName(app.projectName, ext), await out.readAsBytes());
+      setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
+    } finally {
+      await tempDir.delete(recursive: true);
+    }
   }
 
   Widget _buildSvgSection() {
@@ -627,6 +720,8 @@ class _ExportViewState extends State<ExportView> {
           await _exportVideo();
         case _ExportKind.svg:
           await _exportSvg();
+        case _ExportKind.audio:
+          await _exportAudio();
       }
     } on ExportCancelled {
       if (mounted) {
@@ -766,6 +861,7 @@ class _ExportViewState extends State<ExportView> {
         // Android's encoders make no alpha: the video is opaque.
         bitrateKbps: _effectiveKbps,
         audioPath: sound?.path,
+        audioKbps: _audioKbps,
         onProgress: (phase, done, n) {
           if (!mounted) return;
           setState(() {
