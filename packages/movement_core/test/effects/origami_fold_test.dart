@@ -137,4 +137,26 @@ void main() {
     expect(d % 180, closeTo(135, 1e-6), reason: "across the diagonal");
     expect(((inst.params['position'] as Track).defaultValue as num).toDouble(), closeTo(0.5, 1e-6));
   });
+
+  test('the bend and the rounding have a shape; each stays within the paper', () {
+    // a soft 90 bend: the folded part ends in the same place whatever the
+    // shape; in between, a sharper shape hugs the corner more.
+    final circle = origamiGrid(_grid(), p({'angle': 90.0, 'softness': 0.4}), 0);
+    final sharp = origamiGrid(_grid(), p({'angle': 90.0, 'softness': 0.4, 'softShape': 1.0}), 0);
+    final cut = origamiGrid(_grid(), p({'angle': 90.0, 'softness': 0.4, 'softShape': 0.0}), 0);
+    expect(sharp[2][4][0], closeTo(circle[2][4][0], 1e-6), reason: 'the far edge where it was');
+    expect(cut[2][4][0], closeTo(circle[2][4][0], 1e-6));
+    // a point in the bend sits differently.
+    final f = [for (final g in [circle, sharp, cut]) g[2][3][0]];
+    expect(f.toSet(), hasLength(greaterThan(1)));
+    // a huge rounding is held to the paper there is (50 px each side).
+    final big = origamiGrid(_grid(), p({'angle': 90.0, 'round': 500.0}), 0);
+    final held = origamiGrid(_grid(), p({'angle': 90.0, 'round': 50.0}), 0);
+    expect(big[2][1][0], closeTo(held[2][1][0], 1e-6));
+    // the rounding's shape changes the corner, not the parts past it.
+    final r1 = origamiGrid(_grid(), p({'angle': 90.0, 'round': 20.0, 'roundShape': 0.0}), 0);
+    final r2 = origamiGrid(_grid(), p({'angle': 90.0, 'round': 20.0, 'roundShape': 1.0}), 0);
+    expect(r1[0][0], r2[0][0]);
+    expect((r1[0][2][0] - r2[0][2][0]).abs() + (r1[0][2][1] - r2[0][2][1]).abs(), greaterThan(1e-6));
+  });
 }

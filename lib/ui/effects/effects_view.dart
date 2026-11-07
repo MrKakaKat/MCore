@@ -414,7 +414,27 @@ class EffectsView extends StatelessWidget {
 
     inst.params.putIfAbsent(f.direction, () => track(shared('direction', 0)));
     inst.params.putIfAbsent(f.softness, () => track(shared('softness', 0)));
+    inst.params.putIfAbsent(f.softShape, () => track(circleRoundK));
     inst.params.putIfAbsent(f.round, () => track(0.0));
+    inst.params.putIfAbsent(f.roundShape, () => track(circleRoundK));
+    // each fold's rows in one order: a size, then its shape right under it
+    // (nothing jumps in between).
+    final order = [
+      for (final g in origamiFolds(inst.params))
+        ...[g.angle, g.direction, g.position, g.softness, g.softShape, g.round, g.roundShape]
+    ];
+    final entries = [...inst.params.entries];
+    int rank(String k) {
+      final i = order.indexOf(k);
+      return i < 0 ? order.length : i;
+    }
+
+    final sorted = [...entries]..sort((a, b) => rank(a.key).compareTo(rank(b.key)));
+    if ([for (final e in sorted) e.key].join() != [for (final e in entries) e.key].join()) {
+      inst.params
+        ..clear()
+        ..addEntries(sorted);
+    }
   }
 
   /// Origami: the folds (pick one to set it; add one in a chosen part;
@@ -636,6 +656,7 @@ class EffectsView extends StatelessWidget {
     if (inst.effectId == 'origami_fold' && key.endsWith('_position')) return 0.75;
     if (inst.effectId == 'origami_fold' && (key.endsWith('_direction') || RegExp(r'^direction\d$').hasMatch(key))) return 0.0;
     if (inst.effectId == 'origami_fold' && (key.endsWith('_softness') || key.endsWith('_round') || RegExp(r'^(softness|round)\d$').hasMatch(key))) return 0.0;
+    if (inst.effectId == 'origami_fold' && key.contains('Shape')) return circleRoundK;
     final defs = effectRegistry[inst.effectId]?.params ?? const <ParamDef>[];
     final def = defs.where((p) => p.key == key);
     final v = def.isEmpty ? const [0.0, 0.0] : def.first.defaultValue;
@@ -654,6 +675,9 @@ class EffectsView extends StatelessWidget {
     'damping': 'damping',
     'react': 'gives when pushed % (Collide on)',
     'pivot': 'pivot (0-1)',
+    'softShape': 'softness shape (0 cut, 0.55 circle, 1 sharp)',
+    'round': 'round the crease',
+    'roundShape': 'rounding shape (0 cut, 0.55 circle, 1 sharp)',
   };
 
   /// Bend instances saved before the "base height" param existed get it
@@ -673,6 +697,9 @@ class EffectsView extends StatelessWidget {
       if (RegExp(r'^(direction|fold\d+_direction|direction\d)$').hasMatch(key)) return ParamScale.degrees;
       if (RegExp(r'^(fold\d+_softness|softness\d)$').hasMatch(key)) return const ParamScale.slider(0, 1);
       if (RegExp(r'^(round|fold\d+_round|round\d)$').hasMatch(key)) return const ParamScale.slider(0, 200, decimals: 1);
+      if (RegExp(r'^(softShape|roundShape|fold\d+_(softShape|roundShape)|(softShape|roundShape)\d)$').hasMatch(key)) {
+        return const ParamScale.slider(0, 1, decimals: 3);
+      }
     }
     final defs = effectRegistry[inst.effectId]?.params ?? const <ParamDef>[];
     final def = defs.where((d) => d.key == key).firstOrNull;
@@ -712,7 +739,9 @@ class EffectsView extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: ParamEditor(
         prefKey: 'effect.${inst.effectId}.$key',
-        label: _paramLabels[key] ?? key.replaceAllMapped(RegExp(r'^fold(\d+)_'), (m) => 'fold ${m[1]} '),
+        label: _paramLabels[key] ??
+            _paramLabels[key.replaceFirst(RegExp(r'^fold\d+_'), '')] ??
+            key.replaceAllMapped(RegExp(r'^fold(\d+)_'), (m) => 'fold ${m[1]} '),
         values: valueList,
         scale: _scaleFor(inst, key),
         componentLabels: valueList.length > 1 ? const ['x', 'y'] : null,

@@ -4,6 +4,7 @@ import '../geometry_effect_registry.dart';
 import '../../core/interpolation.dart' show evaluateTrack;
 import '../../model/project.dart' show EffectInstance, Layer, Track, track;
 import 'bend_arc.dart' show gridBox;
+import '../../model/line_path.dart' show circleRoundK;
 
 /// "Origami": folds the object like paper, in 3D, along straight creases.
 ///
@@ -17,7 +18,8 @@ import 'bend_arc.dart' show gridBox;
 ///   part on its edge, 180 lays it flat back);
 /// - softness: 0 a sharp crease; more bends it round over a stretch of
 ///   paper (the folded part gets shorter);
-/// - round: the crease rounded off in 3D, px - only the paper right at the
+/// - round: the crease rounded off in 3D, px (at most the paper there is
+///   on either side) - only the paper right at the
 ///   crease, the parts and the creases stay where they are.
 /// `perspective` (0 flat, up to 1 strong) is the whole effect's.
 ///
@@ -38,7 +40,9 @@ void registerOrigamiFold() {
       ParamDef(key: 'direction', type: 'float', defaultValue: 0.0, range: [0, 360]),
       ParamDef(key: 'position', type: 'float', defaultValue: 0.5, range: [0, 1]),
       ParamDef(key: 'softness', type: 'float', defaultValue: 0.0, range: [0, 1]),
+      ParamDef(key: 'softShape', type: 'float', defaultValue: 0.5523, range: [0, 1]),
       ParamDef(key: 'round', type: 'float', defaultValue: 0.0, range: [0, 200]),
+      ParamDef(key: 'roundShape', type: 'float', defaultValue: 0.5523, range: [0, 1]),
       ParamDef(key: 'perspective', type: 'float', defaultValue: 0.3, range: [0, 1]),
     ],
     apply: origamiGrid,
@@ -55,7 +59,7 @@ void registerOrigamiFold() {
             // rows by the bend's size (a short bend needs few).
             rows: math.max(h.len, h.round) <= 1e-9
                 ? 1
-                : (math.max(h.len, h.round) / math.max(1.0, f.size / 60)).ceil().clamp(2, 48),
+                : math.max(h.round > 0 ? 12 : 2, (math.max(h.len, h.round) / math.max(1.0, f.size / 60)).ceil()).clamp(2, 48),
           ),
       ];
     },
@@ -71,6 +75,12 @@ class OrigamiFoldKeys {
   final double defaultPosition;
   const OrigamiFoldKeys(this.n, this.angle, this.position, this.direction, this.softness, this.round, this.region,
       this.defaultPosition);
+
+  /// The soft bend's shape: 0 cut straight, ~0.55 a circle, 1 sharp.
+  String get softShape => n == 1 ? 'softShape' : round.startsWith('fold') ? 'fold${n}_softShape' : 'softShape$n';
+
+  /// The rounding's shape: 0 cut straight, ~0.55 a circle, 1 sharp.
+  String get roundShape => n == 1 ? 'roundShape' : round.startsWith('fold') ? 'fold${n}_roundShape' : 'roundShape$n';
 }
 
 /// The folds' parameter names, in order: the first, then any added ones
@@ -99,7 +109,7 @@ List<(String, String, double)> origamiFoldKeys(Map<String, dynamic> params) =>
 /// effect's, e.g. perspective).
 int? origamiFoldOf(Map<String, dynamic> params, String key) {
   for (final f in origamiFolds(params)) {
-    if ([f.angle, f.position, f.direction, f.softness, f.round].contains(key)) return f.n;
+    if ([f.angle, f.position, f.direction, f.softness, f.softShape, f.round, f.roundShape].contains(key)) return f.n;
   }
   return null;
 }
@@ -129,7 +139,9 @@ int addOrigamiFold(EffectInstance inst, {String? region}) {
   inst.params['fold${n}_direction'] = track(dir);
   inst.params['fold${n}_position'] = track(reg == 'free' ? 0.5 : (far ? (pPos + 1) / 2 : pPos / 2));
   inst.params['fold${n}_softness'] = track(0.0);
+  inst.params['fold${n}_softShape'] = track(0.5523);
   inst.params['fold${n}_round'] = track(0.0);
+  inst.params['fold${n}_roundShape'] = track(0.5523);
   inst.params['fold${n}_in'] = reg;
   return n;
 }
@@ -141,7 +153,7 @@ void removeOrigamiFold(EffectInstance inst, int n) {
   final gone = origamiFolds(inst.params).where((f) => f.n == n).firstOrNull;
   if (gone == null) return;
   final its = _regionOf(inst.params, gone);
-  for (final k in [gone.angle, gone.position, gone.direction, gone.softness, gone.round, gone.region]) {
+  for (final k in [gone.angle, gone.position, gone.direction, gone.softness, gone.softShape, gone.round, gone.roundShape, gone.region]) {
     inst.params.remove(k);
   }
   for (final f in origamiFolds(inst.params)) {
@@ -197,11 +209,12 @@ const origamiLineReach = 0.25;
 class OrigamiFold {
   final int n;
   final List<double> u, nrm, m;
-  final double s, theta, len, round, dirDeg;
+  final double s, theta, len, round, roundShape, softShape, dirDeg;
 
   /// Its region: null (free) or (fold index in [_Folds.folds], far side?).
   final (int, bool)? region;
-  OrigamiFold(this.n, this.u, this.nrm, this.m, this.s, this.theta, this.len, this.round, this.dirDeg, this.region);
+  OrigamiFold(this.n, this.u, this.nrm, this.m, this.s, this.theta, this.len, this.round, this.dirDeg, this.region,
+      [this.roundShape = 0.5523, this.softShape = 0.5523]);
 
   /// Signed distance of rest point p from the crease, along u.
   double d(List<double> p) => (p[0] - m[0]) * u[0] + (p[1] - m[1]) * u[1];
@@ -246,8 +259,12 @@ class _Folds {
       final reach = (w / 2 * u[0]).abs() + (h / 2 * u[1]).abs();
       final s = -reach + 2 * reach * _num(params[k.position], k.defaultPosition).clamp(0.0, 1.0);
       final soft = _num(params[k.softness] ?? params['softness'], 0).clamp(0.0, 1.0);
-      final len = soft * reach * th.abs();
-      final round = math.max(0.0, _num(params[k.round], 0));
+      // never longer than the paper past the crease.
+      final len = (soft * reach * th.abs()).clamp(0.0, math.max(0.0, reach - s)).toDouble();
+      final softShape = _num(params[k.softShape], 0.5523).clamp(0.0, 1.0).toDouble();
+      // never more than the paper on either side of the crease.
+      final round = math.max(0.0, _num(params[k.round], 0)).clamp(0.0, math.max(0.0, math.min(reach + s, reach - s))).toDouble();
+      final roundShape = _num(params[k.roundShape], 0.5523).clamp(0.0, 1.0).toDouble();
       final reg = _regionOf(params, k);
       (int, bool)? region;
       if (reg != 'free') {
@@ -256,7 +273,7 @@ class _Folds {
         if (pi != null) region = (pi, parts.length < 2 || parts[1] != 'near');
       }
       index[k.n] = out.length;
-      out.add(OrigamiFold(k.n, u, nrm, [c[0] + u[0] * s, c[1] + u[1] * s], s, th, len, round, dirDeg, region));
+      out.add(OrigamiFold(k.n, u, nrm, [c[0] + u[0] * s, c[1] + u[1] * s], s, th, len, round, dirDeg, region, roundShape, softShape));
     }
     return _Folds(c, math.max(w, h), out);
   }
@@ -298,16 +315,30 @@ class _Folds {
     final across = rx * f.u[0] + ry * f.u[1];
     final up = q[2];
     double ou, oz, du, dz;
-    // the crease rounded off: a curve from -R (flat) to R (folded) through
-    // the crease's corner - nothing past it moves.
+    // the crease rounded off: from -R (flat) to R (folded), the whole
+    // corner between, shaped like a rect's rounded corner (a bezier with
+    // handles `roundShape` of the way to the corner: 0 a straight cut,
+    // ~0.55 a circle, 1 sharp) - nothing past it moves.
     if (f.round > 0 && d.abs() < f.round && f.len <= 1e-9) {
       final r = f.round;
-      final t = (d + r) / (2 * r);
-      final p0 = [-r, 0.0], p2 = [r * math.cos(th), r * math.sin(th)];
-      final bu = (1 - t) * (1 - t) * p0[0] + t * t * p2[0];
-      final bz = (1 - t) * (1 - t) * p0[1] + t * t * p2[1];
+      final k = f.roundShape;
+      final p0 = [-r, 0.0], p3 = [r * math.cos(th), r * math.sin(th)];
+      final p1 = [p0[0] * (1 - k), p0[1] * (1 - k)], p2 = [p3[0] * (1 - k), p3[1] * (1 - k)];
+      List<double> at(double t) {
+        final a = 1 - t;
+        return [
+          a * a * a * p0[0] + 3 * a * a * t * p1[0] + 3 * a * t * t * p2[0] + t * t * t * p3[0],
+          a * a * a * p0[1] + 3 * a * a * t * p1[1] + 3 * a * t * t * p2[1] + t * t * t * p3[1],
+        ];
+      }
+
+      // along the curve evenly: the paper's length spread over all of it.
+      final t = _evenT(at, (d + r) / (2 * r));
+      final b = at(t);
+      final bu = b[0], bz = b[1];
       // the paper's own thickness offsets go with the local direction.
-      final tu = 2 * (1 - t) * (0 - p0[0]) + 2 * t * (p2[0] - 0), tz = 2 * (1 - t) * (0 - p0[1]) + 2 * t * (p2[1] - 0);
+      final e = at(math.min(1.0, t + 1e-4)), e0 = at(math.max(0.0, t - 1e-4));
+      final tu = e[0] - e0[0], tz = e[1] - e0[1];
       final tl = math.sqrt(tu * tu + tz * tz);
       final cu = tl < 1e-12 ? 1.0 : tu / tl, cz = tl < 1e-12 ? 0.0 : tz / tl;
       final rest = across - d; // its own offset (0 on flat paper)
@@ -317,15 +348,39 @@ class _Folds {
     }
     if (d <= 0) return q;
     if (f.len > 1e-9) {
-      // round the bend: the part of it the point has reached, then on.
-      final t = math.min(d, f.len);
-      final phi = th * t / f.len;
+      // the bend: from the crease to where a round bend of this length ends
+      // (folded by the whole angle), shaped like a rounded corner - its
+      // handles along the paper, `softShape` (0.55: a circle; 0 cut
+      // straight; 1 sharper) of a circle's - then on, straight.
       final r = f.len / th;
-      ou = r * math.sin(phi);
-      oz = r * (1 - math.cos(phi));
-      du = math.cos(phi);
-      dz = math.sin(phi);
-      final restU = across - t;
+      final end = [r * math.sin(th), r * (1 - math.cos(th))];
+      final h = f.softShape / circleRoundK * (4 / 3) * math.tan(th / 4) * r;
+      final p1 = [h, 0.0], p2 = [end[0] - math.cos(th) * h, end[1] - math.sin(th) * h];
+      List<double> at(double t) {
+        final a = 1 - t;
+        return [
+          3 * a * a * t * p1[0] + 3 * a * t * t * p2[0] + t * t * t * end[0],
+          3 * a * a * t * p1[1] + 3 * a * t * t * p2[1] + t * t * t * end[1],
+        ];
+      }
+
+      final reached = math.min(d, f.len);
+      if (reached >= f.len) {
+        ou = end[0];
+        oz = end[1];
+        du = math.cos(th);
+        dz = math.sin(th);
+      } else {
+        final t = _evenT(at, reached / f.len);
+        final b = at(t);
+        ou = b[0];
+        oz = b[1];
+        final e = at(math.min(1.0, t + 1e-4)), e0 = at(math.max(0.0, t - 1e-4));
+        final tl = math.sqrt(math.pow(e[0] - e0[0], 2) + math.pow(e[1] - e0[1], 2));
+        du = tl < 1e-12 ? 1.0 : (e[0] - e0[0]) / tl;
+        dz = tl < 1e-12 ? 0.0 : (e[1] - e0[1]) / tl;
+      }
+      final restU = across - reached;
       final nu = ou + du * restU - dz * up;
       final nz = oz + dz * restU + du * up;
       return [f.m[0] + f.nrm[0] * along + f.u[0] * nu, f.m[1] + f.nrm[1] * along + f.u[1] * nu, nz];
@@ -565,4 +620,27 @@ Grid origamiGrid(Grid grid, Map<String, dynamic> params, double localFrame) {
   return [
     for (final row in grid) [for (final p in row) _project(f.map(p), f.c, focal)]
   ];
+}
+
+/// The curve parameter at fraction `f` of its length (24 chords).
+double _evenT(List<double> Function(double t) at, double f) {
+  const n = 24;
+  final lens = <double>[0];
+  var prev = at(0);
+  for (var i = 1; i <= n; i++) {
+    final p = at(i / n);
+    lens.add(lens.last + math.sqrt(math.pow(p[0] - prev[0], 2) + math.pow(p[1] - prev[1], 2)));
+    prev = p;
+  }
+  final total = lens.last;
+  if (total <= 1e-12) return f;
+  final target = f.clamp(0.0, 1.0) * total;
+  for (var i = 1; i <= n; i++) {
+    if (lens[i] >= target) {
+      final seg = lens[i] - lens[i - 1];
+      final u = seg <= 1e-12 ? 0.0 : (target - lens[i - 1]) / seg;
+      return (i - 1 + u) / n;
+    }
+  }
+  return 1;
 }
