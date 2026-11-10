@@ -31,38 +31,14 @@ class DrawingView extends StatelessWidget {
               onChanged: (v) => app.setDrawTool(v ? 'fill' : 'none'),
             ),
             const SizedBox(height: 4),
-            const Text('Result', style: TextStyle(fontSize: 13)),
-            const SizedBox(height: 4),
-            SegmentedButton<String>(
-              key: const ValueKey('draw-fill-mode'),
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: 'vector', label: Text('Shape')),
-                ButtonSegment(value: 'pixel', label: Text('Picture')),
-              ],
-              selected: {app.fillMode},
-              onSelectionChanged: (v) => app.setFillOptions(mode: v.first),
-            ),
-            const Hint('The region is exactly what the stage shows where you tap - its edges are whatever you see '
-                '(crop, masks, effects, filters, pictures). Shape: its outline as a vector; picture: its pixels. '
-                'The fill always goes on top.'),
-            Row(children: [
-              SizedBox(width: 110, child: Text('Colour range ${(app.fillTolerance * 100).round()}%')),
-              Expanded(
-                child: Slider(
-                  key: const ValueKey('draw-fill-tolerance'),
-                  value: app.fillTolerance,
-                  max: 0.5,
-                  onChanged: (v) => app.setFillOptions(tolerance: v),
-                ),
-              ),
-            ]),
+            const Hint('The region is bounded by the layers\' own outlines as they show - crop, cuts, masks, '
+                'flips and deformations included. The fill is a shape and always goes on top.'),
             SwitchListTile(
               key: const ValueKey('draw-fill-bleed'),
               dense: true,
               contentPadding: EdgeInsets.zero,
               title: const Text('Reach over the edges'),
-              subtitle: hint('A hair of the fill (1 px) goes on over the soft edges round it - no thin gaps'),
+              subtitle: hint('A hair of the fill goes on over the edges round it - no thin gaps'),
               value: app.fillBleed,
               onChanged: (v) => app.setFillOptions(bleed: v),
             ),

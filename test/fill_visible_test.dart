@@ -16,7 +16,7 @@ double area(List<List<List<double>>> rings) {
 }
 
 void main() {
-  test('fill takes what the stage shows: a cropped square fills its visible half, on top', () async {
+  test('vector fill: a cropped square fills its visible half, on top, where it was tapped', () {
     final app = AppState()..setFrameSize(200, 100);
     app.project.layers.clear();
     final sq = createLayer('rect')
@@ -34,13 +34,15 @@ void main() {
     app.project.layers.addAll([sq, top]);
     app.fillBleed = false;
     // the visible half: x 100..140, y 10..90.
-    final f = (await app.fillAt([120, 50]))!;
+    final f = app.fillAt([120, 50])!;
     expect(app.project.layers.last, same(f), reason: 'always on top');
-    expect(area(f.content.contours!), closeTo(40 * 80, 60));
+    expect(area(f.content.contours!), closeTo(40 * 80, 1));
+    // a shape (vectors), never a picture.
+    expect(f.content.shape, 'compound');
     final m = getLayerStateAt(app.project, f.id, 0).matrix;
     expect(m[4] * 200, closeTo(120, 1), reason: 'where it was tapped, the visible half');
     // where the crop took the square away: the background around it.
-    final bg = (await app.fillAt([80, 50]))!;
+    final bg = app.fillAt([80, 50])!;
     expect(area(bg.content.contours!), greaterThan(200 * 100 - 3200 - 100 - 400));
     expect(app.fillNotice.value, contains('filled'));
   });

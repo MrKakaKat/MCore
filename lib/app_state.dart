@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:convert' show base64Encode, jsonDecode, jsonEncode;
+import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:isolate';
 import 'dart:typed_data' show ByteData, Float64List, Int16List, Uint8List;
 import 'dart:math' as math;
@@ -2592,162 +2592,54 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setFillOptions({bool? onlySelected, String? color, bool? dig, String? mode, bool? bleed, double? tolerance}) {
-    if (mode != null) fillMode = mode;
+  void setFillOptions({bool? onlySelected, String? color, bool? dig, bool? bleed}) {
     if (bleed != null) fillBleed = bleed;
-    if (tolerance != null) fillTolerance = tolerance;
     if (onlySelected != null) fillOnlySelected = onlySelected;
     if (color != null) fillColor = color;
     if (dig != null) fillDig = dig;
     notifyListeners();
   }
 
-  /// Fill's result: 'vector' (the region's outline, a shape) or 'pixel'
-  /// (a picture). Either way the region is what the stage shows - the
-  /// pixels as drawn, whatever drew them (crop, masks, effects, filters,
-  /// pictures, the camera).
-  String fillMode = 'vector';
-
-  /// A hair of the fill (1 px) reaches on over the edges round it - no
-  /// thin gaps.
+  /// A hair of the fill (under a pixel) reaches on over the edges round
+  /// it - no thin gaps between neighbouring fills.
   bool fillBleed = true;
-
-  /// How far a colour may be from the tapped one (0..1).
-  double fillTolerance = 0.04;
-
-  bool _filling = false;
 
   /// The last fill, said for a moment in the stage's corner.
   final ValueNotifier<String?> fillNotice = ValueNotifier(null);
 
-  /// A fill tap at frame point `p` (as the stage shows it): the region the
-  /// eye sees there - every touching pixel of the tapped colour - as a
-  /// new layer on top of everything.
-  Future<Layer?> fillAt(List<double> p) async {
-    if (_filling) return null;
-    _filling = true;
-    try {
-      // only the chosen layers (and the fills before) when asked: the
-      // rest are drawn as if not there.
-      final hiddenNow = <Layer>[];
-      if (fillOnlySelected) {
-        final keep = selectedGroup;
-        for (final l in project.layers) {
-          if (!l.hidden && !keep.contains(l.id) && !l.drawing) {
-            l.hidden = true;
-            hiddenNow.add(l);
-          }
-        }
-      }
-      final cuts = renderer.stageCuts;
-      renderer.stageCuts = null; // the stage's handle cuts are a view thing
-      final ({Uint8List rgba, int width, int height})? f;
-      try {
-        f = await renderer.frameRgba(project, currentFrame);
-      } finally {
-        for (final l in hiddenNow) {
-          l.hidden = false;
-        }
-        renderer.stageCuts = cuts;
-        clearStateCaches();
-        _render();
-      }
-      if (f == null) return null;
-      final w = f.width, h = f.height;
-      final x0 = p[0].floor(), y0 = p[1].floor();
-      if (x0 < 0 || y0 < 0 || x0 >= w || y0 >= h) return null;
-      final mask = floodFillMask(f.rgba, w, h, x0, y0, (fillTolerance * 255).round(), grow: fillBleed ? 1 : 0);
-      final layer = fillMode == 'pixel' ? await _fillPicture(mask, w, h) : _fillShape(mask, w, h);
-      if (layer == null) return null;
-      fillNotice.value = '${layer.name} filled';
-      Future.delayed(const Duration(seconds: 3), () {
-        if (fillNotice.value == '${layer.name} filled') fillNotice.value = null;
-      });
-      _fitTimeline();
-      _render();
-      notifyListeners();
-      return layer;
-    } finally {
-      _filling = false;
-    }
+  void _notice(String text) {
+    fillNotice.value = text;
+    Future.delayed(const Duration(seconds: 3), () {
+      if (fillNotice.value == text) fillNotice.value = null;
+    });
   }
 
-  /// The filled pixels' outline as a shape on top.
-  Layer? _fillShape(Uint8List mask, int w, int h) {
-    final alpha = AlphaMask(w, h);
-    for (var i = 0; i < w * h; i++) {
-      alpha.a[i] = mask[i].toDouble();
+  /// A fill tap at frame point `p` (as the stage shows it): the region
+  /// there, bounded by the layers' own vector outlines (crop, cuts,
+  /// masks, flips, deformations as they are), as a new shape on top of
+  /// everything.
+  Layer? fillAt(List<double> p) {
+    var at = p;
+    // seen through the stage camera: the point back in the scene.
+    final view = renderer.useStageCamera ? cameraViewMatrix(project, currentFrame, frameWidth, frameHeight) : null;
+    if (view != null) at = applyAffine(invertAffine(view), p);
+    final plan = planFill(project, currentFrame, at, only: fillOnlySelected ? selectedGroup : null);
+    var region = plan.region;
+    if (region.isEmpty || windingNumber(region, at[0], at[1]) == 0) {
+      _notice('Nothing to fill there');
+      return null;
     }
-    final c = extractContour(alpha, const ContourParams(threshold: 0.5, simplify: 0.35, minAreaFraction: 0));
-    var rings = [
-      for (final r in c.rings)
-        if (r.points.length >= 3) [for (final q in r.points) q]
-    ];
-    if (rings.isEmpty) return null;
-    // seen through the stage camera: back into the scene.
-    final view = renderer.useStageCamera ? cameraViewMatrix(project, currentFrame, w.toDouble(), h.toDouble()) : null;
-    if (view != null) {
-      final inv = invertAffine(view);
-      rings = [
-        for (final r in rings) [for (final q in r) applyAffine(inv, q)]
-      ];
+    if (fillBleed) {
+      // over the edges by a hair (it lies on top of them).
+      final grown = offsetRings(region, 0.75, join: OffsetJoin.round);
+      if (grown.isNotEmpty) region = grown;
     }
     undo.pushUndoState(project);
-    return addFillShape(project, rings, _newLayerId(), color: fillColor, dig: fillDig);
-  }
-
-  /// The filled pixels as a picture on top.
-  Future<Layer?> _fillPicture(Uint8List mask, int w, int h) async {
-    var minX = w, minY = h, maxX = -1, maxY = -1;
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        if (mask[y * w + x] == 0) continue;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-    if (maxX < 0) return null;
-    final bw = maxX - minX + 1, bh = maxY - minY + 1;
-    final rgb = parseRgbHex(fillDig ? '#000000' : fillColor.substring(0, math.min(7, fillColor.length))) ??
-        const [255, 138, 101];
-    final a = !fillDig && fillColor.length == 9 ? int.parse(fillColor.substring(7), radix: 16) : 255;
-    final out = Uint8List(bw * bh * 4);
-    for (var y = 0; y < bh; y++) {
-      for (var x = 0; x < bw; x++) {
-        if (mask[(y + minY) * w + x + minX] == 0) continue;
-        final i = (y * bw + x) * 4;
-        out[i] = rgb[0];
-        out[i + 1] = rgb[1];
-        out[i + 2] = rgb[2];
-        out[i + 3] = a;
-      }
-    }
-    final done = Completer<ui.Image>();
-    ui.decodeImageFromPixels(out, bw, bh, ui.PixelFormat.rgba8888, done.complete);
-    final img = await done.future;
-    final png = await img.toByteData(format: ui.ImageByteFormat.png);
-    img.dispose();
-    if (png == null) return null;
-    undo.pushUndoState(project);
-    final layer = createImageLayer(
-        imageSourceType: 'embedded',
-        imageData: base64Encode(png.buffer.asUint8List()),
-        naturalWidth: bw,
-        naturalHeight: bh,
-        maxDimension: math.max(bw, bh).toDouble())
-      ..id = _newLayerId()
-      ..drawing = true
-      ..dig = fillDig
-      ..startFrame = 0
-      ..durationFrames = project.layers.fold<int>(1, (m, l) => math.max(m, l.startFrame + l.durationFrames));
-    layer.content.size = [bw.toDouble(), bh.toDouble()];
-    layer.transform.anchor.defaultValue = [(minX + bw / 2) / stageSize.width, (minY + bh / 2) / stageSize.height];
-    layer.name = nextFreeLayerName(project, 'Fill');
-    project.layers.add(layer);
-    normalizeTimelineRows(project);
-    clearStateCaches();
+    final layer = addFillShape(project, region, _newLayerId(), color: fillColor, dig: fillDig);
+    _notice('${layer.name} filled');
+    _fitTimeline();
+    _render();
+    notifyListeners();
     return layer;
   }
 
