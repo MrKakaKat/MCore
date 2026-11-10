@@ -1132,7 +1132,7 @@ List<List<double>> _parsePointsAttr(String raw) {
 String? _shapedPath(Project project, Layer layer, int frame) {
   final c = layer.content;
   if (c.shape == 'text' || isNodeLine(c)) return null;
-  final shaped = layer.fill.cornerRadius > 0 ||
+  final shaped = layer.fill.cornerRadius > 0 || shapeSmoothedOrGrown(layer) ||
       layer.fill.outerRadius > 0 ||
       layer.links.any((k) => k.enabled && k.to.startsWith('round')) ||
       layer.masks.any((m) => m.enabled && m.sourceLayerId != null) ||

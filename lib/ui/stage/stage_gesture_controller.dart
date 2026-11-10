@@ -122,6 +122,21 @@ class StageGestureController {
 
   void _tryCaptureHandle(ui.Offset screenPos) {
     if (app.parentPickFor != null) return; // taps pick children
+    // the mirror line: its ends, or its middle to move all of it.
+    if (app.mirrorLine case final ml?) {
+      final fp = camera.screenToFrame(screenPos);
+      final r = camera.radiusInFrameSpace(18);
+      final mid = [(ml[0][0] + ml[1][0]) / 2, (ml[0][1] + ml[1][1]) / 2];
+      final pts = [ml[0], ml[1], mid];
+      for (var i = 0; i < 3; i++) {
+        if (_dist([fp.dx, fp.dy], pts[i]) < r) {
+          _activeDrag = ActiveDragInfo(
+              family: 'mirrorLine', activeKey: '$i', op: _MirrorLineOp(app, i, camera.radiusInFrameSpace(12)));
+          onNeedsRepaint();
+          return;
+        }
+      }
+    }
     final picked = findLayer(app.project, app.selection.selectedLayer);
     // a locked layer can't be grabbed on the stage.
     final layer = picked != null && picked.locked ? null : picked;
@@ -190,6 +205,21 @@ class StageGestureController {
     if (layer == null || hideHandles || app.cameraView) return; // nothing selected, or handles globally hidden - tap-to-select only
     if (isAudioShape(layer.content.shape)) return; // a sound has no handles
     final fp = camera.screenToFrame(screenPos);
+    // the others selected with it: each one's own move handle moves it alone.
+    for (final id in app.selectedGroup) {
+      if (id == layer.id) continue;
+      final g = findLayer(app.project, id);
+      if (g == null || g.locked || getActiveMeshOrPinInstance(g) != null) continue;
+      if (!getLayerStateAt(app.project, g.id, app.currentFrame).inRange) continue;
+      final at = getTransformBoxHandles(app.project, g, app.currentFrame).screen['moveCorner']!;
+      if (_dist([fp.dx, fp.dy], at) < camera.radiusInFrameSpace(16)) {
+        app.pushUndo();
+        _activeDrag = ActiveDragInfo(
+            family: 'groupMove', activeKey: g.id, op: AnchorDragOp.grab(app.project, g, app.currentFrame, [fp.dx, fp.dy]));
+        onNeedsRepaint();
+        return;
+      }
+    }
     final captured = _magnetCapture(layer, [fp.dx, fp.dy]);
     if (captured != null) {
       app.pushUndo();
@@ -730,6 +760,12 @@ class StageGestureController {
 
   void _handleTap(ui.Offset screenPos) {
     final fp = camera.screenToFrame(screenPos);
+    // Drawing, Fill: the region under the tap becomes a layer.
+    if (app.drawTool == 'fill') {
+      app.fillAt([fp.dx, fp.dy]);
+      onNeedsRepaint();
+      return;
+    }
     // Crop lines: each tap is one more point.
     if (app.cropLine != null) {
       app.cropLineTap([fp.dx, fp.dy], camera.radiusInFrameSpace(12));
@@ -852,4 +888,28 @@ class _CropLinePointOp implements DragOp {
   @override
   void apply(Project project, int globalFrame, List<double> framePoint) =>
       app.moveCropLinePoint(index, framePoint, snapRadius);
+}
+
+
+/// The mirror line: an end (0, 1) or its middle (2, the whole line).
+class _MirrorLineOp implements DragOp {
+  final AppState app;
+  final int index;
+  final double snapRadius;
+  _MirrorLineOp(this.app, this.index, this.snapRadius);
+  List<double>? _last;
+
+  @override
+  List<SnapGuideLine> get snapGuides => const [];
+
+  @override
+  void apply(Project project, int globalFrame, List<double> framePoint) {
+    final last = _last;
+    _last = framePoint;
+    if (index == 2) {
+      if (last != null) app.moveMirrorLine(2, framePoint, snapRadius, delta: [framePoint[0] - last[0], framePoint[1] - last[1]]);
+      return;
+    }
+    app.moveMirrorLine(index, framePoint, snapRadius);
+  }
 }

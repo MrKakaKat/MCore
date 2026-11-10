@@ -9,6 +9,7 @@ import '../common/num_field.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
+import '../common/no_layer.dart';
 
 /// Ported from movement-core/src/ui/paramsPanel/masksSection.js - a
 /// mask is always sourced from another layer (no separate "circle vs
@@ -42,7 +43,7 @@ class MasksView extends StatelessWidget {
       animation: app,
       builder: (context, _) {
         final layer = findLayer(app.project, app.selection.selectedLayer);
-        if (layer == null) return const Center(child: Text('No layer selected'));
+        if (layer == null) return NoLayer(app: app, text: 'No layer selected');
         final localFrame = layerLocalFrame(layer, app.currentFrame);
         return ListView(
           padding: const EdgeInsets.all(8),

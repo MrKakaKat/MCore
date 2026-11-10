@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:movement_core/movement_core.dart' hide Transform;
 
 import '../../app_state.dart';
+import '../common/no_layer.dart';
 import 'key_mode_panel.dart';
 
 /// A dedicated "Keyframes" tab - asked for a separate place to edit keyframe
@@ -41,7 +42,7 @@ class KeyframesEditorView extends StatelessWidget {
       builder: (context, _) {
         final layer = findLayer(app.project, app.selection.selectedLayer);
         if (layer == null) {
-          return const Center(child: Text('No layer selected'));
+          return NoLayer(app: app, text: 'No layer selected');
         }
         // only the parameters that have keys (every tab's, and the
         // animation layers').

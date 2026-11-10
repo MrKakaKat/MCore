@@ -5,6 +5,7 @@ import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/num_field.dart';
 import '../stage/stage_painter.dart' show showPropLinks;
+import '../common/no_layer.dart';
 
 const _propNames = {
   'x': 'X', 'y': 'Y', 'rotation': 'Rotation', 'scaleX': 'Scale X', 'scaleY': 'Scale Y', 'opacity': 'Opacity',
@@ -26,7 +27,7 @@ class LinksView extends StatelessWidget {
       animation: app,
       builder: (context, _) {
         final layer = findLayer(app.project, app.selection.selectedLayer);
-        if (layer == null) return const Center(child: Text('Select a layer'));
+        if (layer == null) return NoLayer(app: app, text: 'Select a layer');
         void set(void Function() change) {
           app.pushUndo();
           change();

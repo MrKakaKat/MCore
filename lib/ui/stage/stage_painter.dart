@@ -100,6 +100,7 @@ void paintStage({
   List<List<List<double>>> hiddenLines = const [],
   List<(List<List<double>>, double)> unitOverlay = const [],
   CropLineOverlay? cropLine,
+  List<List<double>>? mirrorLine,
 }) {
   camera.mirrorX = mirrorX;
   camera.mirrorY = mirrorY;
@@ -272,6 +273,7 @@ void paintStage({
             ..strokeWidth = inv);
     }
     if (cropLine != null) _paintCropLine(canvas, cropLine, inv);
+    if (mirrorLine != null) _paintMirrorLine(canvas, mirrorLine, inv);
     // invisible lines: a thin guide where each runs (editor only).
     for (final q in hiddenLines) {
       if (q.length < 2) continue;
@@ -373,6 +375,11 @@ void paintStage({
     for (final g in groupLayers) {
       if (getLayerStateAt(project, g.id, globalFrame).inRange) {
         _paintTransformBox(canvas, project, g, globalFrame, null, inv, hasDeform: false, outlineOnly: true);
+        // its own move handle: it can be moved alone without leaving the
+        // selection.
+        if (!g.locked && getActiveMeshOrPinInstance(g) == null) {
+          _paintMoveHandle(canvas, getTransformBoxHandles(project, g, globalFrame).screen['moveCorner']!, inv);
+        }
       }
     }
     // a locked layer: its outline only, no handles.
@@ -1740,4 +1747,28 @@ void _paintCropLine(ui.Canvas canvas, CropLineOverlay c, double inv) {
   for (final p in c.points) {
     canvas.drawCircle(ui.Offset(p[0], p[1]), 2.2 * inv, dot);
   }
+}
+
+
+/// The mirror line: dashed through the whole frame's reach, its two ends
+/// and its middle as handles.
+void _paintMirrorLine(ui.Canvas canvas, List<List<double>> l, double inv) {
+  const color = ui.Color(0xFF4DD0E1);
+  final a = ui.Offset(l[0][0], l[0][1]), b = ui.Offset(l[1][0], l[1][1]);
+  final d = b - a;
+  if (d.distance > 1e-6) {
+    final u = d / d.distance;
+    const far = 1e4;
+    // faint: the line carried on; solid: between its ends.
+    canvas.drawLine(a - u * far, b + u * far, ui.Paint()
+      ..color = color.withOpacity(0.35)
+      ..strokeWidth = 1 * inv);
+    canvas.drawLine(a, b, ui.Paint()
+      ..color = color
+      ..strokeWidth = 1.5 * inv);
+  }
+  final dot = ui.Paint()..color = color;
+  canvas.drawCircle(a, 6 * inv, dot);
+  canvas.drawCircle(b, 6 * inv, dot);
+  canvas.drawRect(ui.Rect.fromCenter(center: (a + b) / 2, width: 10 * inv, height: 10 * inv), dot);
 }

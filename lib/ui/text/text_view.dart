@@ -12,6 +12,7 @@ import '../common/keyed_param_row.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../../io/file_pick.dart';
+import '../common/no_layer.dart';
 
 /// Text tab: the selected text layer's words, font (the bundled Roboto
 /// plus any loaded .ttf/.otf), size, letter and line spacing, alignment,
@@ -34,6 +35,7 @@ class TextView extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text('Select a text layer, or add one'),
+                LayersButton(app: app),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: app.addTextLayer,

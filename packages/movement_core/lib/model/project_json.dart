@@ -165,6 +165,7 @@ Map<String, dynamic> contentToJson(Content c) => {
       if (c.audioMuted) 'audioMuted': true,
       if (c.mediaHash != null) 'mediaHash': c.mediaHash,
       if (c.gridCols != null && c.gridRows != null) 'grid': [c.gridCols, c.gridRows],
+      if (c.gridKinds != 3) 'gridKinds': c.gridKinds,
       if (c.lineNodes != null) ...{
         'lineNodes': [for (final n in c.lineNodes!) n.toJson()],
         'lineWidth': c.lineWidth,
@@ -182,6 +183,10 @@ Map<String, dynamic> contentToJson(Content c) => {
         if (c.lineCapShape != 0.5523) 'lineCapShape': c.lineCapShape,
         if (c.lineJoin != 'round') 'lineJoin': c.lineJoin,
         if (c.lineMiterLimit != 4) 'lineMiterLimit': c.lineMiterLimit,
+        if (c.lineStationShapes) 'lineStationShapes': true,
+        if (c.lineStationSizes.isNotEmpty)
+          'lineStationSizes': {for (final e in c.lineStationSizes.entries) '${e.key}': e.value},
+        if (c.lineSmooth != 0) 'lineSmooth': c.lineSmooth,
         if (!c.lineMirrorLength) 'lineMirrorLength': false,
       },
       if (c.shape == 'projectRef') ...{
@@ -231,6 +236,7 @@ Content contentFromJson(Map<String, dynamic> j) => Content(
       ..contourColors = (j['contourColors'] as List?)?.map((v) => v as String?).toList()
       ..contourJoin = (j['contourJoin'] as List?)?.map((v) => v == true).toList()
       ..mediaHash = j['mediaHash'] as String?
+      ..gridKinds = (j['gridKinds'] as num?)?.toInt() ?? 3
       ..gridCols = j['grid'] is List ? ((j['grid'] as List)[0] as num).toInt() : null
       ..gridRows = j['grid'] is List ? ((j['grid'] as List)[1] as num).toInt() : null
       ..lineNodes = (j['lineNodes'] as List?)?.map((n) => LineNode.fromJson(n as Map<String, dynamic>)).toList()
@@ -251,6 +257,14 @@ Content contentFromJson(Map<String, dynamic> j) => Content(
       ..lineCapShape = (j['lineCapShape'] as num?)?.toDouble() ?? 0.5523
       ..lineJoin = j['lineJoin'] as String? ?? 'round'
       ..lineMiterLimit = (j['lineMiterLimit'] as num?)?.toDouble() ?? 4
+      ..lineStationShapes = j['lineStationShapes'] == true
+      ..lineStationSizes = j['lineStationSizes'] is Map
+          ? {
+              for (final e in (j['lineStationSizes'] as Map).entries)
+                if (int.tryParse('${e.key}') != null) int.parse('${e.key}'): (e.value as num).toDouble()
+            }
+          : {}
+      ..lineSmooth = (j['lineSmooth'] as num?)?.toDouble() ?? 0
       ..lineMirrorLength = j['lineMirrorLength'] as bool? ?? true
       ..refProjectId = j['projectId'] as String?
       ..refFit = j['fit'] as String? ?? 'contain'
@@ -539,6 +553,9 @@ Map<String, dynamic> shapeFillToJson(ShapeFill f) => {
           }
       ],
       if (f.cornerRadius > 0) 'cornerRadius': f.cornerRadius,
+      if (f.smooth != 0) 'smooth': f.smooth,
+      if (f.smoothAngle != 30) 'smoothAngle': f.smoothAngle,
+      if (f.grow != 0) 'grow': f.grow,
       if (f.roundingOn != (f.cornerRadius > 0 || f.outerRadius > 0)) 'roundingOn': f.roundingOn,
       if (f.lastCornerRadius != 20) 'lastCornerRadius': f.lastCornerRadius,
       if (f.cornersOn.any((c) => !c)) 'cornersOn': f.cornersOn,
@@ -644,7 +661,10 @@ ShapeFill shapeFillFromJson(Map<String, dynamic> j) {
         : null,
     shadow: j['shadow'] is Map ? _shadowFromJson(j['shadow'] as Map<String, dynamic>) : null,
     paint: j['paint'] is Map ? fillGradientFromJson(j['paint'] as Map<String, dynamic>) : null,
-  );
+  )
+    ..smooth = (j['smooth'] as num?)?.toDouble() ?? 0
+    ..smoothAngle = (j['smoothAngle'] as num?)?.toDouble() ?? 30
+    ..grow = (j['grow'] as num?)?.toDouble() ?? 0;
 }
 
 Map<String, dynamic> layerToJson(Layer l) => {
@@ -731,6 +751,8 @@ Map<String, dynamic> layerToJson(Layer l) => {
           l.fill.glows.isNotEmpty ||
           l.fill.cornerRadius > 0 ||
           l.fill.outerRadius > 0 ||
+          l.fill.smooth > 0 ||
+          l.fill.grow > 0 ||
           l.fill.shadow.enabled ||
           l.fill.paint != null)
         'fill': shapeFillToJson(l.fill),

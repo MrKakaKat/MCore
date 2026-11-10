@@ -9,7 +9,15 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
+import android.opengl.EGL14
+import android.opengl.EGLConfig
+import android.opengl.EGLContext
+import android.opengl.EGLDisplay
+import android.opengl.EGLExt
+import android.opengl.EGLSurface
+import android.opengl.GLES20
 import android.os.Build
+import android.view.Surface
 import android.os.Handler
 import android.os.Looper
 import io.flutter.plugin.common.BinaryMessenger
@@ -59,7 +67,10 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
                         "decodeAudio" -> decodeAudio(call)
                         "beginEncode" -> beginEncode(call)
                         "encodeFrame" -> {
-                            encoders[call.argument<String>("id")!!]!!.frame(call.argument<ByteArray>("rgba")!!)
+                            // no picture: the one before again (a still frame).
+                            val e = encoders[call.argument<String>("id")!!]!!
+                            val rgba = call.argument<ByteArray>("rgba")
+                            if (rgba == null) e.repeat() else e.frame(rgba)
                             null
                         }
                         "finishEncode" -> {
@@ -507,17 +518,43 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
         private var audioFormat: MediaFormat? = null
         private val pending = ArrayList<Sample>()
 
+        /** Surface input: the frame is drawn into the encoder by the GPU
+         * (it turns RGB into YUV itself) - null: buffers filled on the CPU. */
+        private var gl: GlInput? = null
+        private var lastRgba: ByteArray? = null
+
         init {
             val name = encoderName(mime) ?: throw IllegalStateException("This phone has no $mime encoder")
-            val f = MediaFormat.createVideoFormat(mime, width, height)
-            f.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-            f.setInteger(MediaFormat.KEY_BIT_RATE, bitrateKbps * 1000)
-            f.setFloat(MediaFormat.KEY_FRAME_RATE, fps.toFloat())
-            f.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
-            if (Build.VERSION.SDK_INT >= 29) f.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
-            codec = MediaCodec.createByCodecName(name)
-            codec.configure(f, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            codec.start()
+            fun format(surface: Boolean): MediaFormat {
+                val f = MediaFormat.createVideoFormat(mime, width, height)
+                f.setInteger(
+                    MediaFormat.KEY_COLOR_FORMAT,
+                    if (surface) MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+                    else MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible,
+                )
+                f.setInteger(MediaFormat.KEY_BIT_RATE, bitrateKbps * 1000)
+                f.setFloat(MediaFormat.KEY_FRAME_RATE, fps.toFloat())
+                f.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+                if (Build.VERSION.SDK_INT >= 29) f.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+                return f
+            }
+            var c = MediaCodec.createByCodecName(name)
+            try {
+                c.configure(format(true), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                val surface = c.createInputSurface()
+                c.start()
+                gl = GlInput(surface, width, height)
+            } catch (t: Throwable) {
+                // no surface input here: the CPU way.
+                gl?.release()
+                gl = null
+                try { c.stop() } catch (e: Throwable) {}
+                c.release()
+                c = MediaCodec.createByCodecName(name)
+                c.configure(format(false), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                c.start()
+            }
+            codec = c
             val webm = mime == MediaFormat.MIMETYPE_VIDEO_VP9
             muxer = MediaMuxer(path, if (webm) MediaMuxer.OutputFormat.MUXER_OUTPUT_WEBM else MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             if (audioPcm != null) {
@@ -540,13 +577,33 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
             return i
         }
 
+        private fun pts() = (index * 1_000_000.0 / fps).toLong()
+
         fun frame(rgba: ByteArray) {
-            val i = nextInput()
-            val image = codec.getInputImage(i)!!
-            rgbaToYuv(rgba, image)
-            codec.queueInputBuffer(i, 0, width * height * 3 / 2, (index * 1_000_000.0 / fps).toLong(), 0)
+            val g = gl
+            if (g != null) {
+                g.draw(rgba, pts() * 1000)
+            } else {
+                val i = nextInput()
+                val image = codec.getInputImage(i)!!
+                rgbaToYuv(rgba, image)
+                codec.queueInputBuffer(i, 0, width * height * 3 / 2, pts(), 0)
+                lastRgba = rgba
+            }
             index++
             drain(false)
+        }
+
+        /** The frame before, once more (nothing changed). */
+        fun repeat() {
+            val g = gl
+            if (g != null) {
+                g.draw(null, pts() * 1000)
+                index++
+                drain(false)
+                return
+            }
+            frame(lastRgba ?: ByteArray(width * height * 4))
         }
 
         private fun rgbaToYuv(rgba: ByteArray, image: android.media.Image) {
@@ -617,9 +674,14 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
         }
 
         fun finish(): String {
-            val i = nextInput()
-            codec.queueInputBuffer(i, 0, 0, (index * 1_000_000.0 / fps).toLong(), MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+            if (gl != null) {
+                codec.signalEndOfInputStream()
+            } else {
+                val i = nextInput()
+                codec.queueInputBuffer(i, 0, 0, pts(), MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+            }
             drain(true)
+            gl?.release()
             codec.stop()
             codec.release()
             if (started) muxer.stop()
@@ -628,11 +690,138 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
         }
 
         fun abort() {
+            try { gl?.release() } catch (e: Throwable) {}
             try { codec.stop() } catch (e: Throwable) {}
             codec.release()
             try { if (started) muxer.stop() } catch (e: Throwable) {}
             muxer.release()
             File(path).delete()
+        }
+    }
+
+    /**
+     * The encoder's input surface as an OpenGL ES target: each frame is
+     * uploaded as a texture and drawn over the whole surface; the encoder
+     * turns it into YUV on the GPU. Calls may come on any worker thread -
+     * the context is made current for each and let go after.
+     */
+    private class GlInput(private val surface: Surface, private val width: Int, private val height: Int) {
+        private val display: EGLDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        private val context: EGLContext
+        private val eglSurface: EGLSurface
+        private var program = 0
+        private var texture = 0
+        private val pixels: ByteBuffer = ByteBuffer.allocateDirect(width * height * 4)
+        private val quad: java.nio.FloatBuffer
+
+        init {
+            val version = IntArray(2)
+            check(EGL14.eglInitialize(display, version, 0, version, 1)) { "EGL" }
+            val attribs = intArrayOf(
+                EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                0x3142, 1, // EGL_RECORDABLE_ANDROID
+                EGL14.EGL_NONE,
+            )
+            val configs = arrayOfNulls<EGLConfig>(1)
+            val n = IntArray(1)
+            check(EGL14.eglChooseConfig(display, attribs, 0, configs, 0, 1, n, 0) && n[0] > 0) { "EGL config" }
+            context = EGL14.eglCreateContext(
+                display, configs[0], EGL14.EGL_NO_CONTEXT,
+                intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE), 0,
+            )
+            check(context != EGL14.EGL_NO_CONTEXT) { "EGL context" }
+            eglSurface = EGL14.eglCreateWindowSurface(display, configs[0], surface, intArrayOf(EGL14.EGL_NONE), 0)
+            check(eglSurface != EGL14.EGL_NO_SURFACE) { "EGL surface" }
+            // x, y, u, v: the picture's first row at the top.
+            val v = floatArrayOf(-1f, -1f, 0f, 1f, 1f, -1f, 1f, 1f, -1f, 1f, 0f, 0f, 1f, 1f, 1f, 0f)
+            quad = ByteBuffer.allocateDirect(v.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            quad.put(v).position(0)
+            current {
+                program = link(
+                    "attribute vec2 aPos; attribute vec2 aTex; varying vec2 vTex;" +
+                        "void main() { gl_Position = vec4(aPos, 0.0, 1.0); vTex = aTex; }",
+                    "precision mediump float; varying vec2 vTex; uniform sampler2D uTex;" +
+                        "void main() { gl_FragColor = vec4(texture2D(uTex, vTex).rgb, 1.0); }",
+                )
+                val t = IntArray(1)
+                GLES20.glGenTextures(1, t, 0)
+                texture = t[0]
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null)
+                check(GLES20.glGetError() == GLES20.GL_NO_ERROR) { "GL setup" }
+            }
+        }
+
+        private fun <T> current(block: () -> T): T = synchronized(this) {
+            check(EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context)) { "EGL current" }
+            try {
+                block()
+            } finally {
+                EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+            }
+        }
+
+        private fun shader(type: Int, src: String): Int {
+            val s = GLES20.glCreateShader(type)
+            GLES20.glShaderSource(s, src)
+            GLES20.glCompileShader(s)
+            val ok = IntArray(1)
+            GLES20.glGetShaderiv(s, GLES20.GL_COMPILE_STATUS, ok, 0)
+            check(ok[0] != 0) { GLES20.glGetShaderInfoLog(s) }
+            return s
+        }
+
+        private fun link(vs: String, fs: String): Int {
+            val p = GLES20.glCreateProgram()
+            GLES20.glAttachShader(p, shader(GLES20.GL_VERTEX_SHADER, vs))
+            GLES20.glAttachShader(p, shader(GLES20.GL_FRAGMENT_SHADER, fs))
+            GLES20.glLinkProgram(p)
+            val ok = IntArray(1)
+            GLES20.glGetProgramiv(p, GLES20.GL_LINK_STATUS, ok, 0)
+            check(ok[0] != 0) { GLES20.glGetProgramInfoLog(p) }
+            return p
+        }
+
+        /** Draws `rgba` (null: the picture already there) at `ptsNs`. */
+        fun draw(rgba: ByteArray?, ptsNs: Long) = current {
+            GLES20.glViewport(0, 0, width, height)
+            GLES20.glUseProgram(program)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+            if (rgba != null) {
+                pixels.position(0)
+                pixels.put(rgba, 0, min(rgba.size, width * height * 4))
+                pixels.position(0)
+                GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+                GLES20.glTexSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
+            }
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uTex"), 0)
+            val aPos = GLES20.glGetAttribLocation(program, "aPos")
+            val aTex = GLES20.glGetAttribLocation(program, "aTex")
+            quad.position(0)
+            GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 16, quad)
+            GLES20.glEnableVertexAttribArray(aPos)
+            quad.position(2)
+            GLES20.glVertexAttribPointer(aTex, 2, GLES20.GL_FLOAT, false, 16, quad)
+            GLES20.glEnableVertexAttribArray(aTex)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+            EGLExt.eglPresentationTimeANDROID(display, eglSurface, ptsNs)
+            check(EGL14.eglSwapBuffers(display, eglSurface)) { "EGL swap" }
+        }
+
+        fun release() {
+            try {
+                EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+                EGL14.eglDestroySurface(display, eglSurface)
+                EGL14.eglDestroyContext(display, context)
+                // (no eglTerminate: the display is the whole app's.)
+            } catch (e: Throwable) {}
+            surface.release()
         }
     }
 }

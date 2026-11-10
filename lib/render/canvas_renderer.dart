@@ -636,6 +636,20 @@ class CanvasRenderer implements Renderer {
     _stillIds = {for (final l in project.layers) if (layerIsStill(project, l)) l.id};
   }
 
+  /// Export: whether `frame` draws exactly what `previous` drew - every
+  /// layer there in both or in neither, and each one there still (see
+  /// layerIsStill) - so it need not be drawn again.
+  bool frameRepeats(Project project, int previous, int frame) {
+    if (_stillIds.isEmpty) return false;
+    for (final l in project.layers) {
+      if (isAudioShape(l.content.shape)) continue;
+      final a = getLayerStateAt(project, l.id, previous).inRange, b = getLayerStateAt(project, l.id, frame).inRange;
+      if (a != b) return false;
+      if (b && !l.hidden && !_stillIds.contains(l.id)) return false;
+    }
+    return true;
+  }
+
   void endExportReuse() {
     _stillIds = {};
     for (final p in _stillPictures.values) {
@@ -685,7 +699,23 @@ class CanvasRenderer implements Renderer {
     if (layer == null) return;
     final mb = layer.motionBlur;
 
-    if (mb.enabled && mb.samples > 1 && effectActiveAt(layer, 'motionBlur', globalFrame - layer.startFrame)) {
+    // motion blur only where the layer moves across the shutter (a still
+    // one would be drawn `samples` times for nothing).
+    bool movesAcrossShutter() {
+      final half = mb.shutterAngle / 360 / 2;
+      // its ends and middle (a turn back at a key looks the same at both ends).
+      final a = getLayerStateAt(project, layerId, globalFrame - half),
+          m = getLayerStateAt(project, layerId, globalFrame),
+          b = getLayerStateAt(project, layerId, globalFrame + half);
+      if (a.inRange != b.inRange || a.inRange != m.inRange) return true;
+      for (var i = 0; i < 6; i++) {
+        if ((a.matrix[i] - b.matrix[i]).abs() > 1e-6 || (a.matrix[i] - m.matrix[i]).abs() > 1e-6) return true;
+      }
+      return false;
+    }
+
+    if (mb.enabled && mb.samples > 1 && effectActiveAt(layer, 'motionBlur', globalFrame - layer.startFrame) &&
+        movesAcrossShutter()) {
       final shutterFrames = mb.shutterAngle /
           360; // shutter angle as a fraction of one frame's duration
       final samples = mb.samples;
@@ -1055,6 +1085,13 @@ class CanvasRenderer implements Renderer {
             ? buildEffectGrid(layer, layer.content, globalFrame, project: project)
             : buildGrid(layer.content, 2, 2);
         grid = applyInheritedDeform(project, layer, applyEffectStack(layer, grid, globalFrame, project: project), globalFrame);
+        // smoothed / grown (Fill tab): its outline as it is then.
+        if (!needsSub && layer.content.shape == 'rect' && shapeSmoothedOrGrown(layer)) {
+          contentCanvas.drawPath(
+              _pathFromPoints(layerFlatOutline(layer, globalFrame: globalFrame, project: project), close: true),
+              outline ? strokePaint : fillPaint);
+          return;
+        }
         // rounded corners (Fill tab) on an undeformed rect.
         // (a link can round it too.)
         final rounded = layer.fill.cornerRadius > 0 || layer.links.any((k) => k.enabled && k.to.startsWith('round'));

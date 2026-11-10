@@ -385,19 +385,16 @@ class _ParamEditorState extends State<ParamEditor> {
     super.dispose();
   }
 
-  /// A number field, + to keep it as a station block, then the blocks
-  /// (tap: go there; ×: remove), scrolling sideways.
+  /// The stops of this value: − on the left (takes away the typed one,
+  /// or the one nearest the value), the number field in the middle, + on
+  /// the right (keeps the typed one, or the value), how many at the edge.
+  /// The stops themselves show as marks on the slider / ruler.
   Widget _stationRow(BuildContext context) {
     final own = ParamEditor.stationsFor(widget.prefKey, widget.scale);
-    final s = widget.scale;
-    String fmt(double v) {
-      final t = v.toStringAsFixed(math.max(0, s.labelDecimals));
-      return t.contains('.') ? t.replaceFirst(RegExp(r'\.?0+$'), '') : t;
-    }
+    double? typed() => double.tryParse(_stationField.text.replaceAll(',', '.'));
 
     void add() {
-      final v = double.tryParse(_stationField.text.replaceAll(',', '.'));
-      if (v == null) return;
+      final v = typed() ?? widget.values.first;
       setState(() {
         ParamEditor.stations[widget.prefKey] = ({...own, v}.toList()..sort());
         _stationField.clear();
@@ -405,50 +402,40 @@ class _ParamEditorState extends State<ParamEditor> {
       ParamEditor.onStationsChanged?.call();
     }
 
-    // styled like the key chips in Keyframes: oval, × on the right.
-    Widget block(double v, {bool fixed = false}) => Padding(
-          padding: const EdgeInsets.only(right: 4),
-          child: Material(
-            key: ValueKey('station-${widget.prefKey}-$v'),
-            color: fixed
-                ? Theme.of(context).colorScheme.surfaceContainerHighest
-                : Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(16),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () {
-                widget.onEditStart();
-                widget.onCommit([v]);
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text('${fmt(v)}${s.suffix}', style: const TextStyle(fontSize: 12)),
-                  if (!fixed) ...[
-                    const SizedBox(width: 6),
-                    InkWell(
-                      key: ValueKey('station-del-${widget.prefKey}-$v'),
-                      onTap: () {
-                        setState(() => ParamEditor.stations[widget.prefKey] = [...own]..remove(v));
-                        ParamEditor.onStationsChanged?.call();
-                      },
-                      child: const Icon(Icons.close, size: 14),
-                    ),
-                  ],
-                ]),
-              ),
-            ),
-          ),
-        );
+    void remove() {
+      if (own.isEmpty) return;
+      final t = typed();
+      final at = t ?? widget.values.first;
+      // the typed one, else the nearest to the value.
+      final v = own.reduce((x, y) => (x - at).abs() <= (y - at).abs() ? x : y);
+      if (t != null && (v - t).abs() > 1e-9) return;
+      setState(() {
+        ParamEditor.stations[widget.prefKey] = [...own]..remove(v);
+        _stationField.clear();
+      });
+      ParamEditor.onStationsChanged?.call();
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
       child: Row(children: [
+        const Spacer(),
+        IconButton(
+          key: ValueKey('station-remove-${widget.prefKey}'),
+          icon: const Icon(Icons.remove, size: 16),
+          tooltip: 'take away the typed stop (empty: the one nearest the value)',
+          visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.all(4),
+          constraints: _iconConstraints,
+          onPressed: own.isEmpty ? null : remove,
+        ),
         SizedBox(
-          width: 56,
+          width: 64,
           height: 28,
           child: TextField(
             key: ValueKey('station-field-${widget.prefKey}'),
             controller: _stationField,
+            textAlign: TextAlign.center,
             keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
             style: const TextStyle(fontSize: 12),
             decoration: const InputDecoration(isDense: true, hintText: 'Stop', contentPadding: EdgeInsets.all(6)),
@@ -458,18 +445,20 @@ class _ParamEditorState extends State<ParamEditor> {
         IconButton(
           key: ValueKey('station-add-${widget.prefKey}'),
           icon: const Icon(Icons.add, size: 16),
-          tooltip: 'keep it as a snap station',
+          tooltip: 'keep the typed number (empty: the value) as a stop',
           visualDensity: VisualDensity.compact,
           padding: const EdgeInsets.all(4),
           constraints: _iconConstraints,
           onPressed: add,
         ),
         Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(children: [
-              for (final v in own) block(v),
-            ]),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              '${own.length} ${own.length == 1 ? 'stop' : 'stops'}',
+              key: ValueKey('station-count-${widget.prefKey}'),
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
           ),
         ),
       ]),

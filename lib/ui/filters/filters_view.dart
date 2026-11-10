@@ -8,6 +8,7 @@ import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
+import '../common/no_layer.dart';
 
 /// Filters: what they act on (the layer, the whole scene, or what is under
 /// the layer as glass), negative, blur, fractal warp, colour wheels with
@@ -22,7 +23,7 @@ class FiltersView extends StatelessWidget {
       listenable: app,
       builder: (context, _) {
         final layer = findLayer(app.project, app.selection.selectedLayer);
-        if (layer == null) return const Center(child: Text('Select a layer'));
+        if (layer == null) return NoLayer(app: app, text: 'Select a layer');
         final f = layer.filters;
         void edit(VoidCallback change) {
           app.pushUndo();

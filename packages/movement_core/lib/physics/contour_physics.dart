@@ -343,6 +343,9 @@ class PhysicsWorld {
     final armed = <String>{};
     final touching = <String>{};
     final contacts = <PhysicsContact>[];
+    // layers held by an Immovable this frame (rotate logic: else they
+    // go back to how they were).
+    final againstFixed = <String>{};
     final normals = <String, List<double>>{if (prev != null) ...prev.normals};
     final groups = <String, List<_Body>>{};
     // bends giving under pushes: last frame's angle springs back toward 0.
@@ -406,7 +409,11 @@ class PhysicsWorld {
       if (r == null || r.isEmpty) continue;
       final hull = _hullOf(l.id, r);
       if (hull.length < 3) continue;
-      final body = _Body(l, [m[0], m[1], m[2], m[3]], hull, prev?.keyed[l.id] ?? [m[4], m[5]], [m[4], m[5]],
+      // shrunk to keep turning (rotate logic 'size'): the size it had.
+      final was = prev?.induced[l.id];
+      final sc = was != null && was.length > 2 ? was[2] : 1.0;
+      if (l.physics.rotateLogic == 'size' && induced[l.id]!.length < 3) induced[l.id]!.add(sc);
+      final body = _Body(l, [m[0] * sc, m[1] * sc, m[2] * sc, m[3] * sc], hull, prev?.keyed[l.id] ?? [m[4], m[5]], [m[4], m[5]],
           prevOffset: prev?.induced[l.id] ?? const [0.0, 0.0], parts: _partsOf(l.id, r));
       // inertia: last frame's push carries on, a little slower.
       final k = l.physics.immovable ? 0.0 : l.physics.inertia.clamp(0.0, 0.99);
@@ -457,6 +464,13 @@ class PhysicsWorld {
               armed.add(key);
               continue;
             }
+            final inner = _innerPair(bodies[i], induced[bodies[i].layer.id]!, bodies[j], induced[bodies[j].layer.id]!);
+            if (inner != null) {
+              // inside a hollow one: armed once wholly inside.
+              final (h, oh, o, oo) = inner;
+              if (_inner(h, oh, o, oo, 0) == null) armed.add(key);
+              continue;
+            }
             final hit = _sat(bodies[i], induced[bodies[i].layer.id]!, bodies[j], induced[bodies[j].layer.id]!, 0);
             if (hit == null) armed.add(key);
           }
@@ -470,8 +484,57 @@ class PhysicsWorld {
               final gap = math.max(A.layer.physics.gap, B.layer.physics.gap);
               final offA = induced[A.layer.id]!, offB = induced[B.layer.id]!;
               final key = _pairKey(A.layer.id, B.layer.id);
+              // one inside a hollow one: it hits the walls from within.
+              final inner = _innerPair(A, offA, B, offB);
+              if (inner != null) {
+                final (h, oh, o, oo) = inner;
+                final hit = _inner(h, oh, o, oo, gap);
+                if (hit == null) continue;
+                final wH = h.layer.physics.immovable ? double.infinity : h.layer.physics.weight;
+                final wO = o.layer.physics.immovable ? double.infinity : o.layer.physics.weight;
+                if (wH.isInfinite && wO.isInfinite) continue;
+                final shareH = wH.isInfinite ? 0.0 : (wO.isInfinite ? 1.0 : wO / (wH + wO));
+                final n = hit.$1, d = hit.$2;
+                // the wall is pushed outward, the one inside back in.
+                push(h.layer.id, oh, n[0] * d * shareH, n[1] * d * shareH);
+                push(o.layer.id, oo, -n[0] * d * (1 - shareH), -n[1] * d * (1 - shareH));
+                moved = true;
+                if (s == steps) {
+                  touching
+                    ..add(A.layer.id)
+                    ..add(B.layer.id);
+                  if (h.layer.physics.immovable) againstFixed.add(o.layer.id);
+                  if (o.layer.physics.immovable) againstFixed.add(h.layer.id);
+                  contacts.add(PhysicsContact(h.layer.id, o.layer.id, o.support(n, oo), n));
+                }
+                continue;
+              }
               final hit = _contact(A, offA, B, offB, gap, normals[key], A.layer.id.compareTo(B.layer.id) < 0);
               if (hit == null) continue;
+              // turning into an Immovable with rotate logic 'size': it
+              // shrinks instead of being pushed off.
+              final shrinkB = A.layer.physics.immovable && B.layer.physics.rotateLogic == 'size' && !B.layer.physics.immovable;
+              final shrinkA = B.layer.physics.immovable && A.layer.physics.rotateLogic == 'size' && !A.layer.physics.immovable;
+              if (shrinkA || shrinkB) {
+                final body = shrinkB ? B : A, off = shrinkB ? offB : offA;
+                // toward the Immovable: -n for B, +n for A.
+                final dir = shrinkB ? [-hit.$1[0], -hit.$1[1]] : hit.$1;
+                final reach = body.reach(dir);
+                if (reach > 1e-6) {
+                  final k = ((reach - hit.$2) / reach).clamp(0.2, 1.0);
+                  body.rescale(k);
+                  off[2] = (off.length > 2 ? off[2] : 1.0) * k;
+                  moved = true;
+                  if (s == steps) {
+                    touching
+                      ..add(A.layer.id)
+                      ..add(B.layer.id);
+                    againstFixed.add(body.layer.id);
+                    contacts.add(PhysicsContact(A.layer.id, B.layer.id, A.support(hit.$1, offA), hit.$1));
+                  }
+                  continue;
+                }
+              }
               // soft: a part of the depth each frame (deeper: more), once.
               final soft = math.max(A.layer.physics.softness, B.layer.physics.softness).clamp(0.0, 0.95);
               if (soft > 0 && it > 0) continue;
@@ -498,6 +561,8 @@ class PhysicsWorld {
                 touching
                   ..add(A.layer.id)
                   ..add(B.layer.id);
+                if (A.layer.physics.immovable) againstFixed.add(B.layer.id);
+                if (B.layer.physics.immovable) againstFixed.add(A.layer.id);
                 final blocked = (A.layer.pendulum.enabled && B.layer.physics.immovable) ||
                     (B.layer.pendulum.enabled && A.layer.physics.immovable);
                 contacts.add(PhysicsContact(A.layer.id, B.layer.id, A.support(n, offA), n, blocked: blocked));
@@ -514,12 +579,33 @@ class PhysicsWorld {
           final A = bodies[i], B = bodies[j];
           if (!armed.contains(_pairKey(A.layer.id, B.layer.id))) continue;
           final gap = math.max(A.layer.physics.gap, B.layer.physics.gap) + 0.5;
-          if (_sat(A, induced[A.layer.id]!, B, induced[B.layer.id]!, gap) != null) {
+          final inner = _innerPair(A, induced[A.layer.id]!, B, induced[B.layer.id]!);
+          final touches = inner != null
+              ? _inner(inner.$1, inner.$2, inner.$3, inner.$4, gap) != null
+              : _sat(A, induced[A.layer.id]!, B, induced[B.layer.id]!, gap) != null;
+          if (touches) {
             touching
               ..add(A.layer.id)
               ..add(B.layer.id);
           }
         }
+      }
+    }
+    // rotate logic, free again: back to its size / place, a little each
+    // frame.
+    for (final l in _colliders) {
+      final ph = l.physics;
+      if (ph.rotateLogic == 'none' || !ph.rotateReturn || againstFixed.contains(l.id)) continue;
+      final off = induced[l.id];
+      if (off == null) continue;
+      if (ph.rotateLogic == 'size' && off.length > 2) {
+        off[2] += (1 - off[2]) * 0.2;
+        if ((1 - off[2]).abs() < 1e-3) off[2] = 1;
+      } else if (ph.rotateLogic == 'position') {
+        off[0] *= 0.8;
+        off[1] *= 0.8;
+        if (off[0].abs() < 0.05) off[0] = 0;
+        if (off[1].abs() < 0.05) off[1] = 0;
       }
     }
     // a pair that came apart forgets its normal.
@@ -534,6 +620,63 @@ class PhysicsWorld {
         e.key: [e.value[0] - (prev?.induced[e.key]?[0] ?? 0), e.value[1] - (prev?.induced[e.key]?[1] ?? 0)]
     };
     return _Frame(induced, keyedT, armed, touching, contacts, normals, _frameSig(f), velocity, bend);
+  }
+
+  /// A pair where one is hollow and the other's middle is inside it:
+  /// (hollow, its offset, the other, its offset); else null.
+  static (_Body, List<double>, _Body, List<double>)? _innerPair(_Body a, List<double> offA, _Body b, List<double> offB) {
+    if (a.layer.physics.hollow == b.layer.physics.hollow) return null;
+    final (h, oh, o, oo) = a.layer.physics.hollow ? (a, offA, b, offB) : (b, offB, a, offA);
+    final c = o.centre(oo);
+    if (!_insideHull(h.world, oh, c)) return null;
+    return (h, oh, o, oo);
+  }
+
+  static bool _insideHull(List<List<double>> hull, List<double> off, List<double> p) {
+    var inside = false;
+    for (var i = 0, j = hull.length - 1; i < hull.length; j = i++) {
+      final a = [hull[i][0] + off[0], hull[i][1] + off[1]], b = [hull[j][0] + off[0], hull[j][1] + off[1]];
+      if ((a[1] > p[1]) != (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+    }
+    return inside;
+  }
+
+  /// The one inside `o` against the hollow `h`'s walls from within: the
+  /// deepest wall it reaches past (its outward normal, how far + gap);
+  /// null while wholly inside.
+  static (List<double>, double)? _inner(_Body h, List<double> oh, _Body o, List<double> oo, double gap) {
+    final w = h.world;
+    final n = w.length;
+    if (n < 3) return null;
+    var cx = 0.0, cy = 0.0;
+    for (final p in w) {
+      cx += p[0];
+      cy += p[1];
+    }
+    cx /= n;
+    cy /= n;
+    (List<double>, double)? best;
+    for (var i = 0; i < n; i++) {
+      final p = w[i], q = w[(i + 1) % n];
+      var nx = q[1] - p[1], ny = -(q[0] - p[0]);
+      final l = math.sqrt(nx * nx + ny * ny);
+      if (l < 1e-9) continue;
+      nx /= l;
+      ny /= l;
+      // outward: away from the middle.
+      if ((cx - p[0]) * nx + (cy - p[1]) * ny > 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+      final wall = (p[0] + oh[0]) * nx + (p[1] + oh[1]) * ny;
+      var reach = -double.infinity;
+      for (final r in o.world) {
+        reach = math.max(reach, (r[0] + oo[0]) * nx + (r[1] + oo[1]) * ny);
+      }
+      final pen = reach - wall + gap;
+      if (pen > 1e-9 && (best == null || pen > best.$2)) best = ([nx, ny], pen);
+    }
+    return best;
   }
 
   /// The frame's edges as walls: a pushable object past one is pushed
@@ -826,7 +969,27 @@ class _Body {
   List<ConvexPart> worldParts = const [];
   bool get multi => parts != null;
 
+  List<double> _t = const [0.0, 0.0];
+
+  /// Shrinks (or grows) it about its own pivot by `k`.
+  void rescale(double k) {
+    for (var i = 0; i < 4; i++) {
+      linear[i] *= k;
+    }
+    place(_t);
+  }
+
+  /// How far it reaches from its pivot along `n` (unit).
+  double reach(List<double> n) {
+    var best = 0.0;
+    for (final p in world) {
+      best = math.max(best, (p[0] - _t[0]) * n[0] + (p[1] - _t[1]) * n[1]);
+    }
+    return best;
+  }
+
   void place(List<double> t) {
+    _t = t;
     world = placedAt(t);
     final ps = parts;
     if (ps == null) {

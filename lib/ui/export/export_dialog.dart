@@ -42,6 +42,9 @@ enum _ExportKind { image, gif, video, svg, audio }
 /// SVG: the whole animation (true) or the current frame.
 bool _svgAnimated = true;
 
+/// SVG animation: pictures per second.
+double _svgFps = 24;
+
 class ExportView extends StatefulWidget {
   final AppState app;
   const ExportView({super.key, required this.app});
@@ -151,17 +154,11 @@ class _ExportViewState extends State<ExportView> {
   // encoding via its statistics callback); null only between phases.
   double? _progress;
 
-  // the vector export kind only makes sense (is only offered) when every layer
-  // is a plain shape - SVG export has no representation for a bitmap image
-  // layer at all (see svg.dart's own doc comment on scope). hidden pictures
-  // don't count: they aren't exported anyway.
-  bool get _projectIsShapeOnly => widget.app.project.layers.every((l) => l.hidden || !isMediaShape(l.content.shape));
-
   static const _kindLabels = {
     _ExportKind.image: ('Image', Icons.image_outlined, 'One picture: the frame under the playhead'),
     _ExportKind.gif: ('GIF', Icons.gif_box_outlined, 'A short looping animation, no sound'),
     _ExportKind.video: ('Video', Icons.movie_outlined, 'The whole animation, with its sound'),
-    _ExportKind.svg: ('SVG', Icons.polyline_outlined, 'Shapes as vectors: sharp at any size'),
+    _ExportKind.svg: ('SVG', Icons.polyline_outlined, 'Exactly what the stage shows, in an SVG file'),
     _ExportKind.audio: ('Sound', Icons.music_note_outlined, 'Only the sound, all of it mixed'),
   };
 
@@ -171,7 +168,7 @@ class _ExportViewState extends State<ExportView> {
       _ExportKind.image,
       _ExportKind.gif,
       _ExportKind.video,
-      if (_projectIsShapeOnly) _ExportKind.svg,
+      _ExportKind.svg,
       if (widget.app.hasAudio) _ExportKind.audio,
     ];
     final theme = Theme.of(context);
@@ -243,6 +240,8 @@ class _ExportViewState extends State<ExportView> {
                       _ExportKind.audio => _buildAudioSection(),
                     },
                   )),
+              // where it is saved: a folder of your own, or asked each time.
+              section('Save to', _saveToRow()),
             ],
           ),
         ),
@@ -675,11 +674,23 @@ class _ExportViewState extends State<ExportView> {
           selected: {_svgAnimated},
           onSelectionChanged: (s) => setState(() => _svgAnimated = s.first),
         ),
-        const SizedBox(height: 8),
+        if (_svgAnimated) ...[
+          const SizedBox(height: 4),
+          Text('Pictures per second: ${_svgFps.round()}', style: const TextStyle(fontSize: 12)),
+          Slider(
+              key: const ValueKey('svg-fps'),
+              value: _svgFps,
+              min: 1,
+              max: 60,
+              divisions: 59,
+              onChanged: (v) => setState(() => _svgFps = v)),
+        ],
+        const SizedBox(height: 4),
         Text(
             _svgAnimated
-                ? 'Frames 0 - ${widget.app.maxFrame} at ${fps.round()} fps, looping'
-                : 'Current frame: ${widget.app.currentFrame}',
+                ? 'Frames 0 - ${widget.app.maxFrame}, looping. Each frame is a picture of the stage (crop, effects, '
+                    'filters exactly as you see them) - more per second, a bigger file.'
+                : 'Current frame: ${widget.app.currentFrame}, exactly as the stage shows it.',
             style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
@@ -707,7 +718,7 @@ class _ExportViewState extends State<ExportView> {
     final short = math.min(widget.app.frameWidth, widget.app.frameHeight);
     final outShort = _kind == _ExportKind.gif ? _gifShort : _outShort;
     widget.app.renderer.outputScale =
-        outShort == null || short <= 0 || !(_kind == _ExportKind.image || _kind == _ExportKind.video || _kind == _ExportKind.gif)
+        outShort == null || short <= 0 || !(_kind == _ExportKind.image || _kind == _ExportKind.video || _kind == _ExportKind.gif || _kind == _ExportKind.svg)
             ? 1
             : outShort / short;
     try {
@@ -759,18 +770,32 @@ class _ExportViewState extends State<ExportView> {
   }
 
   Future<void> _exportSvg() async {
-    if (_svgAnimated) {
-      final svg = exportProjectToAnimatedSvg(widget.app.project, 0, widget.app.maxFrame, fps.toDouble(),
-          widget.app.frameWidth, widget.app.frameHeight,
-          mirrorX: widget.app.stageMirrorX, mirrorY: widget.app.stageMirrorY);
-      final path = await _saveBytes(exportFileName(widget.app.projectName, 'svg'), utf8.encode(svg));
+    final app = widget.app;
+    final renderer = app.renderer;
+    // exactly as on the stage: the frame (or every frame) as pictures.
+    final frames = _svgAnimated ? exportFrameNumbers(0, app.maxFrame, _svgFps) : [app.currentFrame];
+    renderer.beginExportReuse(app.project);
+    try {
+      final svg = await exportStageSvg(
+        renderer: renderer,
+        project: app.project,
+        frames: frames,
+        fps: _svgFps,
+        cancelled: () => _cancelRequested,
+        onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() {
+            _progress = done / total;
+            _status = 'Drawing frame $done of $total';
+          });
+        },
+      );
+      final path = await _saveBytes(
+          exportFileName(app.projectName, 'svg', frame: _svgAnimated ? null : app.currentFrame), utf8.encode(svg));
       setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
-      return;
+    } finally {
+      renderer.endExportReuse();
     }
-    final svg = exportProjectToSvg(widget.app.project, widget.app.currentFrame, widget.app.frameWidth, widget.app.frameHeight,
-        mirrorX: widget.app.stageMirrorX, mirrorY: widget.app.stageMirrorY);
-    final path = await _saveBytes(exportFileName(widget.app.projectName, 'svg', frame: widget.app.currentFrame), utf8.encode(svg));
-    setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
   }
 
   Future<void> _exportGif() async {
@@ -848,6 +873,8 @@ class _ExportViewState extends State<ExportView> {
         frameCount: total,
         frameAt: (i) async {
           if (_cancelRequested) throw const ExportCancelled();
+          // nothing moves since the frame before: not drawn again.
+          if (i > 0 && renderer.frameRepeats(app.project, frameNumbers[i - 1], frameNumbers[i])) return null;
           await prepareExportFrame(renderer, app.project, frameNumbers[i]);
           renderer.renderFrame(app.project, frameNumbers[i]);
           final image = await renderer.captureFrame();
@@ -885,7 +912,49 @@ class _ExportViewState extends State<ExportView> {
   /// (desktop), writes it here explicitly - see this file's own doc
   /// comment on this being genuinely platform-dependent, untested
   /// behavior.
+  Widget _saveToRow() {
+    final dir = widget.app.exportDir;
+    return Row(children: [
+      Expanded(
+        child: Text(
+          dir ?? 'Asked each time (the system\'s save window)',
+          key: const ValueKey('export-dir'),
+          style: const TextStyle(fontSize: 12),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 2,
+        ),
+      ),
+      TextButton(
+        key: const ValueKey('export-dir-pick'),
+        onPressed: () async {
+          final picked = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Save exports to');
+          if (picked != null) setState(() => widget.app.setAppPreference('exportDir', picked));
+        },
+        child: const Text('Change'),
+      ),
+      if (dir != null)
+        IconButton(
+          key: const ValueKey('export-dir-clear'),
+          tooltip: 'ask each time',
+          icon: const Icon(Icons.close, size: 18),
+          onPressed: () => setState(() => widget.app.setAppPreference('exportDir', '')),
+        ),
+    ]);
+  }
+
   Future<String?> _saveBytes(String suggestedName, List<int> bytes) async {
+    // a folder of its own: written straight there (a name the folder
+    // refuses - ':' on some storage - gets '.' instead).
+    final dir = widget.app.exportDir;
+    if (dir != null) {
+      for (final name in [suggestedName, suggestedName.replaceAll(':', '.')]) {
+        try {
+          final f = File('$dir/$name');
+          await f.writeAsBytes(bytes, flush: true);
+          return f.path;
+        } catch (_) {}
+      }
+    }
     final result = await FilePicker.platform.saveFile(
       dialogTitle: 'Export',
       fileName: suggestedName,
@@ -904,21 +973,21 @@ class _ExportViewState extends State<ExportView> {
 /// Export resolutions (short side px), with their names.
 const exportResolutions = [(720, '720p'), (1080, '1080p'), (1440, '2K'), (1620, '3K'), (2160, '4K')];
 
-/// A file name no earlier export has: the project's name, the frame for a
-/// still, and the date and time down to the second - "My clip_f42_
-/// 2026-10-19_14-03-27.png". Saving twice never collides with (or
+/// A file name no earlier export has: the project's name, the date and
+/// time down to the second and, for a still, the frame - "Project 1
+/// 2026.11.10 17:46:13 f0.png". Saving twice never collides with (or
 /// silently replaces) an earlier file.
 String exportFileName(String projectName, String extension, {int? frame, DateTime? now}) {
   final t = now ?? DateTime.now();
   String two(int v) => v.toString().padLeft(2, '0');
-  final stamp = '${t.year}-${two(t.month)}-${two(t.day)}_${two(t.hour)}-${two(t.minute)}-${two(t.second)}';
+  final stamp = '${t.year}.${two(t.month)}.${two(t.day)} ${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
   var name = projectName.trim().replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_');
   if (name.isEmpty) name = 'export';
-  final base = '$name${frame == null ? '' : '_f$frame'}_$stamp';
+  final base = '$name $stamp${frame == null ? '' : ' f$frame'}';
   // two exports within the same second get a counter.
   var candidate = '$base.$extension';
   for (var n = 2; _issuedExportNames.contains(candidate); n++) {
-    candidate = '${base}_$n.$extension';
+    candidate = '$base ($n).$extension';
   }
   _issuedExportNames.add(candidate);
   return candidate;

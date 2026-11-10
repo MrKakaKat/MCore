@@ -10,6 +10,7 @@ import '../common/keyed_param_row.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
+import '../common/no_layer.dart';
 
 /// Fill tab: a shape's colour - plain, or a gradient made of glows (points
 /// and lines that light the shape in their own colour over the base
@@ -53,7 +54,7 @@ class _FillViewState extends State<FillView> {
       animation: app,
       builder: (context, _) {
         final layer = findLayer(app.project, app.selection.selectedLayer);
-        if (layer == null) return const Center(child: Text('No layer selected'));
+        if (layer == null) return NoLayer(app: app, text: 'No layer selected');
         if (!supportsShapeFill(layer)) {
           return const Center(
             child: Padding(
@@ -316,6 +317,21 @@ class _FillViewState extends State<FillView> {
         _rectExtendSwitch(layer),
       ] else if (shape == 'rect')
         _rectExtendSwitch(layer),
+      // auto smoothing: sharp corners eased into curves.
+      if (shape == 'rect' || polyLike) ...[
+        const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Text('Smoothing', style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
+        value('smooth', 'smoothing (0 off)', fill.smooth, 0, const ParamScale.slider(0, 1, decimals: 2),
+            (v) => fill.smooth = v),
+        if (fill.smooth > 0)
+          value('smoothAngle', 'sensitivity: corners turning more than (degrees)', fill.smoothAngle, 30,
+              const ParamScale.slider(0, 170, decimals: 0, suffix: '°'), (v) => fill.smoothAngle = v),
+        value('grow', 'grow outward (px, its own colour)', fill.grow, 0,
+            const ParamScale.ruler(unitsPerPixel: 0.25, minorTick: 5, majorTick: 25, min: 0, max: 500),
+            (v) => fill.grow = v),
+      ],
       SwitchListTile(
         key: const ValueKey('fill-shadow'),
         dense: true,

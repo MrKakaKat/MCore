@@ -133,7 +133,8 @@ abstract class VideoService {
   Future<bool> hardwareH264Available() async => false;
 
   /// Streams frames straight into the encoder: `frameAt(i)` gives frame i
-  /// as straight RGBA bytes (`width` x `height`), asked for one after the
+  /// as straight RGBA bytes (`width` x `height`; null: the same picture as
+  /// the frame before - nothing is sent again), asked for one after the
   /// other while the encoder works on the ones before - no PNGs, no whole
   /// animation held in memory.
   /// `codec`: 'vp9' (WebM, royalty-free, transparency possible) or 'h264'
@@ -144,7 +145,7 @@ abstract class VideoService {
     required int width,
     required int height,
     required int frameCount,
-    required Future<Uint8List> Function(int index) frameAt,
+    required Future<Uint8List?> Function(int index) frameAt,
     required double fps,
     required String outputPath,
     String codec = 'vp9',

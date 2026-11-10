@@ -191,6 +191,7 @@ class _StageViewState extends State<StageView> {
             hiddenLines: _hiddenLines(),
             unitOverlay: _unitOverlay(),
             cropLine: _cropLine(selectedLayer),
+            mirrorLine: widget.app.mirrorLine,
           ),
         ),
       ),
@@ -594,6 +595,7 @@ class _StageCustomPainter extends CustomPainter {
     this.hiddenLines = const [],
     this.unitOverlay = const [],
     this.cropLine,
+    this.mirrorLine,
     required this.contentPicture,
     required this.frameWidth,
     required this.frameHeight,
@@ -628,10 +630,12 @@ class _StageCustomPainter extends CustomPainter {
       hiddenLines: hiddenLines,
       unitOverlay: unitOverlay,
       cropLine: cropLine,
+      mirrorLine: mirrorLine,
     );
   }
 
   final CropLineOverlay? cropLine;
+  final List<List<double>>? mirrorLine;
 
   final List<PhysicsContact> physicsContacts;
 

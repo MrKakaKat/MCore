@@ -9,6 +9,7 @@ import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
+import '../common/no_layer.dart';
 
 /// Ported from movement-core/src/ui/paramsPanel/effectsSection.js - the
 /// layer's effect stack (enable/reorder/delete, generic per-param
@@ -56,7 +57,7 @@ class EffectsView extends StatelessWidget {
       animation: app,
       builder: (context, _) {
         final layer = findLayer(app.project, app.selection.selectedLayer);
-        if (layer == null) return const Center(child: Text('No layer selected'));
+        if (layer == null) return NoLayer(app: app, text: 'No layer selected');
         final localFrame = layerLocalFrame(layer, app.currentFrame);
         final entries = effectPanelEntries(layer);
         if (contour) {
@@ -853,6 +854,42 @@ class EffectsView extends StatelessWidget {
               ),
             ),
           ]),
+          // hollow: others inside hit its walls from within.
+          SwitchListTile(
+            key: const ValueKey('physics-hollow'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Hollow'),
+            subtitle: hint('What is inside hits its walls from within (and pushes it, unless it is Immovable); '
+                'from outside it is solid'),
+            value: ph.hollow,
+            onChanged: (v) => set(() => ph.hollow = v),
+          ),
+          // turning into an Immovable: shrink / step aside to keep turning.
+          if (!ph.immovable) ...[
+            const Text('Turning into an Immovable', style: TextStyle(fontSize: 13)),
+            const SizedBox(height: 4),
+            SegmentedButton<String>(
+              key: const ValueKey('physics-rotate-logic'),
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 'none', label: Text('Pushed off')),
+                ButtonSegment(value: 'size', label: Text('Shrinks')),
+                ButtonSegment(value: 'position', label: Text('Steps aside')),
+              ],
+              selected: {ph.rotateLogic},
+              onSelectionChanged: (v) => set(() => ph.rotateLogic = v.first),
+            ),
+            if (ph.rotateLogic != 'none')
+              SwitchListTile(
+                key: const ValueKey('physics-rotate-return'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(ph.rotateLogic == 'size' ? 'Grows back once free' : 'Goes back once free'),
+                value: ph.rotateReturn,
+                onChanged: (v) => set(() => ph.rotateReturn = v),
+              ),
+          ],
           if (!ph.immovable)
             Row(children: [
               SizedBox(width: 80, child: Text('Weight ${ph.weight.toStringAsFixed(1)}')),

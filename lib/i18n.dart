@@ -41,6 +41,7 @@ const _ru = <String, String>{
   'Figures': 'Фигуры',
   'Filters': 'Фильтры',
   'Objects': 'Объекты',
+  'Drawing': 'Рисование',
   'Links': 'Связи',
   'Palettes': 'Палитры',
   'Text': 'Текст',

@@ -4,6 +4,7 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/reset_button.dart';
+import 'grid_settings_dialog.dart' show gridKindChips;
 
 /// movement-mobile-snapping-spec.md's own settings panel: a master
 /// toggle + a separate guide-visibility toggle at the top, then one
@@ -244,6 +245,14 @@ class _SnappingSettingsViewState extends State<SnappingSettingsView> {
                   sensitivityPx: widget.app.snapSensitivityGridPx,
                   onSensitivity: widget.app.setSnapSensitivityGridPx,
                 ),
+                // which of the grid's lines there are (and snap): the same
+                // field as in the Grid window.
+                if (snapGridEnabled)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: gridKindChips('snap-grid-kind', gridLineKinds,
+                        (v) => setState(() => widget.app.setAppPreference('gridKinds', v))),
+                  ),
                 const SizedBox(height: 8),
                 _categoryToggle(
                   label: 'Frame boundaries', // also while resizing

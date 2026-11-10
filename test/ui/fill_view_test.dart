@@ -65,7 +65,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('fill-add-line')));
     await tester.pump();
     expect(l.fill.glows.map((g) => g.kind), ['point', 'line']);
-    expect(find.text('Line 2'), findsOneWidget);
+    // (the list grew: the line's card may sit below the fold)
+    expect(find.text('Line 2', skipOffstage: false), findsOneWidget);
 
     await tester.ensureVisible(find.byTooltip('delete this glow').first);
     await tester.tap(find.byTooltip('delete this glow').first);

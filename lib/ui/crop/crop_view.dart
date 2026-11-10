@@ -5,6 +5,7 @@ import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
+import '../common/no_layer.dart';
 
 /// Crop & Mirror tab: trims the object's sides (on the canvas with its
 /// own handles, or with the sliders here), optionally locked to an
@@ -30,7 +31,7 @@ class CropView extends StatelessWidget {
       animation: app,
       builder: (context, _) {
         final layer = findLayer(app.project, app.selection.selectedLayer);
-        if (layer == null) return const Center(child: Text('No layer selected'));
+        if (layer == null) return NoLayer(app: app, text: 'No layer selected');
         return ListView(
           padding: const EdgeInsets.all(8),
           children: [
@@ -139,6 +140,35 @@ class CropView extends StatelessWidget {
               value: app.mirrorMovesLayer,
               onChanged: (v) => app.setAppPreference('mirrorMovesLayer', v),
             ),
+            // a mirror line of its own, anywhere on the stage.
+            const SizedBox(height: 6),
+            const Text('Mirror line', style: TextStyle(fontSize: 13)),
+            const Hint('A line on the stage (its ends snap to corners and middles, and straight / 45°): the '
+                'selected layers are mirrored across it.'),
+            if (app.mirrorLine == null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  key: const ValueKey('mirror-line-start'),
+                  onPressed: app.startMirrorLine,
+                  icon: const Icon(Icons.flip, size: 18),
+                  label: const Text('Place a mirror line'),
+                ),
+              )
+            else
+              Wrap(spacing: 8, children: [
+                FilledButton.tonalIcon(
+                  key: const ValueKey('mirror-line-apply'),
+                  onPressed: app.selectedGroup.isEmpty ? null : app.applyMirrorLine,
+                  icon: const Icon(Icons.flip, size: 18),
+                  label: Text('Mirror ${app.selectedGroup.length > 1 ? 'the ${app.selectedGroup.length} selected' : 'it'}'),
+                ),
+                TextButton(
+                  key: const ValueKey('mirror-line-cancel'),
+                  onPressed: app.cancelMirrorLine,
+                  child: const Text('Done'),
+                ),
+              ]),
           ],
         );
       },
@@ -305,42 +335,78 @@ class CropLineControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final line = app.cropLine ?? const [];
     final ready = line.length >= (app.cropLineClosed ? 3 : 2);
+    final undo = IconButton(
+      key: const ValueKey('crop-line-undo'),
+      tooltip: 'remove the last point',
+      visualDensity: VisualDensity.compact,
+      icon: const Icon(Icons.undo, size: 18),
+      onPressed: line.isEmpty ? null : app.undoCropLinePoint,
+    );
+    final closed = FilterChip(
+      key: const ValueKey('crop-line-closed'),
+      label: const Text('Closed'),
+      visualDensity: VisualDensity.compact,
+      selected: app.cropLineClosed,
+      onSelected: app.setCropLineClosed,
+    );
+    final invert = FilterChip(
+      key: const ValueKey('crop-line-invert'),
+      label: const Text('Invert'),
+      visualDensity: VisualDensity.compact,
+      selected: app.cropLineInvert,
+      onSelected: app.setCropLineInvert,
+    );
+    void erase() => app.applyCropLine(extract: false);
+    void extract() => app.applyCropLine(extract: true);
+    if (compact) {
+      // over the stage: one row, round buttons without words.
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          undo,
+          closed,
+          const SizedBox(width: 4),
+          invert,
+          const SizedBox(width: 4),
+          IconButton.filledTonal(
+            key: const ValueKey('crop-line-erase'),
+            tooltip: 'erase the marked area',
+            onPressed: ready ? erase : null,
+            icon: const Icon(Icons.delete_outline, size: 18),
+          ),
+          IconButton.filledTonal(
+            key: const ValueKey('crop-line-extract'),
+            tooltip: 'the marked area as a new layer',
+            onPressed: ready ? extract : null,
+            icon: const Icon(Icons.call_split, size: 18),
+          ),
+          IconButton.filledTonal(
+            key: const ValueKey('crop-line-cancel'),
+            tooltip: 'cancel',
+            onPressed: app.cancelCropLine,
+            icon: const Icon(Icons.close, size: 18),
+          ),
+        ]),
+      );
+    }
     return Wrap(
       spacing: 6,
       runSpacing: 4,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        if (!compact) Text('${line.length} points', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        IconButton(
-          key: const ValueKey('crop-line-undo'),
-          tooltip: 'remove the last point',
-          visualDensity: VisualDensity.compact,
-          icon: const Icon(Icons.undo, size: 18),
-          onPressed: line.isEmpty ? null : app.undoCropLinePoint,
-        ),
-        FilterChip(
-          key: const ValueKey('crop-line-closed'),
-          label: const Text('Closed'),
-          visualDensity: VisualDensity.compact,
-          selected: app.cropLineClosed,
-          onSelected: app.setCropLineClosed,
-        ),
-        FilterChip(
-          key: const ValueKey('crop-line-invert'),
-          label: const Text('Invert'),
-          visualDensity: VisualDensity.compact,
-          selected: app.cropLineInvert,
-          onSelected: app.setCropLineInvert,
-        ),
+        Text('${line.length} points', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        undo,
+        closed,
+        invert,
         FilledButton.tonalIcon(
           key: const ValueKey('crop-line-erase'),
-          onPressed: ready ? () => app.applyCropLine(extract: false) : null,
+          onPressed: ready ? erase : null,
           icon: const Icon(Icons.delete_outline, size: 18),
           label: const Text('Erase'),
         ),
         FilledButton.tonalIcon(
           key: const ValueKey('crop-line-extract'),
-          onPressed: ready ? () => app.applyCropLine(extract: true) : null,
+          onPressed: ready ? extract : null,
           icon: const Icon(Icons.call_split, size: 18),
           label: const Text('New layer'),
         ),

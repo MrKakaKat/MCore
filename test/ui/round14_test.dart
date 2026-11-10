@@ -51,19 +51,16 @@ void main() {
         ),
       ),
     ));
-    expect(find.byKey(const ValueKey('station-test.rotation-45.0')), findsOneWidget, reason: 'the angle stations');
-    await tester.tap(find.byKey(const ValueKey('station-test.rotation-45.0')));
-    await tester.pump();
-    expect(value, 45);
+    // the stops: − field + in the middle, how many at the edge.
+    expect(find.text('3 stops'), findsOneWidget, reason: 'the angle stops');
     await tester.enterText(find.byKey(const ValueKey('station-field-test.rotation')), '137');
     await tester.tap(find.byKey(const ValueKey('station-add-test.rotation')));
     await tester.pump();
     expect(ParamEditor.stations['test.rotation'], [0.0, 45.0, 90.0, 137.0]);
-    await tester.tap(find.byKey(const ValueKey('station-test.rotation-137.0')));
-    await tester.pump();
-    expect(value, 137);
-    // a built-in one goes too.
-    await tester.tap(find.byKey(const ValueKey('station-del-test.rotation-45.0')));
+    expect(find.text('4 stops'), findsOneWidget);
+    // a built-in one goes too (typed, then −).
+    await tester.enterText(find.byKey(const ValueKey('station-field-test.rotation')), '45');
+    await tester.tap(find.byKey(const ValueKey('station-remove-test.rotation')));
     await tester.pump();
     expect(ParamEditor.stations['test.rotation'], [0.0, 90.0, 137.0]);
   });

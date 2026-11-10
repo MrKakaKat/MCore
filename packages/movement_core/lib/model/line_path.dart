@@ -570,7 +570,7 @@ List<String> lineHandleKeys(Content c, {required bool editing, int? selected}) {
     }
     if (next != null && next.kind == 'bezier' && has(nodes[selected].hOut)) keys.add('o$selected');
     // the corner's rounding: its radius (always, to start one) and shape.
-    if (lineCorner(c, selected) != null) {
+    if (lineRoundHandlesVisible && lineCorner(c, selected) != null) {
       keys.add('r$selected');
       if (nodes[selected].round > 0) keys.add('k$selected');
     }
@@ -641,6 +641,10 @@ double Function(double)? lineRoundSnap;
 
 /// Bezier handles of a point move as a mirrored pair (Line tab).
 bool lineHandlesMirrored = true;
+
+/// The corner rounding handles of a selected point (Line tab) - off
+/// unless switched on.
+bool lineRoundHandlesVisible = false;
 
 /// Snapping of a line's points (Snapping tab, "Line points"): along
 /// horizontals / verticals / diagonals from the neighbouring point, to the
@@ -726,7 +730,9 @@ class LineHandleDragOp implements DragOp {
   // corners / middles of shapes, the frame's corners and middle.
   // (with the centres' snapping on, any handle - bezier ones too - also
   // lands on a shape's centre.)
-  final points = snapLinePointsEnabled && isPoint;
+  // bezier handles land on points too.
+  final isBezier = key[0] == 'i' || key[0] == 'o';
+  final points = snapLinePointsEnabled && (isPoint || isBezier);
   if (points || snapCenterToCenterEnabled) {
     final r = points ? snapCornerToCornerFrameRadius : snapCenterToCenterFrameRadius;
     List<double>? best;
@@ -1333,4 +1339,37 @@ List<LineNode>? splitLineAt(Content c, int i) {
   c.lineNodes = nodes.sublist(0, i + 1);
   syncLineBox(c);
   return rest;
+}
+
+/// Line smoothing (Line tab): points where the line turns more than
+/// `minTurnDeg` degrees become bezier points, their handles along the way
+/// through them, `strength` (0..1) of a third of the sides long. Returns
+/// how many points were smoothed.
+int smoothLineCorners(Content c, double strength, double minTurnDeg) {
+  final nodes = c.lineNodes;
+  if (nodes == null || nodes.length < 3 || strength <= 0) return 0;
+  final n = nodes.length;
+  var count = 0;
+  for (var i = c.lineClosed ? 0 : 1; i < (c.lineClosed ? n : n - 1); i++) {
+    final a = nodes[(i - 1 + n) % n], p = nodes[i], b = nodes[(i + 1) % n];
+    final ax = p.x - a.x, ay = p.y - a.y, bx = b.x - p.x, by = b.y - p.y;
+    final la = math.sqrt(ax * ax + ay * ay), lb = math.sqrt(bx * bx + by * by);
+    if (la < 1e-9 || lb < 1e-9) continue;
+    final turn = math.acos(((ax * bx + ay * by) / (la * lb)).clamp(-1.0, 1.0)) * 180 / math.pi;
+    if (turn < minTurnDeg) continue;
+    // the way through the point: from the one before to the one after.
+    var tx = b.x - a.x, ty = b.y - a.y;
+    final tl = math.sqrt(tx * tx + ty * ty);
+    if (tl < 1e-9) continue;
+    tx /= tl;
+    ty /= tl;
+    final s = strength.clamp(0.0, 1.0);
+    p.hIn = [-tx * la * s / 3, -ty * la * s / 3];
+    p.hOut = [tx * lb * s / 3, ty * lb * s / 3];
+    // straight stretches turn into curves (sine / arc ones stay).
+    if (p.kind == 'line') p.kind = 'bezier';
+    if (b.kind == 'line') b.kind = 'bezier';
+    count++;
+  }
+  return count;
 }

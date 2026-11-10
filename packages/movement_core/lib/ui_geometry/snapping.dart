@@ -85,18 +85,33 @@ class GridLine {
 /// [0,frameWidth]x[0,frameHeight] by construction, so "never drawn
 /// beyond the canvas boundary" holds with no extra clip needed.
 List<GridLine> computeSnapGridLines(
-    double frameWidth, double frameHeight, int cols, int rows) {
+    double frameWidth, double frameHeight, int cols, int rows, {int? kinds}) {
+  final k = kinds ?? gridLineKinds;
   final lines = <GridLine>[];
-  for (var i = 1; i < cols; i++) {
-    final x = frameWidth * i / cols;
-    lines.add(GridLine(a: [x, 0], b: [x, frameHeight]));
+  if (k & 1 != 0) {
+    for (var i = 1; i < cols; i++) {
+      final x = frameWidth * i / cols;
+      lines.add(GridLine(a: [x, 0], b: [x, frameHeight]));
+    }
   }
-  for (var j = 1; j < rows; j++) {
-    final y = frameHeight * j / rows;
-    lines.add(GridLine(a: [0, y], b: [frameWidth, y]));
+  if (k & 2 != 0) {
+    for (var j = 1; j < rows; j++) {
+      final y = frameHeight * j / rows;
+      lines.add(GridLine(a: [0, y], b: [frameWidth, y]));
+    }
   }
+  if (k & 4 != 0) lines.addAll(gridDiagonals(0, 0, frameWidth, frameHeight, cols, rows));
   return lines;
 }
+
+/// Both diagonals of every cell of a cols x rows grid over the box.
+List<GridLine> gridDiagonals(double x0, double y0, double w, double h, int cols, int rows) => [
+      for (var i = 0; i < cols; i++)
+        for (var j = 0; j < rows; j++) ...[
+          GridLine(a: [x0 + w * i / cols, y0 + h * j / rows], b: [x0 + w * (i + 1) / cols, y0 + h * (j + 1) / rows]),
+          GridLine(a: [x0 + w * (i + 1) / cols, y0 + h * j / rows], b: [x0 + w * i / cols, y0 + h * (j + 1) / rows]),
+        ]
+    ];
 
 double _orOne(double v) => v == 0 ? 1 : v;
 
@@ -381,9 +396,29 @@ void _addPairAxisCandidates(List<_AxisCandidate> xs, List<_AxisCandidate> ys,
 void _addGrid(
     List<_AxisCandidate> xs, List<_AxisCandidate> ys, LayerFrameGeometry own) {
   if (!snapGridEnabled) return;
+  // diagonals: the middle snaps onto where they cross (cell middles).
+  if (gridLineKinds & 4 != 0) {
+    final w = stageSize.width, h = stageSize.height;
+    for (var i = 0; i < snapGridCols; i++) {
+      xs.add(_AxisCandidate(
+          category: SnapCategory.grid,
+          ownValue: own.center[0],
+          targetValue: w * (i + 0.5) / snapGridCols,
+          radius: snapGridFrameRadius));
+    }
+    for (var j = 0; j < snapGridRows; j++) {
+      ys.add(_AxisCandidate(
+          category: SnapCategory.grid,
+          ownValue: own.center[1],
+          targetValue: h * (j + 0.5) / snapGridRows,
+          radius: snapGridFrameRadius));
+    }
+  }
   for (final line in computeSnapGridLines(
       stageSize.width, stageSize.height, snapGridCols, snapGridRows)) {
     final isVertical = line.a[0] == line.b[0];
+    final isHorizontal = line.a[1] == line.b[1];
+    if (!isVertical && !isHorizontal) continue; // a diagonal: above
     if (isVertical) {
       for (final ov in [own.bbox.minX, own.bbox.maxX]) {
         xs.add(_AxisCandidate(
@@ -1139,9 +1174,17 @@ List<List<double>> rectGridCrossingsFrame(Project project, Layer layer, int glob
   if (cols == null || rows == null || cols < 1 || rows < 1) return const [];
   final m = getTransformBoxHandles(project, layer, globalFrame).mCanvas;
   final x0 = c.offset[0] - c.size[0] / 2, y0 = c.offset[1] - c.size[1] / 2;
+  final k = c.gridKinds;
   return [
-    for (var i = 1; i < cols; i++)
-      for (var j = 1; j < rows; j++) applyAffine(m, [x0 + c.size[0] * i / cols, y0 + c.size[1] * j / rows])
+    // the lines' crossings (both kinds shown)...
+    if (k & 3 == 3)
+      for (var i = 1; i < cols; i++)
+        for (var j = 1; j < rows; j++) applyAffine(m, [x0 + c.size[0] * i / cols, y0 + c.size[1] * j / rows]),
+    // ...and where the diagonals cross: the cells' middles.
+    if (k & 4 != 0)
+      for (var i = 0; i < cols; i++)
+        for (var j = 0; j < rows; j++)
+          applyAffine(m, [x0 + c.size[0] * (i + 0.5) / cols, y0 + c.size[1] * (j + 0.5) / rows]),
   ];
 }
 
@@ -1153,10 +1196,15 @@ List<(List<double>, List<double>)> rectGridLinesFrame(Project project, Layer lay
   final m = getTransformBoxHandles(project, layer, globalFrame).mCanvas;
   final x0 = c.offset[0] - c.size[0] / 2, y0 = c.offset[1] - c.size[1] / 2;
   final x1 = x0 + c.size[0], y1 = y0 + c.size[1];
+  final k = c.gridKinds;
   return [
-    for (var i = 1; i < cols; i++)
-      (applyAffine(m, [x0 + c.size[0] * i / cols, y0]), applyAffine(m, [x0 + c.size[0] * i / cols, y1])),
-    for (var j = 1; j < rows; j++)
-      (applyAffine(m, [x0, y0 + c.size[1] * j / rows]), applyAffine(m, [x1, y0 + c.size[1] * j / rows])),
+    if (k & 1 != 0)
+      for (var i = 1; i < cols; i++)
+        (applyAffine(m, [x0 + c.size[0] * i / cols, y0]), applyAffine(m, [x0 + c.size[0] * i / cols, y1])),
+    if (k & 2 != 0)
+      for (var j = 1; j < rows; j++)
+        (applyAffine(m, [x0, y0 + c.size[1] * j / rows]), applyAffine(m, [x1, y0 + c.size[1] * j / rows])),
+    if (k & 4 != 0)
+      for (final d in gridDiagonals(x0, y0, c.size[0], c.size[1], cols, rows)) (applyAffine(m, d.a), applyAffine(m, d.b)),
   ];
 }

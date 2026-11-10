@@ -1062,6 +1062,9 @@ class AppState extends ChangeNotifier {
 
   ByteData? _stagePickAlpha;
 
+  /// Export: the folder files are saved to (null: the save window asks).
+  String? exportDir;
+
   /// Settings: the eyedropper takes the alpha of what it picks too (a
   /// see-through colour, and the layer's opacity) - off: always opaque.
   bool eyedropperAlpha = false;
@@ -2572,6 +2575,97 @@ class AppState extends ChangeNotifier {
   /// Crop tab, Mirror: flipping a layer moves it to the mirror place too.
   bool mirrorMovesLayer = false;
 
+  // ===== Drawing tab =====
+
+  /// The stage tool of the Drawing tab: 'none' | 'fill'.
+  String drawTool = 'none';
+
+  /// Fill: what bounds it - only the selected layers (else all of them),
+  /// its colour, and a hole through everything under it instead.
+  bool fillOnlySelected = false;
+  String fillColor = '#ff8a65';
+  bool fillDig = false;
+
+  void setDrawTool(String t) {
+    drawTool = t;
+    cropLine = null;
+    notifyListeners();
+  }
+
+  void setFillOptions({bool? onlySelected, String? color, bool? dig}) {
+    if (onlySelected != null) fillOnlySelected = onlySelected;
+    if (color != null) fillColor = color;
+    if (dig != null) fillDig = dig;
+    notifyListeners();
+  }
+
+  /// A fill tap at frame point `p`: a new layer in the region there.
+  Layer? fillAt(List<double> p) {
+    undo.pushUndoState(project);
+    final l = addFillLayer(project, currentFrame, p, _newLayerId(),
+        only: fillOnlySelected ? selectedGroup : null, color: fillColor, dig: fillDig);
+    if (l == null) {
+      undo.discardLastUndoState();
+      return null;
+    }
+    _fitTimeline();
+    _render();
+    notifyListeners();
+    return l;
+  }
+
+  /// The mirror line on the stage (two frame points; null: off): the
+  /// selected layers are mirrored across it.
+  List<List<double>>? mirrorLine;
+
+  void startMirrorLine() {
+    final w = stageSize.width, h = stageSize.height;
+    mirrorLine = [
+      [w / 2, h * 0.15],
+      [w / 2, h * 0.85],
+    ];
+    notifyListeners();
+  }
+
+  void cancelMirrorLine() {
+    mirrorLine = null;
+    notifyListeners();
+  }
+
+  /// End `i` (0, 1) dragged - or the whole line (2: by its middle, by
+  /// `delta`). Snaps onto points, and straight / 45 degrees.
+  void moveMirrorLine(int i, List<double> framePoint, double radius, {List<double>? delta}) {
+    final line = mirrorLine;
+    if (line == null) return;
+    if (i == 2 && delta != null) {
+      for (final p in line) {
+        p[0] += delta[0];
+        p[1] += delta[1];
+      }
+    } else if (i == 0 || i == 1) {
+      line[i] = snapMirrorLineEnd(project, currentFrame, framePoint, line[1 - i], radius);
+    }
+    notifyListeners();
+  }
+
+  /// Mirrors the selected layers across the line. One undo step; the
+  /// line stays for another go.
+  void applyMirrorLine() {
+    final line = mirrorLine;
+    if (line == null) return;
+    final ids = selectedGroup;
+    if (ids.isEmpty) return;
+    undo.pushUndoState(project);
+    for (final id in ids) {
+      final l = findLayer(project, id);
+      if (l == null) continue;
+      mirrorLayerAcross(l, line[0], line[1]);
+      if (l.transform.anchor.spatial) autoComputeTangents(l.transform.anchor);
+    }
+    clearStateCaches();
+    commitEdit();
+  }
+
   void toggleHidden(String id) {
     final layer = findLayer(project, id);
     if (layer == null) return;
@@ -3185,6 +3279,47 @@ class AppState extends ChangeNotifier {
     project.layers.insertAll(project.layers.indexOf(ls.last) + 1, copies);
     ensureUniqueLayerNames(project);
     normalizeTimelineRows(project);
+    _fitTimeline();
+    _render();
+    notifyListeners();
+  }
+
+  /// Layers copied together (Layers tab, several selected) - pasted as
+  /// new copies, parents inside the set following their copies.
+  List<Layer>? copiedLayers;
+
+  void copySelectedLayers() {
+    final group = selectedGroup;
+    copiedLayers = [
+      for (final l in project.layers)
+        if (group.contains(l.id)) cloneLayer(l)
+    ];
+    notifyListeners();
+  }
+
+  /// Pastes the copied layers on top; they become the selection.
+  void pasteCopiedLayers() {
+    final src = copiedLayers;
+    if (src == null || src.isEmpty) return;
+    undo.pushUndoState(project);
+    final ids = <String, String>{};
+    final copies = <Layer>[];
+    for (final l in src) {
+      final c = cloneLayer(l);
+      layerCounter++;
+      c.id = 'L_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}$layerCounter';
+      c.rowId = null;
+      ids[l.id] = c.id;
+      copies.add(c);
+    }
+    for (final c in copies) {
+      if (ids[c.parentId] case final p?) c.parentId = p;
+    }
+    project.layers.addAll(copies);
+    ensureUniqueLayerNames(project);
+    normalizeTimelineRows(project);
+    selectLayer(copies.last.id);
+    multiSelection = {for (final c in copies.take(copies.length - 1)) c.id};
     _fitTimeline();
     _render();
     notifyListeners();
@@ -4052,6 +4187,7 @@ class AppState extends ChangeNotifier {
     'outlineMode': (() => globalOutlineMode, (v) => globalOutlineMode = v as bool, false),
     'gridOverlay': (() => gridOverlayEnabled, (v) => gridOverlayEnabled = v as bool, false),
     'gridCols': (() => snapGridCols, (v) => snapGridCols = (v as num).toInt(), 4),
+    'gridKinds': (() => gridLineKinds, (v) => gridLineKinds = (v as num).toInt(), 3),
     'gridRows': (() => snapGridRows, (v) => snapGridRows = (v as num).toInt(), 4),
     'scaleContentOnResize': (() => scaleContentOnResize, (v) => scaleContentOnResize = v as bool, true),
     'snap': (() => snapEnabled, (v) => snapEnabled = v as bool, false),
@@ -4084,6 +4220,7 @@ class AppState extends ChangeNotifier {
     'rectExtendMode': (() => rectExtendMode, (v) => rectExtendMode = v as bool, false),
     'scaleKeepsOppositeEdge': (() => scaleKeepsOppositeEdge, (v) => scaleKeepsOppositeEdge = v as bool, false),
     'lineHandlesMirrored': (() => lineHandlesMirrored, (v) => lineHandlesMirrored = v as bool, true),
+    'lineRoundHandles': (() => lineRoundHandlesVisible, (v) => lineRoundHandlesVisible = v as bool, false),
     'placeOnStage': (() => placeOnStage, (v) => placeOnStage = v as bool, false),
     'placeSquare': (() => placeSquare, (v) => placeSquare = v as bool, false),
     'resizeEvenly': (() => resizeEvenly, (v) => resizeEvenly = v as bool, true),
@@ -4165,6 +4302,7 @@ class AppState extends ChangeNotifier {
     'showKeyParams': (() => showKeyParams, (v) => showKeyParams = v as bool, false),
     'scaleLinked': (() => scaleLinked, (v) => scaleLinked = v as bool, true),
     'eyedropperAlpha': (() => eyedropperAlpha, (v) => eyedropperAlpha = v as bool, false),
+    'exportDir': (() => exportDir ?? '', (v) => exportDir = (v as String).isEmpty ? null : v, ''),
     'videoDecoder': (() => videoDecoder, (v) => videoDecoder = v as String, 'auto'),
     'timelineSnapFrames': (() => timelineSnapFrames, (v) => timelineSnapFrames = (v as num).toInt(), kLayerEdgeSnapThresholdFrames),
   };

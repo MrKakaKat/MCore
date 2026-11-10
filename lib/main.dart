@@ -21,6 +21,7 @@ import 'ui/fill/fill_view.dart';
 import 'ui/ai/ai_dialogs.dart';
 import 'ui/filters/filters_view.dart';
 import 'ui/objects/objects_view.dart';
+import 'ui/drawing/drawing_view.dart';
 import 'ui/links/links_view.dart';
 import 'ui/palettes/palettes_view.dart';
 import 'ui/effects/effects_view.dart';
@@ -495,35 +496,34 @@ Widget _stageOverlayIcons(AppState app, {required bool narrow}) {
                       ),
                     ),
                   ),
-                // edit with AI: copy the project as a prompt, paste a reply back.
+                // edit with AI: copy the project as a prompt, paste a reply back
+                // (the same round button as the others, its menu under it).
                 Builder(
-                  builder: (context) => Padding(
-                    padding: const EdgeInsets.all(2),
-                    child: Material(
-                      color: Colors.black45,
-                      shape: const CircleBorder(),
-                      child: PopupMenuButton<String>(
+                  builder: (context) => KeyedSubtree(
                     key: const ValueKey('ai-menu'),
-                    padding: EdgeInsets.zero,
-                    tooltip: 'edit with AI',
-                    // the same size as the other round buttons (no 48 px
-                    // icon-button box around it).
-                    child: const Padding(
-                      padding: EdgeInsets.all(6),
-                      child: Icon(Icons.auto_awesome, color: Colors.white, size: 18),
-                    ),
-                    onSelected: (v) async {
-                      if (v == 'prompt') await showAiPromptDialog(context, app: app);
-                      if (v == 'paste' && context.mounted) {
-                        final r = await showAiImportDialog(context, title: 'Paste the AI\'s reply');
-                        if (r != null) app.replaceWithMcj(r);
-                      }
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'prompt', child: Text('Copy prompt: edit this project with AI')),
-                      PopupMenuItem(value: 'paste', child: Text('Paste the AI\'s reply (replaces the layers)')),
-                    ],
-                  ),
+                    child: _stageOverlayIconButton(
+                      icon: Icons.auto_awesome,
+                      tooltip: 'edit with AI',
+                      onPressed: () async {
+                        final box = context.findRenderObject() as RenderBox;
+                        final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+                        final at = box.localToGlobal(Offset.zero, ancestor: overlay);
+                        final v = await showMenu<String>(
+                          context: context,
+                          position: RelativeRect.fromLTRB(
+                              at.dx, at.dy + box.size.height, overlay.size.width - at.dx - box.size.width, 0),
+                          items: const [
+                            PopupMenuItem(value: 'prompt', child: Text('Copy prompt: edit this project with AI')),
+                            PopupMenuItem(value: 'paste', child: Text('Paste the AI\'s reply (replaces the layers)')),
+                          ],
+                        );
+                        if (!context.mounted) return;
+                        if (v == 'prompt') await showAiPromptDialog(context, app: app);
+                        if (v == 'paste' && context.mounted) {
+                          final r = await showAiImportDialog(context, title: 'Paste the AI\'s reply');
+                          if (r != null) app.replaceWithMcj(r);
+                        }
+                      },
                     ),
                   ),
                 ),
@@ -616,7 +616,7 @@ class _MobileParamsSheet extends StatefulWidget {
   final double fullHeight;
   const _MobileParamsSheet({required this.app, required this.dock, required this.fullHeight});
 
-  static const tabs = ['Layers', 'Movement', 'Keyframes', 'Timeline', 'Masks', 'Effects', 'Collide', 'Figures', 'Filters', 'Objects', 'Links', 'Palettes', 'Text', 'Line', 'Crop', 'Chroma', 'Audio', 'Reverse', 'Presets', 'Stage', 'Snapping', 'Settings'];
+  static const tabs = ['Layers', 'Movement', 'Keyframes', 'Timeline', 'Masks', 'Effects', 'Collide', 'Figures', 'Filters', 'Objects', 'Drawing', 'Links', 'Palettes', 'Text', 'Line', 'Crop', 'Chroma', 'Audio', 'Reverse', 'Presets', 'Stage', 'Snapping', 'Settings'];
 
   @override
   State<_MobileParamsSheet> createState() => _MobileParamsSheetState();
@@ -797,7 +797,7 @@ class _MobileParamsSheetState extends State<_MobileParamsSheet> {
 // since they already have dedicated 220px/260px columns there; including
 // them again here would reintroduce the exact top-icon duplication this
 // round removed, just relocated into the drawer instead.
-const _wideDrawerTabs = ['Keyframes', 'Timeline', 'Masks', 'Effects', 'Collide', 'Figures', 'Filters', 'Objects', 'Links', 'Palettes', 'Text', 'Line', 'Crop', 'Chroma', 'Audio', 'Reverse', 'Presets', 'Stage', 'Snapping', 'Settings'];
+const _wideDrawerTabs = ['Keyframes', 'Timeline', 'Masks', 'Effects', 'Collide', 'Figures', 'Filters', 'Objects', 'Drawing', 'Links', 'Palettes', 'Text', 'Line', 'Crop', 'Chroma', 'Audio', 'Reverse', 'Presets', 'Stage', 'Snapping', 'Settings'];
 
 /// the tab-rail + tab-body switch shared by both the narrow layout's
 /// `_MobileParamsSheet` (all tabs) and the wide layout's new endDrawer (see
@@ -927,6 +927,8 @@ class _ParamsTabsState extends State<_ParamsTabs> {
         return FiltersView(app: widget.app);
       case 'Objects':
         return ObjectsView(app: widget.app);
+      case 'Drawing':
+        return DrawingView(app: widget.app);
       case 'Links':
         return LinksView(app: widget.app);
       case 'Palettes':

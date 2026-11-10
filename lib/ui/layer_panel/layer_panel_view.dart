@@ -75,6 +75,25 @@ class LayerPanelView extends StatelessWidget {
                       },
                     ),
                   ],
+                  // the selected layers copied / pasted as a set.
+                  if (app.selectedGroup.length > 1) ...[
+                    const SizedBox(width: 8),
+                    IconButton.outlined(
+                      key: const ValueKey('selected-copy'),
+                      icon: const Icon(Icons.copy),
+                      tooltip: 'Copy the selected layers',
+                      onPressed: app.copySelectedLayers,
+                    ),
+                  ],
+                  if (app.copiedLayers?.isNotEmpty ?? false) ...[
+                    const SizedBox(width: 8),
+                    IconButton.outlined(
+                      key: const ValueKey('selected-paste'),
+                      icon: const Icon(Icons.paste),
+                      tooltip: 'Paste the copied layers',
+                      onPressed: app.pasteCopiedLayers,
+                    ),
+                  ],
                 ]),
               ),
             ),

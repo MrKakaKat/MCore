@@ -24,6 +24,18 @@ Future<void> showGridSettingsDialog(BuildContext context, AppState app) {
   );
 }
 
+/// Which lines a grid has: vertical, horizontal, diagonal (bits 1, 2, 4).
+Widget gridKindChips(String keyPrefix, int kinds, ValueChanged<int> onChanged) => Wrap(spacing: 6, children: [
+      for (final (bit, name) in const [(1, 'Vertical lines'), (2, 'Horizontal lines'), (4, 'Diagonals')])
+        FilterChip(
+          key: ValueKey('$keyPrefix-$bit'),
+          label: Text(name),
+          visualDensity: VisualDensity.compact,
+          selected: kinds & bit != 0,
+          onSelected: (on) => onChanged(on ? kinds | bit : kinds & ~bit),
+        ),
+    ]);
+
 class GridSettingsView extends StatelessWidget {
   final AppState app;
   const GridSettingsView({super.key, required this.app});
@@ -75,9 +87,14 @@ class GridSettingsView extends StatelessWidget {
                   ResetIconButton(onPressed: () {
                     app.setSnapGridCols(4);
                     app.setSnapGridRows(4);
+                    app.setAppPreference('gridKinds', 3);
                   }),
                 ],
               ),
+              // its lines: a field of their own (snapping follows them).
+              const SizedBox(height: 4),
+              const Text('Lines', style: TextStyle(fontSize: 13)),
+              gridKindChips('grid-kind', gridLineKinds, (v) => app.setAppPreference('gridKinds', v)),
             ],
           ],
         );
@@ -129,7 +146,17 @@ class GridSettingsView extends StatelessWidget {
               ]),
             ),
         ]),
-      if (on) const Hint('An editor guide (not in the picture). Centre to centre snaps onto its crossings.'),
+      if (on) ...[
+        const SizedBox(height: 4),
+        const Text('Lines', style: TextStyle(fontSize: 13)),
+        gridKindChips('rect-grid-kind', c.gridKinds, (v) {
+          app.pushUndo();
+          c.gridKinds = v;
+          app.commitEdit();
+        }),
+      ],
+      if (on) const Hint('An editor guide (not in the picture). Centre to centre snaps onto its crossings (with '
+          'diagonals: the cells\' middles).'),
     ];
   }
 }

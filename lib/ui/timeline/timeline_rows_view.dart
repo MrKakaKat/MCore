@@ -6,6 +6,7 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/num_field.dart';
+import '../common/no_layer.dart';
 
 /// Timeline tab: the selected layer's place on the timeline - which row
 /// it's in (several layers can share a row when they don't overlap in
@@ -219,6 +220,7 @@ class _TimelineRowsViewState extends State<TimelineRowsView> {
             ..._general(),
             const Divider(height: 16),
             const Text('Select a layer on the timeline or in Layers'),
+            Align(alignment: Alignment.centerLeft, child: LayersButton(app: app)),
           ]);
         }
         final rows = timelineRows(app.project);

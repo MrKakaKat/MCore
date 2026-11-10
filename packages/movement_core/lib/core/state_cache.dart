@@ -288,9 +288,11 @@ LayerState _layerStateAt(Project project, String layerId, num globalFrame) {
   final lookup = physicsOffsetLookup;
   if (lookup != null && !physicsSuspended && layer.physics.collide) {
     final off = lookup(project, layerId, globalFrame.round());
-    if (off != null && (off[0] != 0 || off[1] != 0)) {
+    // a third value: shrunk to keep turning (rotate logic 'size').
+    final k = off != null && off.length > 2 ? off[2] : 1.0;
+    if (off != null && (off[0] != 0 || off[1] != 0 || k != 1)) {
       finalMatrix = [
-        finalMatrix[0], finalMatrix[1], finalMatrix[2], finalMatrix[3],
+        finalMatrix[0] * k, finalMatrix[1] * k, finalMatrix[2] * k, finalMatrix[3] * k,
         finalMatrix[4] + off[0] / stageSize.width, finalMatrix[5] + off[1] / stageSize.height,
       ];
     }

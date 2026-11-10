@@ -343,9 +343,115 @@ List<List<List<double>>> layerContours(Layer layer) {
 List<List<double>> layerShapePoints(Layer layer) {
   final pts = shapePoints(layer.content);
   final f = layer.fill;
-  if (f.cornerRadius <= 0 && f.outerRadius <= 0) return pts;
   if (isRectLikeShape(layer.content.shape) || layer.content.shape == 'circle') return pts;
-  return roundRingCorners(pts, f.cornerRadius, f.outerRadius, k: f.cornerShape);
+  final rounded = f.cornerRadius <= 0 && f.outerRadius <= 0
+      ? pts
+      : roundRingCorners(pts, f.cornerRadius, f.outerRadius, k: f.cornerShape);
+  return _smoothAndGrow(layer, rounded);
+}
+
+/// The Fill tab's auto smoothing and outward growth on an outline.
+List<List<double>> _smoothAndGrow(Layer layer, List<List<double>> ring) {
+  final f = layer.fill;
+  var out = ring;
+  if (f.smooth > 0) out = smoothRing(out, f.smooth, f.smoothAngle);
+  if (f.grow > 0) out = growRing(out, f.grow);
+  return out;
+}
+
+/// Whether the outline is changed by smoothing / growth.
+bool shapeSmoothedOrGrown(Layer layer) => layer.fill.smooth > 0 || layer.fill.grow > 0;
+
+/// Corners turning more than `minTurnDeg` degrees eased into a bezier
+/// curve that starts `strength` (0..1) of the way to the middle of each
+/// side - a gentle turn is left as it is (the sensitivity).
+List<List<double>> smoothRing(List<List<double>> ring, double strength, double minTurnDeg) {
+  final n = ring.length;
+  if (n < 3 || strength <= 0) return ring;
+  final s = strength.clamp(0.0, 1.0);
+  final out = <List<double>>[];
+  for (var i = 0; i < n; i++) {
+    final a = ring[(i - 1 + n) % n], p = ring[i], b = ring[(i + 1) % n];
+    final ax = p[0] - a[0], ay = p[1] - a[1], bx = b[0] - p[0], by = b[1] - p[1];
+    final la = math.sqrt(ax * ax + ay * ay), lb = math.sqrt(bx * bx + by * by);
+    if (la < 1e-9 || lb < 1e-9) {
+      out.add(p);
+      continue;
+    }
+    final turn = math.acos(((ax * bx + ay * by) / (la * lb)).clamp(-1.0, 1.0)) * 180 / math.pi;
+    if (turn < minTurnDeg) {
+      out.add(p);
+      continue;
+    }
+    // where the curve leaves each side (at most the side's middle, so two
+    // smoothed corners meet but never cross).
+    final d = s * math.min(la, lb) / 2;
+    final p0 = [p[0] - ax / la * d, p[1] - ay / la * d], p2 = [p[0] + bx / lb * d, p[1] + by / lb * d];
+    const steps = 10;
+    for (var k = 0; k <= steps; k++) {
+      final t = k / steps, u = 1 - t;
+      out.add([u * u * p0[0] + 2 * u * t * p[0] + t * t * p2[0], u * u * p0[1] + 2 * u * t * p[1] + t * t * p2[1]]);
+    }
+  }
+  return out;
+}
+
+/// The outline grown outward by `g`: each side pushed out, the corners
+/// it passes rounded, inward corners where the pushed sides meet.
+List<List<double>> growRing(List<List<double>> ring, double g) {
+  final n = ring.length;
+  if (n < 3 || g <= 0) return ring;
+  var area = 0.0;
+  for (var i = 0; i < n; i++) {
+    area += ring[i][0] * ring[(i + 1) % n][1] - ring[(i + 1) % n][0] * ring[i][1];
+  }
+  // outward: right of the way for a positive (y-down clockwise) area.
+  final side = area > 0 ? -1.0 : 1.0;
+  List<double>? normal(List<double> a, List<double> b) {
+    final dx = b[0] - a[0], dy = b[1] - a[1];
+    final l = math.sqrt(dx * dx + dy * dy);
+    if (l < 1e-9) return null;
+    return [-dy / l * side, dx / l * side];
+  }
+
+  final out = <List<double>>[];
+  for (var i = 0; i < n; i++) {
+    final a = ring[(i - 1 + n) % n], p = ring[i], b = ring[(i + 1) % n];
+    final n1 = normal(a, p), n2 = normal(p, b);
+    if (n1 == null || n2 == null) {
+      final nn = n1 ?? n2;
+      if (nn != null) out.add([p[0] + nn[0] * g, p[1] + nn[1] * g]);
+      continue;
+    }
+    final cross = (p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]);
+    final outward = cross * area > 0; // a convex corner: the growth goes round it
+    if (outward) {
+      final a1 = math.atan2(n1[1], n1[0]);
+      var sweep = math.atan2(n2[1], n2[0]) - a1;
+      while (sweep > math.pi) {
+        sweep -= 2 * math.pi;
+      }
+      while (sweep < -math.pi) {
+        sweep += 2 * math.pi;
+      }
+      final steps = math.max(1, (sweep.abs() / (math.pi / 12)).ceil());
+      for (var k = 0; k <= steps; k++) {
+        out.add([p[0] + g * math.cos(a1 + sweep * k / steps), p[1] + g * math.sin(a1 + sweep * k / steps)]);
+      }
+    } else {
+      // inward: where the two pushed sides meet (kept near the corner).
+      final bx = n1[0] + n2[0], by = n1[1] + n2[1];
+      final bl = math.sqrt(bx * bx + by * by);
+      if (bl < 1e-9) {
+        out.add([p[0] + n1[0] * g, p[1] + n1[1] * g]);
+        continue;
+      }
+      final cosHalf = (n1[0] * bx + n1[1] * by) / bl;
+      final reach = math.min(g / math.max(cosHalf, 1e-3), g * 4);
+      out.add([p[0] + bx / bl * reach, p[1] + by / bl * reach]);
+    }
+  }
+  return out;
 }
 
 /// The shape's own outline, flat (content space): a rect's four corners
@@ -355,14 +461,16 @@ List<List<double>> layerFlatOutline(Layer layer, {int? globalFrame, Project? pro
   if (c.shape == 'rect') {
     if (layer.fill.cornerRadius > 0 || _roundLinked(layer)) {
       final (rx, ry) = cornerRadii(layer, globalFrame, project: project);
-      return roundedRectRing(c.offset[0], c.offset[1], c.size[0], c.size[1], rx, ry,
-          k: layer.fill.cornerShape, corners: layer.fill.cornersOn, each: cornerRadiiEach(layer, globalFrame, project: project));
+      return _smoothAndGrow(
+          layer,
+          roundedRectRing(c.offset[0], c.offset[1], c.size[0], c.size[1], rx, ry,
+              k: layer.fill.cornerShape, corners: layer.fill.cornersOn, each: cornerRadiiEach(layer, globalFrame, project: project)));
     }
     final w = c.size[0] / 2, h = c.size[1] / 2;
-    return [
+    return _smoothAndGrow(layer, [
       [c.offset[0] - w, c.offset[1] - h], [c.offset[0] + w, c.offset[1] - h],
       [c.offset[0] + w, c.offset[1] + h], [c.offset[0] - w, c.offset[1] + h],
-    ];
+    ]);
   }
   return layerShapePoints(layer);
 }

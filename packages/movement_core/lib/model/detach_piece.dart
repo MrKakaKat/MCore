@@ -19,6 +19,7 @@ import '../ui_geometry/handles.dart' show toFrameMatrix;
 import '../ui_geometry/drag_ops.dart' show DragOp;
 import '../ui_geometry/snapping.dart' show SnapGuideLine;
 import 'layer_names.dart';
+import 'line_path.dart' show flipLineNodes, isNodeLine;
 import 'project.dart';
 import 'timeline_rows.dart' show normalizeTimelineRows;
 
@@ -171,27 +172,51 @@ class PieceRectDragOp implements DragOp {
 List<List<double>> cutLineRegion(Layer layer, List<List<double>> pts, {required bool closed}) {
   if (pts.length < 2) return const [];
   if (closed) return pts.length >= 3 ? [for (final p in pts) [...p]] : const [];
+  // Open: the line, its ends carried on straight out to a big circle
+  // around everything, then back along that circle on the line's left -
+  // always the same side (only Invert changes it), however the points
+  // move.
   final b = shapeBoundingBox(layer.content);
-  final far = 4 * (math.max(b.maxX - b.minX, b.maxY - b.minY) + 1) +
-      [for (final p in pts) math.max((p[0] - (b.minX + b.maxX) / 2).abs(), (p[1] - (b.minY + b.maxY) / 2).abs())]
-          .reduce(math.max);
+  final cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+  var reach = math.max(b.maxX - b.minX, b.maxY - b.minY);
+  for (final p in pts) {
+    reach = math.max(reach, math.max((p[0] - cx).abs(), (p[1] - cy).abs()) * 2);
+  }
+  final r = reach * 4 + 10;
   List<double> dir(List<double> a, List<double> c) {
     final dx = c[0] - a[0], dy = c[1] - a[1];
     final l = math.sqrt(dx * dx + dy * dy);
     return l == 0 ? [1.0, 0.0] : [dx / l, dy / l];
   }
 
-  final d0 = dir(pts[0], pts[1]), d1 = dir(pts[pts.length - 2], pts.last);
-  final start = [pts[0][0] - d0[0] * far, pts[0][1] - d0[1] * far];
-  final end = [pts.last[0] + d1[0] * far, pts.last[1] + d1[1] * far];
-  // left of the way it was drawn (y down: (dy, -dx)).
-  final n0 = [d0[1], -d0[0]], n1 = [d1[1], -d1[0]];
+  // where a ray from p along d leaves the circle.
+  List<double> exit(List<double> p, List<double> d) {
+    final ox = p[0] - cx, oy = p[1] - cy;
+    final bq = ox * d[0] + oy * d[1];
+    final cq = ox * ox + oy * oy - r * r;
+    final t = -bq + math.sqrt(math.max(0, bq * bq - cq));
+    return [p[0] + d[0] * t, p[1] + d[1] * t];
+  }
+
+  final d0 = dir(pts[1], pts[0]), d1 = dir(pts[pts.length - 2], pts.last);
+  final start = exit(pts[0], d0), end = exit(pts.last, d1);
+  final aEnd = math.atan2(end[1] - cy, end[0] - cx), aStart = math.atan2(start[1] - cy, start[0] - cx);
+  // the left of the line's way (y down) is reached turning the angle
+  // down from its end back to its start.
+  var sweep = aStart - aEnd;
+  while (sweep > 0) {
+    sweep -= 2 * math.pi;
+  }
+  while (sweep <= -2 * math.pi) {
+    sweep += 2 * math.pi;
+  }
+  const n = 48;
   return [
     start,
     for (final p in pts) [...p],
     end,
-    [end[0] + n1[0] * far, end[1] + n1[1] * far],
-    [start[0] + n0[0] * far, start[1] + n0[1] * far],
+    for (var i = 1; i < n; i++)
+      [cx + r * math.cos(aEnd + sweep * i / n), cy + r * math.sin(aEnd + sweep * i / n)],
   ];
 }
 
@@ -233,4 +258,93 @@ List<double> snapCropLinePoint(Project project, Layer layer, int globalFrame, Li
     }
   }
   return best ?? [...p];
+}
+
+// ===== the mirror line (Crop tab) =====
+
+/// A point dragged on the stage pulled onto what is near (frame px,
+/// within `radius`): the frame's corners, edges' middles and middle, and
+/// every visible layer's corners and middle.
+List<double> snapStagePoint(Project project, int globalFrame, List<double> p, double radius) {
+  final w = stageSize.width, h = stageSize.height;
+  final cands = <List<double>>[
+    [0, 0], [w, 0], [w, h], [0, h], [w / 2, h / 2],
+    [w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2],
+  ];
+  for (final l in project.layers) {
+    if (l.hidden || l.content.shape == 'audio' || l.content.shape == 'camera') continue;
+    final st = getLayerStateAt(project, l.id, globalFrame);
+    if (!st.inRange) continue;
+    final m = toFrameMatrix(st.matrix);
+    final outline = getContentOutline(l.content, l, globalFrame, project: project);
+    if (outline.length <= 8) cands.addAll([for (final q in outline) applyAffine(m, q)]);
+    cands.add(applyAffine(m, l.content.offset));
+  }
+  List<double>? best;
+  var bestD = radius * radius;
+  for (final q in cands) {
+    final d = (q[0] - p[0]) * (q[0] - p[0]) + (q[1] - p[1]) * (q[1] - p[1]);
+    if (d <= bestD) {
+      bestD = d;
+      best = q;
+    }
+  }
+  return best == null ? [...p] : [...best];
+}
+
+/// The mirror line's end `moved` pulled onto points (above), or else
+/// straight / at 45 degrees from the other end `fixed` when close.
+List<double> snapMirrorLineEnd(Project project, int globalFrame, List<double> moved, List<double> fixed, double radius) {
+  final onPoint = snapStagePoint(project, globalFrame, moved, radius);
+  if (onPoint[0] != moved[0] || onPoint[1] != moved[1]) return onPoint;
+  final dx = moved[0] - fixed[0], dy = moved[1] - fixed[1];
+  final len = math.sqrt(dx * dx + dy * dy);
+  if (len < 1e-9) return moved;
+  final ang = math.atan2(dy, dx);
+  const step = math.pi / 4;
+  final snapped = (ang / step).round() * step;
+  if ((snapped - ang).abs() * len > radius) return moved;
+  return [fixed[0] + math.cos(snapped) * len, fixed[1] + math.sin(snapped) * len];
+}
+
+/// Mirrors `layer` across the frame line a-b: its place reflected (keys
+/// too; a layer under a parent keeps its place), its turn reflected and
+/// it is flipped - a line flips its own points.
+void mirrorLayerAcross(Layer layer, List<double> a, List<double> b) {
+  final dx = b[0] - a[0], dy = b[1] - a[1];
+  final len2 = dx * dx + dy * dy;
+  if (len2 < 1e-9) return;
+  final theta = math.atan2(dy, dx) * 180 / math.pi;
+  List<double> reflect(List<double> p) {
+    final t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
+    final fx = a[0] + dx * t, fy = a[1] + dy * t;
+    return [2 * fx - p[0], 2 * fy - p[1]];
+  }
+
+  if (layer.parentId == null) {
+    final w = stageSize.width, h = stageSize.height;
+    List<double> flipAnchor(dynamic v) {
+      final q = [...(v as List).map((x) => (x as num).toDouble())];
+      final r = reflect([q[0] * w, q[1] * h]);
+      return [r[0] / w, r[1] / h, ...q.skip(2)];
+    }
+
+    final t = layer.transform.anchor;
+    t.defaultValue = flipAnchor(t.defaultValue);
+    for (final k in t.keyframes) {
+      k.value = flipAnchor(k.value);
+    }
+  }
+  // a reflection = turned by 2*theta - r, then flipped top to bottom.
+  final rt = layer.transform.rotation;
+  double turn(dynamic v) => 2 * theta - (v as num).toDouble();
+  rt.defaultValue = turn(rt.defaultValue);
+  for (final k in rt.keyframes) {
+    k.value = turn(k.value);
+  }
+  if (isNodeLine(layer.content)) {
+    flipLineNodes(layer.content, horizontal: false);
+  } else {
+    layer.mirrorY = !layer.mirrorY;
+  }
 }

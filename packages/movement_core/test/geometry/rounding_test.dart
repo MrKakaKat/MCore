@@ -68,6 +68,10 @@ void main() {
 
   test("a line corner's radius handle rounds it", () {
     final c = createLayer('line').content..lineNodes = [LineNode(0, 0), LineNode(100, 0), LineNode(100, 100)];
+    // off by default (Line tab switch).
+    expect(lineHandleKeys(c, editing: true, selected: 1), isNot(contains('r1')));
+    lineRoundHandlesVisible = true;
+    addTearDown(() => lineRoundHandlesVisible = false);
     expect(lineHandleKeys(c, editing: true, selected: 1), contains('r1'));
     moveLineHandle(c, 'r1', [100, 30]);
     expect(c.lineNodes![1].round, closeTo(30, 1e-9));

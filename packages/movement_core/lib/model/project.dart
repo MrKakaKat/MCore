@@ -183,6 +183,10 @@ double snapRotationToleranceDeg = 5;
 // grid overlay: N x M, always evenly auto-fit - no stated spec
 // default, 4x4 is an unremarkable, easily-adjusted starting point.
 int snapGridCols = 4;
+
+/// The grid's lines: bit 1 vertical, 2 horizontal, 4 diagonal (both ways
+/// through every cell). Drawn and snapped to alike.
+int gridLineKinds = 3;
 int snapGridRows = 4;
 
 // ===== grid overlay (decoupled from Snapping - see the note on
@@ -779,6 +783,10 @@ class Content {
   /// crossings.
   int? gridCols, gridRows;
 
+  /// This rect's own grid lines (see gridLineKinds): bit 1 vertical, 2
+  /// horizontal, 4 diagonal.
+  int gridKinds = 3;
+
   /// A filled line: what the fill reaches - 'outer' (to the outer edge of
   /// its width: the line keeps its thickness and the shape of its
   /// points), 'points' (through the points' centres only, the old way) or
@@ -805,6 +813,16 @@ class Content {
   /// Miter: the longest a corner may reach, in half widths (a very sharp
   /// turn is cut straight beyond it).
   double lineMiterLimit = 4;
+
+  /// The points between the ends get a shape of their own (the ends'
+  /// circle / square) - off: only the ends have one, the line just turns
+  /// there. Sizes per point (by point index; 1 = the line's width there).
+  bool lineStationShapes = false;
+  Map<int, double> lineStationSizes = {};
+
+  /// Smoothing: sharp turns between the points eased into curves, 0..1
+  /// (0: off).
+  double lineSmooth = 0;
 
   /// Bezier: dragging one handle of a point turns the other the opposite
   /// way; with this also the same length.
@@ -1227,6 +1245,17 @@ class PhysicsSettings {
   List<double> leashPoint;
   double leashLength;
   double leashStrength;
+
+  /// Hollow: other objects inside it hit its walls from within (and push
+  /// it, unless it is Immovable); outside it is solid as usual.
+  bool hollow = false;
+
+  /// Turning against an Immovable: 'none' (pushed off, as any push),
+  /// 'size' (it shrinks to keep turning) or 'position' (it is moved
+  /// aside to keep turning). `rotateReturn`: once free again it grows /
+  /// goes back to how it was.
+  String rotateLogic = 'none';
+  bool rotateReturn = true;
   PhysicsSettings(
       {this.collide = false,
       this.group = '1',
@@ -1252,7 +1281,10 @@ class PhysicsSettings {
       leash: leash,
       leashPoint: [...leashPoint],
       leashLength: leashLength,
-      leashStrength: leashStrength);
+      leashStrength: leashStrength)
+    ..hollow = hollow
+    ..rotateLogic = rotateLogic
+    ..rotateReturn = rotateReturn;
   Map<String, dynamic> toJson() => {
         'collide': collide,
         'group': group,
@@ -1262,6 +1294,9 @@ class PhysicsSettings {
         if (inertia > 0) 'inertia': inertia,
         if (softness > 0) 'softness': softness,
         if (leash) 'leash': {'point': leashPoint, 'length': leashLength, 'strength': leashStrength},
+        if (hollow) 'hollow': true,
+        if (rotateLogic != 'none') 'rotateLogic': rotateLogic,
+        if (!rotateReturn) 'rotateReturn': false,
       };
   static PhysicsSettings fromJson(Map<String, dynamic> j) {
     final l = j['leash'] as Map?;
@@ -1277,7 +1312,10 @@ class PhysicsSettings {
       leashPoint: l == null ? null : [for (final v in l['point'] as List) (v as num).toDouble()],
       leashLength: (l?['length'] as num?)?.toDouble() ?? 0,
       leashStrength: (l?['strength'] as num?)?.toDouble() ?? 0.2,
-    );
+    )
+      ..hollow = j['hollow'] == true
+      ..rotateLogic = j['rotateLogic'] as String? ?? 'none'
+      ..rotateReturn = j['rotateReturn'] != false;
   }
 }
 
@@ -1385,6 +1423,16 @@ class ShapeFill {
   /// linear/radial gradient): it replaces the colour, its stops' opacity
   /// included. Null: the layer's own colour.
   FillGradient? paint;
+
+  /// Auto smoothing: corners that turn more than `smoothAngle` degrees
+  /// are eased into bezier curves, `smooth` (0..1) of the way along their
+  /// sides. 0: off.
+  double smooth = 0;
+  double smoothAngle = 30;
+
+  /// Grows the shape outward by this many px, in its own colour (rounded
+  /// at the corners it passes); the rounding and smoothing come first.
+  double grow = 0;
   ShapeFill(
       {this.gradient = false,
       List<GlowEmitter>? glows,
@@ -1413,7 +1461,10 @@ class ShapeFill {
       cornerShape: cornerShape,
       outerRadius: outerRadius,
       shadow: shadow.copy(),
-      paint: paint?.copy());
+      paint: paint?.copy())
+    ..smooth = smooth
+    ..smoothAngle = smoothAngle
+    ..grow = grow;
 }
 
 /// A gradient stop: where (0..1), colour "#rrggbb", opacity 0..1.
@@ -2173,6 +2224,7 @@ Layer cloneLayer(Layer src) {
       ..lineHidden = src.content.lineHidden
       ..lineLocked = src.content.lineLocked
       ..lineShowBox = src.content.lineShowBox
+      ..gridKinds = src.content.gridKinds
       ..gridCols = src.content.gridCols
       ..gridRows = src.content.gridRows
       ..lineFillMode = src.content.lineFillMode
@@ -2182,6 +2234,9 @@ Layer cloneLayer(Layer src) {
       ..lineCapShape = src.content.lineCapShape
       ..lineJoin = src.content.lineJoin
       ..lineMiterLimit = src.content.lineMiterLimit
+      ..lineStationShapes = src.content.lineStationShapes
+      ..lineStationSizes = {...src.content.lineStationSizes}
+      ..lineSmooth = src.content.lineSmooth
       ..lineMirrorLength = src.content.lineMirrorLength
       ..lineTrimStart = src.content.lineTrimStart == null ? null : cloneTrack(src.content.lineTrimStart!)
       ..lineTrimEnd = src.content.lineTrimEnd == null ? null : cloneTrack(src.content.lineTrimEnd!)

@@ -7,6 +7,7 @@ import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
+import '../common/no_layer.dart';
 
 /// Ported from the "movement" section of movement-core/src/ui/
 /// paramsPanel/{index,shared,movementSection}.js - anchor/scale/
@@ -55,34 +56,18 @@ class ParamsPanelView extends StatelessWidget {
       builder: (context, _) {
         final layer = findLayer(app.project, app.selection.selectedLayer);
         if (layer == null) {
-          return const Center(child: Text('No layer selected'));
+          // picking several works with nothing selected yet.
+          return ListView(padding: const EdgeInsets.all(8), children: [
+            _pickSeveral(context),
+            const SizedBox(height: 24),
+            NoLayer(app: app, text: 'No layer selected'),
+          ]);
         }
         final localFrame = layerLocalFrame(layer, app.currentFrame);
         return ListView(
           padding: const EdgeInsets.all(8),
           children: [
-            // stage taps pick several layers (and the selection rectangle).
-            Row(children: [
-              Expanded(
-                child: SwitchListTile(
-                  key: const ValueKey('stage-multi-select'),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(app.selectedGroup.length > 1
-                      ? 'Pick several on the stage (${app.selectedGroup.length} selected)'
-                      : 'Pick several on the stage'),
-                  value: app.stageMultiSelect,
-                  onChanged: (v) => app.setAppPreference('stageMultiSelect', v),
-                ),
-              ),
-              // the selection rectangle and what it picks.
-              IconButton(
-                key: const ValueKey('marquee-settings'),
-                icon: Icon(app.marqueeMode ? Icons.highlight_alt : Icons.select_all, size: 20),
-                tooltip: 'select with a rectangle: options',
-                onPressed: () => showMarqueeSettingsDialog(context, app),
-              ),
-            ]),
+            _pickSeveral(context),
             _parentSelector(context, layer),
             _vecParam(context, 'anchor', layer.transform.anchor, localFrame, [0.5, 0.5],
                 const ParamScale.ruler(unitsPerPixel: 0.0005, minorTick: 0.01, majorTick: 0.1, decimals: 4)),
@@ -114,6 +99,30 @@ class ParamsPanelView extends StatelessWidget {
     _set(trk, localFrame, value);
     app.commitEdit();
   }
+
+  /// Stage taps pick several layers (and the selection rectangle).
+  Widget _pickSeveral(BuildContext context) => // stage taps pick several layers (and the selection rectangle).
+      Row(children: [
+        Expanded(
+          child: SwitchListTile(
+            key: const ValueKey('stage-multi-select'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(app.selectedGroup.length > 1
+                ? 'Pick several on the stage (${app.selectedGroup.length} selected)'
+                : 'Pick several on the stage'),
+            value: app.stageMultiSelect,
+            onChanged: (v) => app.setAppPreference('stageMultiSelect', v),
+          ),
+        ),
+        // the selection rectangle and what it picks.
+        IconButton(
+          key: const ValueKey('marquee-settings'),
+          icon: Icon(app.marqueeMode ? Icons.highlight_alt : Icons.select_all, size: 20),
+          tooltip: 'select with a rectangle: options',
+          onPressed: () => showMarqueeSettingsDialog(context, app),
+        ),
+      ]);
 
   /// Sets the selected layer's value - with several selected, the others
   /// follow: a move / turn / resize like on the stage (keeping the group's

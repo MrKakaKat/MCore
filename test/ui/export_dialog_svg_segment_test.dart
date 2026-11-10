@@ -31,7 +31,7 @@ void main() {
     expect(find.text('SVG'), findsOneWidget);
   });
 
-  testWidgets('the SVG export segment is hidden once the project has any image-content layer', (tester) async {
+  testWidgets('SVG is offered with pictures too (it is the stage as it looks)', (tester) async {
     // deliberately NOT AppState.addImageLayer - that calls _render(),
     // which for an image-content layer triggers a real
     // ui.instantiateImageCodec decode, a documented hang risk in this
@@ -43,7 +43,7 @@ void main() {
     // ever touching the decode path.
     app.project.layers.add(createImageLayer(imageSourceType: 'embedded', imageData: 'AAAA', naturalWidth: 10, naturalHeight: 10));
     await pump(tester);
-    expect(find.text('SVG'), findsNothing);
+    expect(find.text('SVG'), findsOneWidget);
   });
 
   testWidgets('selecting SVG: animation or one frame', (tester) async {

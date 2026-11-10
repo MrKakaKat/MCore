@@ -184,7 +184,7 @@ class NativeVideoService extends VideoService {
     required int width,
     required int height,
     required int frameCount,
-    required Future<Uint8List> Function(int index) frameAt,
+    required Future<Uint8List?> Function(int index) frameAt,
     required double fps,
     required String outputPath,
     String codec = 'vp9',
@@ -215,10 +215,19 @@ class NativeVideoService extends VideoService {
       'channels': audioChannels,
     });
     try {
+      // a pipeline: the next frame is drawn while this one is encoded.
+      Uint8List? previous;
+      var next = frameAt(0);
       for (var i = 0; i < frameCount; i++) {
-        var rgba = await frameAt(i);
-        if (w != width || h != height) rgba = _crop(rgba, width, w, h);
-        await _m.call('encodeFrame', {'id': id, 'rgba': rgba});
+        var rgba = await next;
+        if (i + 1 < frameCount) next = frameAt(i + 1);
+        // the same picture as before: only "again" goes to the encoder.
+        if (rgba != null && previous != null && sameBytes(rgba, previous)) rgba = null;
+        if (rgba != null) {
+          previous = rgba;
+          if (w != width || h != height) rgba = _crop(rgba, width, w, h);
+        }
+        await _m.call('encodeFrame', {'id': id, if (rgba != null) 'rgba': rgba});
         onProgress?.call('Drawing', i + 1, frameCount);
       }
       onProgress?.call('Encoding', frameCount, frameCount);
@@ -227,6 +236,26 @@ class NativeVideoService extends VideoService {
       await _m.call('abortEncode', {'id': id}).catchError((_) => null);
       rethrow;
     }
+  }
+
+  /// Whether two frames are the same bytes (8 at a time).
+  static bool sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    final n = a.length ~/ 8;
+    if (a.offsetInBytes % 8 == 0 && b.offsetInBytes % 8 == 0) {
+      final x = a.buffer.asUint64List(a.offsetInBytes, n), y = b.buffer.asUint64List(b.offsetInBytes, n);
+      for (var i = 0; i < n; i++) {
+        if (x[i] != y[i]) return false;
+      }
+    } else {
+      for (var i = 0; i < n * 8; i++) {
+        if (a[i] != b[i]) return false;
+      }
+    }
+    for (var i = n * 8; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   static Uint8List _crop(Uint8List rgba, int stride, int w, int h) {

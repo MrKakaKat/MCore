@@ -3,6 +3,7 @@ import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 import '../common/hint.dart';
+import '../common/no_layer.dart';
 
 /// Objects: the layer as a thing with two sides - turn it over, put
 /// another picture on its back (within its bounds), give it a contour.
@@ -16,7 +17,7 @@ class ObjectsView extends StatelessWidget {
       listenable: app,
       builder: (context, _) {
         final layer = findLayer(app.project, app.selection.selectedLayer);
-        if (layer == null) return const Center(child: Text('Select a layer'));
+        if (layer == null) return NoLayer(app: app, text: 'Select a layer');
         void edit(VoidCallback change) {
           app.pushUndo();
           change();

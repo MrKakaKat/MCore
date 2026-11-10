@@ -18,7 +18,7 @@ import 'project.dart';
 bool lineNeedsShapedStroke(Content c) =>
     isNodeLine(c) &&
     !isFilledLine(c) &&
-    (c.lineCap != 'round' || c.lineJoin != 'round' || c.lineNodes!.any((n) => n.w != null));
+    (c.lineCap != 'round' || c.lineJoin != 'round' || c.lineStationShapes || c.lineNodes!.any((n) => n.w != null));
 
 /// The stroke of `c` (content-local), between fractions `t0` and `t1` of
 /// its length, as rings to fill together (non-zero).
@@ -64,14 +64,29 @@ List<List<List<double>>> lineStrokeRings(Content c, {num? frame, double t0 = 0, 
     final cross = d1[0] * d2[1] - d1[1] * d2[0];
     final dot = d1[0] * d2[0] + d1[1] * d2[1];
     if (cross.abs() < 1e-9 && dot > 0) continue; // straight on
-    if (c.lineJoin == 'round' || (h <= 0)) {
-      out.add(_circle(p, h));
-      continue;
-    }
+    if (h <= 0) continue;
     // the outer side: left of the way for a right turn.
     final s = cross > 0 ? 1.0 : -1.0;
     final n1 = [d1[1] * s, -d1[0] * s], n2 = [d2[1] * s, -d2[0] * s];
     final e1 = [p[0] + n1[0] * h, p[1] + n1[1] * h], e2 = [p[0] + n2[0] * h, p[1] + n2[1] * h];
+    if (c.lineJoin == 'round') {
+      // the outer edge bent round the point (no whole circle: the point
+      // itself gets no shape of its own - see lineStationShapes).
+      final a1 = math.atan2(n1[1], n1[0]);
+      var sweep = math.atan2(n2[1], n2[0]) - a1;
+      while (sweep > math.pi) {
+        sweep -= 2 * math.pi;
+      }
+      while (sweep < -math.pi) {
+        sweep += 2 * math.pi;
+      }
+      final steps = math.max(2, (sweep.abs() / (math.pi / 12)).ceil());
+      out.add([
+        p,
+        for (var k = 0; k <= steps; k++) [p[0] + h * math.cos(a1 + sweep * k / steps), p[1] + h * math.sin(a1 + sweep * k / steps)],
+      ]);
+      continue;
+    }
     if (c.lineJoin == 'miter') {
       // where the two outer edges meet.
       final half = math.acos(dot.clamp(-1.0, 1.0)) / 2; // half the turn
@@ -86,6 +101,38 @@ List<List<List<double>>> lineStrokeRings(Content c, {num? frame, double t0 = 0, 
       }
     }
     out.add([p, e1, e2]);
+  }
+  // the points between the ends: their own circle / square, when asked.
+  if (c.lineStationShapes) {
+    final nodes = c.lineNodes!;
+    for (var i = c.lineClosed ? 0 : 1; i < (c.lineClosed ? nodes.length : nodes.length - 1); i++) {
+      final (x, y) = nodes[i].posAt(frame);
+      final w = (nodes[i].valueAt('w', frame) ?? c.lineWidth) * (c.lineStationSizes[i] ?? 1);
+      final h = w / 2;
+      if (h <= 0) continue;
+      if (c.lineCap == 'square') {
+        // along the line there.
+        final prev = nodes[(i - 1 + nodes.length) % nodes.length].posAt(frame);
+        final next = nodes[(i + 1) % nodes.length].posAt(frame);
+        var dx = next.$1 - prev.$1, dy = next.$2 - prev.$2;
+        final l = math.sqrt(dx * dx + dy * dy);
+        if (l < 1e-9) {
+          dx = 1;
+          dy = 0;
+        } else {
+          dx /= l;
+          dy /= l;
+        }
+        out.add([
+          [x + (dx - dy) * h, y + (dy + dx) * h],
+          [x + (-dx - dy) * h, y + (-dy + dx) * h],
+          [x + (-dx + dy) * h, y + (-dy - dx) * h],
+          [x + (dx + dy) * h, y + (dy - dx) * h],
+        ]);
+      } else {
+        out.add(_circle([x, y, w], h));
+      }
+    }
   }
   // the ends.
   if (!loop) {

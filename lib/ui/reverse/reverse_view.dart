@@ -3,6 +3,7 @@ import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 import '../common/hint.dart';
+import '../common/no_layer.dart';
 
 /// Reverse: a video played backwards, and the selected layer's keys
 /// mirrored in time per params tab (each a single undo step).
@@ -16,7 +17,7 @@ class ReverseView extends StatelessWidget {
       animation: app,
       builder: (context, _) {
         final layer = findLayer(app.project, app.selection.selectedLayer);
-        if (layer == null) return const Center(child: Text('No layer selected'));
+        if (layer == null) return NoLayer(app: app, text: 'No layer selected');
         final rows = keyDetailRows(layer);
         return ListView(
           padding: const EdgeInsets.all(8),

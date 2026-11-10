@@ -5,6 +5,7 @@ import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
+import '../common/no_layer.dart';
 
 /// Line tab: the selected vector line's points (model/line_path.dart).
 /// While it is open every point is a handle on the stage; the segment
@@ -33,6 +34,7 @@ class _LineViewState extends State<LineView> {
           return Center(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               const Text('Select a line, or add one'),
+              LayersButton(app: app),
               const SizedBox(height: 8),
               OutlinedButton.icon(
                 key: const ValueKey('line-add'),
@@ -304,6 +306,15 @@ class _LineViewState extends State<LineView> {
             onSelected: (_) => app.editLine(id, (c) => setLinePointKind(c, sel, k)),
           ),
       ]),
+      SwitchListTile(
+        key: const ValueKey('line-round-handles'),
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Corner rounding handles'),
+        subtitle: const Text('on the stage at the selected point (off: rounding only from the fields)'),
+        value: lineRoundHandlesVisible,
+        onChanged: (v) => app.setAppPreference('lineRoundHandles', v),
+      ),
       if (kind == 'bezier') ...[
         SwitchListTile(
           key: const ValueKey('line-mirror-handles'),
@@ -418,7 +429,26 @@ class _LineViewState extends State<LineView> {
   }
 
   /// The ends of an open line and how it turns at its points.
+  /// Line smoothing: its sensitivity (how sharp a turn must be).
+  static double _smoothAngle = 30;
+
   List<Widget> _endsAndJoins(Content c, String id) => [
+        const Text('Smoothing', style: TextStyle(fontWeight: FontWeight.bold)),
+        _number('smoothing strength', c.lineSmooth == 0 ? 0.6 : c.lineSmooth, 0.6,
+            const ParamScale.slider(0.05, 1, decimals: 2), (v) => app.editLineLive(id, (c) => c.lineSmooth = v)),
+        _number('sensitivity: turns sharper than (°)', _smoothAngle, 30, const ParamScale.slider(0, 170, decimals: 0),
+            (v) => setState(() => _smoothAngle = v)),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            key: const ValueKey('line-smooth'),
+            onPressed: () => app.editLine(
+                id, (c) => smoothLineCorners(c, c.lineSmooth == 0 ? 0.6 : c.lineSmooth, _smoothAngle)),
+            icon: const Icon(Icons.gesture, size: 18),
+            label: const Text('Smooth the sharp turns'),
+          ),
+        ),
+        const SizedBox(height: 8),
         const Text('Ends and corners', style: TextStyle(fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
         if (!c.lineClosed)
@@ -453,6 +483,28 @@ class _LineViewState extends State<LineView> {
         if (c.lineJoin == 'miter')
           _number('sharpest reach', c.lineMiterLimit, 4, const ParamScale.slider(1, 20, decimals: 1),
               (v) => app.editLineLive(id, (c) => c.lineMiterLimit = v)),
+        // the points between the ends: no shape of their own unless asked.
+        SwitchListTile(
+          key: const ValueKey('line-station-shapes'),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Shapes on the middle points'),
+          subtitle: const Text('the ends\' circle / square at every point between them too (off: only the ends)'),
+          value: c.lineStationShapes,
+          onChanged: (v) => app.editLine(id, (c) => c.lineStationShapes = v),
+        ),
+        if (c.lineStationShapes && (c.lineNodes!.length > 2 || c.lineClosed))
+          ExpansionTile(
+            key: const ValueKey('line-station-sizes'),
+            tilePadding: EdgeInsets.zero,
+            dense: true,
+            title: const Text('Their sizes', style: TextStyle(fontSize: 13)),
+            children: [
+              for (var i = c.lineClosed ? 0 : 1; i < (c.lineClosed ? c.lineNodes!.length : c.lineNodes!.length - 1); i++)
+                _number('point ${i + 1} size (x width)', c.lineStationSizes[i] ?? 1, 1,
+                    const ParamScale.slider(0, 5, decimals: 2), (v) => app.editLineLive(id, (c) => c.lineStationSizes[i] = v)),
+            ],
+          ),
         hint('Sharp turns carry the edges on until they meet; a very tight turn reaching past "sharpest reach" '
                 '(in half widths) is cut straight instead.') ??
             const SizedBox.shrink(),
