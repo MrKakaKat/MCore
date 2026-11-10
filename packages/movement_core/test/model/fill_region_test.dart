@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:movement_core/movement_core.dart';
 import 'package:test/test.dart';
 
@@ -109,5 +111,53 @@ void main() {
     final l = addFillShape(p, fillRegionAt(p, 0, [100, 100]), 'f');
     expect(p.layers.last, same(l));
     expect(l.drawing, isTrue);
+  });
+
+  Layer ringLine(String id, double cx, double cy, double r, double width) {
+    final l = createLayer('line')..id = id;
+    l.content.lineNodes = [
+      for (var i = 0; i < 24; i++)
+        LineNode(r * math.cos(i / 24 * 2 * math.pi), r * math.sin(i / 24 * 2 * math.pi))
+    ];
+    l.content
+      ..lineClosed = true
+      ..lineWidth = width;
+    l.transform.anchor.defaultValue = [cx / 400, cy / 200];
+    return l;
+  }
+
+  test('a closed line is a band: inside it fills the middle, outside the rest', () {
+    final ring = ringLine('l', 200, 100, 60, 10);
+    final p = Project(layers: [ring]);
+    final inside = fillRegionAt(p, 0, [200, 100]);
+    // the middle: a disc of about r 55 (polygon of 24 sides).
+    expect(area(inside), inInclusiveRange(8000, 9600));
+    final outside = fillRegionAt(p, 0, [20, 20]);
+    expect(area(outside), greaterThan(400 * 200 - 13400));
+    // never the middle when tapped outside.
+    expect(windingNumber(outside, 200, 100), 0);
+  });
+
+  test('a circle with a wavy line beside it: outside stays outside', () {
+    final c = createLayer('circle')
+      ..id = 'c'
+      ..content.offset = [0, 0]
+      ..content.size = [100, 100]
+      ..transform.anchor.defaultValue = [0.5, 0.5];
+    final line = createLayer('line')..id = 'w';
+    line.content.lineNodes = [for (var i = 0; i < 12; i++) LineNode(-120.0 + i * 20, (i.isEven ? -1 : 1) * 30.0)];
+    line.content.lineWidth = 6;
+    line.transform.anchor.defaultValue = [0.5, 0.5];
+    final p = Project(layers: [c, line]);
+    for (final tap in [
+      [40.0, 20.0],
+      [380.0, 180.0],
+      [200.0, 170.0],
+    ]) {
+      final r = fillRegionAt(p, 0, tap);
+      expect(windingNumber(r, tap[0], tap[1]), isNot(0), reason: 'the tap is in it');
+      expect(windingNumber(r, 200, 100), 0, reason: 'the circle stays out ($tap)');
+    }
+    expect(windingNumber(fillRegionAt(p, 0, [200, 100]), 200, 100), isNot(0));
   });
 }

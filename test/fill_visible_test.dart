@@ -32,7 +32,6 @@ void main() {
       ..content.size = [10, 10]
       ..transform.anchor.defaultValue = [0.05, 0.1];
     app.project.layers.addAll([sq, top]);
-    app.fillBleed = false;
     // the visible half: x 100..140, y 10..90.
     final f = app.fillAt([120, 50])!;
     expect(app.project.layers.last, same(f), reason: 'always on top');

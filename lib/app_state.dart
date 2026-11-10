@@ -2592,17 +2592,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setFillOptions({bool? onlySelected, String? color, bool? dig, bool? bleed}) {
-    if (bleed != null) fillBleed = bleed;
+  void setFillOptions({bool? onlySelected, String? color, bool? dig}) {
     if (onlySelected != null) fillOnlySelected = onlySelected;
     if (color != null) fillColor = color;
     if (dig != null) fillDig = dig;
     notifyListeners();
   }
-
-  /// A hair of the fill (under a pixel) reaches on over the edges round
-  /// it - no thin gaps between neighbouring fills.
-  bool fillBleed = true;
 
   /// The last fill, said for a moment in the stage's corner.
   final ValueNotifier<String?> fillNotice = ValueNotifier(null);
@@ -2624,15 +2619,10 @@ class AppState extends ChangeNotifier {
     final view = renderer.useStageCamera ? cameraViewMatrix(project, currentFrame, frameWidth, frameHeight) : null;
     if (view != null) at = applyAffine(invertAffine(view), p);
     final plan = planFill(project, currentFrame, at, only: fillOnlySelected ? selectedGroup : null);
-    var region = plan.region;
+    final region = plan.region;
     if (region.isEmpty || windingNumber(region, at[0], at[1]) == 0) {
       _notice('Nothing to fill there');
       return null;
-    }
-    if (fillBleed) {
-      // over the edges by a hair (it lies on top of them).
-      final grown = offsetRings(region, 0.75, join: OffsetJoin.round);
-      if (grown.isNotEmpty) region = grown;
     }
     undo.pushUndoState(project);
     final layer = addFillShape(project, region, _newLayerId(), color: fillColor, dig: fillDig);

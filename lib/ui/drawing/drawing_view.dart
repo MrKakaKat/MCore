@@ -33,15 +33,6 @@ class DrawingView extends StatelessWidget {
             const SizedBox(height: 4),
             const Hint('The region is bounded by the layers\' own outlines as they show - crop, cuts, masks, '
                 'flips and deformations included. The fill is a shape and always goes on top.'),
-            SwitchListTile(
-              key: const ValueKey('draw-fill-bleed'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Reach over the edges'),
-              subtitle: hint('A hair of the fill goes on over the edges round it - no thin gaps'),
-              value: app.fillBleed,
-              onChanged: (v) => app.setFillOptions(bleed: v),
-            ),
             const SizedBox(height: 4),
             const Text('Bounded by', style: TextStyle(fontSize: 13)),
             const SizedBox(height: 4),

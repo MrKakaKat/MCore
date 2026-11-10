@@ -1160,43 +1160,28 @@ List<List<List<double>>> lineCollisionRings(Content c, {num? frame, int cap = 32
 /// shape; an open one, the band its width covers around it; a loop, the
 /// band's two edges (outer and inner).
 List<List<List<double>>> lineOutlineRings(Content c, {num? frame}) {
-  final pts = sampleLine(c.lineNodes!, closed: c.lineClosed, perCurve: 16, frame: frame);
   if (isFilledLine(c)) return filledLineRings(c, frame: frame);
-  final h = math.max(0.5, c.lineWidth / 2);
-  final ring = c.lineClosed ? pts.sublist(0, pts.length - 1) : pts;
-  final n = ring.length;
-  if (n < 2) return const [];
-  List<double> normalAt(int i) {
-    List<double> seg(int a, int b) {
-      final dx = ring[b][0] - ring[a][0], dy = ring[b][1] - ring[a][1];
-      final l = math.sqrt(dx * dx + dy * dy);
-      return l == 0 ? [0, 0] : [-dy / l, dx / l];
+  // the stroke as it is drawn - its stretches, turns and ends (and the
+  // shapes on its points) - united into one outline: never a band folding
+  // over itself on a tight turn, a closed line's middle left open.
+  final wide = c.lineWidth < 1 ? (Content(shape: 'line', offset: c.offset, size: c.size)
+    ..lineNodes = c.lineNodes
+    ..lineClosed = c.lineClosed
+    ..lineWidth = 1
+    ..lineCap = c.lineCap
+    ..lineJoin = c.lineJoin) : c;
+  final pieces = [for (final r in lineStrokeRings(wide, frame: frame)) if (r.length >= 3) r];
+  if (pieces.isEmpty) return const [];
+  // united pairwise (a balanced tree: fast for hundreds of pieces).
+  var level = [for (final p in pieces) [p]];
+  while (level.length > 1) {
+    final next = <List<List<List<double>>>>[];
+    for (var i = 0; i < level.length; i += 2) {
+      next.add(i + 1 < level.length ? polygonBoolean(level[i], level[i + 1], BoolOp.union) : level[i]);
     }
-
-    final hasPrev = c.lineClosed || i > 0, hasNext = c.lineClosed || i < n - 1;
-    final a = hasPrev ? seg((i - 1 + n) % n, i) : null, b = hasNext ? seg(i, (i + 1) % n) : null;
-    if (a == null) return b!;
-    if (b == null) return a;
-    final x = a[0] + b[0], y = a[1] + b[1];
-    final l = math.sqrt(x * x + y * y);
-    if (l < 1e-9) return a;
-    // mitred, capped so a sharp turn doesn't spike.
-    final k = (2 / l).clamp(1.0, 3.0) / 1;
-    return [x / l * k, y / l * k];
+    level = next;
   }
-
-  final left = [for (var i = 0; i < n; i++) () {
-    final m = normalAt(i);
-    return [ring[i][0] + m[0] * h, ring[i][1] + m[1] * h];
-  }()];
-  final right = [for (var i = 0; i < n; i++) () {
-    final m = normalAt(i);
-    return [ring[i][0] - m[0] * h, ring[i][1] - m[1] * h];
-  }()];
-  if (c.lineClosed) return [left, right];
-  return [
-    [...left, ...right.reversed]
-  ];
+  return level.single;
 }
 
 
