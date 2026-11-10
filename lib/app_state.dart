@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:convert' show jsonDecode, jsonEncode;
+import 'dart:convert' show base64Encode, jsonDecode, jsonEncode;
 import 'dart:isolate';
-import 'dart:typed_data' show ByteData, Float64List, Int16List;
+import 'dart:typed_data' show ByteData, Float64List, Int16List, Uint8List;
 import 'dart:math' as math;
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -2592,26 +2592,143 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setFillOptions({bool? onlySelected, String? color, bool? dig}) {
+  void setFillOptions(
+      {bool? onlySelected, String? color, bool? dig, String? mode, bool? bleed, bool? over, double? tolerance}) {
+    if (mode != null) fillMode = mode;
+    if (bleed != null) fillBleed = bleed;
+    if (over != null) fillOverPictures = over;
+    if (tolerance != null) fillTolerance = tolerance;
     if (onlySelected != null) fillOnlySelected = onlySelected;
     if (color != null) fillColor = color;
     if (dig != null) fillDig = dig;
     notifyListeners();
   }
 
+  /// Fill's way: 'mixed' (vector edges as vectors, pictures by their
+  /// pixels), 'pixel' (everything by the pixels on the stage) or
+  /// 'vectorPixel' (vector, its edges by the pixels of all that has no
+  /// vector look - filters, glass, blur...).
+  String fillMode = 'mixed';
+
+  /// A hair of the fill (1 px) reaches on under the layers bounding it.
+  bool fillBleed = true;
+
+  /// Over the pictures instead of under them: each one takes itself out
+  /// of the fill by its alpha (100 - n).
+  bool fillOverPictures = false;
+
+  /// All pixels: how far a colour may be from the tapped one (0..1).
+  double fillTolerance = 0.12;
+
+  bool _filling = false;
+
+  /// Whether a layer looks like more than its vectors (Fill, "vector by
+  /// pixel edges": its pixels bound the fill).
+  static bool _pixelLook(Layer l) =>
+      l.filters.any ||
+      l.effectStack.any((i) => i.enabled && (i.effectId == 'edge_blur' || i.effectId == 'outline')) ||
+      l.motionBlur.enabled;
+
   /// A fill tap at frame point `p`: a new layer in the region there.
-  Layer? fillAt(List<double> p) {
-    undo.pushUndoState(project);
-    final l = addFillLayer(project, currentFrame, p, _newLayerId(),
-        only: fillOnlySelected ? selectedGroup : null, color: fillColor, dig: fillDig);
-    if (l == null) {
-      undo.discardLastUndoState();
-      return null;
+  Future<Layer?> fillAt(List<double> p) async {
+    if (_filling) return null;
+    _filling = true;
+    try {
+      if (fillMode == 'pixel') return await _fillPixels(p);
+      // raster edges: the opaque core of the pictures (and in "vector by
+      // pixel edges" of whatever has no vector look).
+      final cores = <String, List<List<List<double>>>>{};
+      for (final l in project.layers) {
+        if (l.hidden || !getLayerStateAt(project, l.id, currentFrame).inRange) continue;
+        final raster = isMediaShape(l.content.shape) || (fillMode == 'vectorPixel' && _pixelLook(l));
+        if (!raster) continue;
+        final r = await renderer.fillCoreRings(project, l, currentFrame);
+        if (r != null) cores[l.id] = r;
+      }
+      undo.pushUndoState(project);
+      final l = addFillLayer(project, currentFrame, p, _newLayerId(),
+          only: fillOnlySelected ? selectedGroup : null,
+          color: fillColor,
+          dig: fillDig,
+          raster: (x) => cores[x.id],
+          bleed: fillBleed ? 1.0 : 0.0,
+          overPictures: fillOverPictures);
+      if (l == null) {
+        undo.discardLastUndoState();
+        return null;
+      }
+      _fitTimeline();
+      _render();
+      notifyListeners();
+      return l;
+    } finally {
+      _filling = false;
     }
+  }
+
+  /// Fill, all pixels: from the tapped pixel, every touching pixel of a
+  /// close enough colour (the stage as drawn) - a picture layer.
+  Future<Layer?> _fillPixels(List<double> p) async {
+    final f = await renderer.frameRgba(project, currentFrame);
+    _render();
+    if (f == null) return null;
+    final w = f.width, h = f.height, px = f.rgba;
+    final x0 = p[0].floor(), y0 = p[1].floor();
+    if (x0 < 0 || y0 < 0 || x0 >= w || y0 >= h) return null;
+    final mask = floodFillMask(px, w, h, x0, y0, (fillTolerance * 255).round(), grow: fillBleed ? 1 : 0);
+    var minX = w, minY = h, maxX = -1, maxY = -1;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (mask[y * w + x] == 0) continue;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (maxX < 0) return null;
+    final bw = maxX - minX + 1, bh = maxY - minY + 1;
+    final rgb = parseRgbHex(fillDig ? '#000000' : fillColor) ?? const [255, 138, 101];
+    final a = !fillDig && fillColor.length == 9 ? int.parse(fillColor.substring(7), radix: 16) : 255;
+    final out = Uint8List(bw * bh * 4);
+    for (var y = 0; y < bh; y++) {
+      for (var x = 0; x < bw; x++) {
+        if (mask[(y + minY) * w + x + minX] == 0) continue;
+        final i = (y * bw + x) * 4;
+        out[i] = rgb[0];
+        out[i + 1] = rgb[1];
+        out[i + 2] = rgb[2];
+        out[i + 3] = fillColor == 'transparent' ? 0 : a;
+      }
+    }
+    final done = Completer<ui.Image>();
+    ui.decodeImageFromPixels(out, bw, bh, ui.PixelFormat.rgba8888, done.complete);
+    final img = await done.future;
+    final png = await img.toByteData(format: ui.ImageByteFormat.png);
+    img.dispose();
+    if (png == null) return null;
+    undo.pushUndoState(project);
+    final layer = createImageLayer(
+        imageSourceType: 'embedded',
+        imageData: base64Encode(png.buffer.asUint8List()),
+        naturalWidth: bw,
+        naturalHeight: bh,
+        maxDimension: math.max(bw, bh).toDouble())
+      ..id = _newLayerId()
+      ..drawing = true
+      ..dig = fillDig
+      ..startFrame = 0
+      ..durationFrames = project.layers.fold<int>(1, (m, l) => math.max(m, l.startFrame + l.durationFrames));
+    layer.content.size = [bw.toDouble(), bh.toDouble()];
+    layer.transform.anchor.defaultValue = [(minX + bw / 2) / stageSize.width, (minY + bh / 2) / stageSize.height];
+    layer.name = nextFreeLayerName(project, 'Fill');
+    project.layers.add(layer);
+    normalizeTimelineRows(project);
+    clearStateCaches();
     _fitTimeline();
     _render();
     notifyListeners();
-    return l;
+    return layer;
   }
 
   /// The mirror line on the stage (two frame points; null: off): the

@@ -1511,6 +1511,58 @@ class CanvasRenderer implements Renderer {
     return (srcMean: src.mean, srcDev: src.dev, dstMean: dst.mean, dstDev: dst.dev);
   }
 
+  /// Fill (Drawing tab), a raster edge: where the layer is fully opaque
+  /// (alpha 95 % and up), frame px rings - the fill runs on under the rest
+  /// of its edge. Pictures: from their own pixels (waits for the
+  /// extraction, up to `wait`); anything else: the layer drawn alone.
+  Future<List<List<List<double>>>?> fillCoreRings(Project project, Layer layer, int frame,
+      {Duration wait = const Duration(seconds: 4)}) async {
+    const params = ContourParams(threshold: 0.95, simplify: 0.3, minAreaFraction: 0);
+    final st = getLayerStateAt(project, layer.id, frame);
+    if (!st.inRange) return null;
+    if (hasRasterContour(layer)) {
+      final sw = Stopwatch()..start();
+      Contour? c;
+      while ((c = layerContourDrawn(project, layer, frame, params)) == null && sw.elapsed < wait) {
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+      }
+      if (c == null) return null;
+      final m = toFrameMatrix(st.matrix);
+      return [
+        for (final r in c.rings) [for (final q in r.points) applyAffine(m, q)]
+      ];
+    }
+    // drawn alone at the frame's size: its alpha.
+    final w = _width.round(), h = _height.round();
+    final rec = ui.PictureRecorder();
+    _drawLayer(ui.Canvas(rec), project, layer.id, frame);
+    final img = await rec.endRecording().toImage(w, h);
+    final bytes = await img.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
+    img.dispose();
+    if (bytes == null) return null;
+    final mask = AlphaMask(w, h);
+    for (var i = 0; i < w * h; i++) {
+      mask.a[i] = bytes.getUint8(i * 4 + 3) / 255;
+    }
+    final c = extractContour(mask, params);
+    return [
+      for (final r in c.rings) [for (final q in r.points) q]
+    ];
+  }
+
+  /// Fill, all pixels: the frame as drawn now (straight RGBA, frame px).
+  Future<({Uint8List rgba, int width, int height})?> frameRgba(Project project, int frame) async {
+    renderFrame(project, frame);
+    final pic = _picture;
+    if (pic == null) return null;
+    final w = _width.round(), h = _height.round();
+    final img = await pic.toImage(w, h);
+    final bytes = await img.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
+    img.dispose();
+    if (bytes == null) return null;
+    return (rgba: bytes.buffer.asUint8List(), width: w, height: h);
+  }
+
   /// Filters on the whole scene: every such layer in range, in order,
   /// over the finished frame.
   ui.Picture _sceneFilters(Project project, ui.Picture frame, int globalFrame, ui.Rect cull) {
