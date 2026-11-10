@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -242,72 +241,4 @@ void _gifIsolateMain(List<Object> args) {
       port.close();
     }
   });
-}
-
-/// SVG export: exactly what the stage shows (no handles or guides - the
-/// renderer's picture), as pictures inside an SVG. One frame: one
-/// picture. Several: each one shown in turn at `fps`, looping.
-Future<String> exportStageSvg({
-  required Renderer renderer,
-  required Project project,
-  required List<int> frames,
-  required double fps,
-  bool Function()? cancelled,
-  void Function(int done, int total)? onProgress,
-}) async {
-  final images = <String>[];
-  var w = 0, h = 0;
-  String? last;
-  final shown = <int>[]; // for each output frame, which picture
-  for (var i = 0; i < frames.length; i++) {
-    if (cancelled?.call() ?? false) throw const ExportCancelled();
-    await prepareExportFrame(renderer, project, frames[i]);
-    renderer.renderFrame(project, frames[i]);
-    final image = await renderer.captureFrame();
-    w = image.width;
-    h = image.height;
-    final png = await image.toByteData(format: ui.ImageByteFormat.png);
-    image.dispose();
-    if (png == null) throw StateError('failed to PNG-encode the frame');
-    final b64 = base64Encode(png.buffer.asUint8List());
-    // the same picture as before: shown on, not stored again.
-    if (b64 != last) {
-      images.add(b64);
-      last = b64;
-    }
-    shown.add(images.length - 1);
-    onProgress?.call(i + 1, frames.length);
-  }
-  final buf = StringBuffer()
-    ..writeln('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
-        'width="$w" height="$h" viewBox="0 0 $w $h">');
-  if (images.length == 1) {
-    buf.writeln('  <image width="$w" height="$h" href="data:image/png;base64,${images.first}"/>');
-  } else {
-    // each picture from its first output frame to its last, as fractions
-    // of the loop.
-    final n = shown.length;
-    final dur = n / fps;
-    for (var k = 0; k < images.length; k++) {
-      final from = shown.indexOf(k), to = shown.lastIndexOf(k) + 1;
-      final a = from / n, b = to / n;
-      final values = <String>[], times = <String>[];
-      if (a > 0) {
-        values.add('hidden');
-        times.add('0');
-      }
-      values.add('visible');
-      times.add(a > 0 ? a.toStringAsFixed(6) : '0');
-      if (b < 1) {
-        values.add('hidden');
-        times.add(b.toStringAsFixed(6));
-      }
-      buf.writeln('  <image width="$w" height="$h" visibility="hidden" href="data:image/png;base64,${images[k]}">');
-      buf.writeln('    <animate attributeName="visibility" calcMode="discrete" dur="${dur.toStringAsFixed(4)}s" '
-          'repeatCount="indefinite" values="${values.join(';')}" keyTimes="${times.join(';')}"/>');
-      buf.writeln('  </image>');
-    }
-  }
-  buf.writeln('</svg>');
-  return buf.toString();
 }

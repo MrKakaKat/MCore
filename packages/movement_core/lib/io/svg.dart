@@ -23,7 +23,8 @@ import '../model/line_path.dart';
 import '../model/line_stroke.dart';
 import 'dart:math' as math;
 
-import '../core/math.dart' show matMul;
+import '../core/math.dart' show matMul, applyAffine;
+import '../ui_geometry/crop.dart' show croppedBox;
 
 import 'package:xml/xml.dart';
 
@@ -56,7 +57,7 @@ import '../ui_geometry/handles.dart' show toFrameMatrix;
 /// `mirrorX`/`mirrorY`: the app's stage mirror - the whole frame is
 /// wrapped in one flipping group.
 String exportProjectToSvg(Project project, int globalFrame, double frameWidth, double frameHeight,
-    {bool mirrorX = false, bool mirrorY = false}) {
+    {bool mirrorX = false, bool mirrorY = false, String? Function(Layer layer)? mediaHref}) {
   final buf = StringBuffer();
   buf.writeln('<?xml version="1.0" encoding="UTF-8"?>');
   buf.writeln(
@@ -71,7 +72,7 @@ String exportProjectToSvg(Project project, int globalFrame, double frameWidth, d
   final camera = view != null;
   if (camera) buf.writeln('<g transform="matrix(${view.map(_fmt).join(',')})">');
   for (final layer in project.layers) {
-    if (layer.hidden || isMediaShape(layer.content.shape) || isAudioShape(layer.content.shape) || isCameraShape(layer.content.shape)) continue;
+    if (layer.hidden || !_exportable(layer, mediaHref)) continue;
     final state = getLayerStateAt(project, layer.id, globalFrame);
     if (!state.inRange) continue;
     final m = _withLayerMirror(layer, toFrameMatrix(state.matrix));
@@ -79,6 +80,11 @@ String exportProjectToSvg(Project project, int globalFrame, double frameWidth, d
     final opacity = evaluateTrack(project, layer.transform.opacity, localFrame, layer) as double;
     final transformAttr = 'transform="matrix(${m.map(_fmt).join(',')})"';
     final opacityAttr = opacity < 1 ? ' opacity="${_fmt(opacity)}"' : '';
+    // crop / detached parts (clip), filters and a hole through what is
+    // under it - as the stage draws them.
+    final (fOpen, fClose) = _filterWrap(project, layer, globalFrame, m, '');
+    final (cOpen, cClose) = _clipWrap(layer, '');
+    buf.write(fOpen);
 
     final content = layer.content;
     if (content.shape == 'text' && content.text != null) {
@@ -94,7 +100,7 @@ String exportProjectToSvg(Project project, int globalFrame, double frameWidth, d
         buf.writeln('  <clipPath id="mask-${layer.id}"><path d="${cd.isEmpty ? 'M0 0Z' : cd}" clip-rule="evenodd"/></clipPath>');
         clipAttr = ' clip-path="url(#mask-${layer.id})"';
       }
-      buf.writeln('  <g $transformAttr$opacityAttr>');
+      buf.writeln('  <g $transformAttr$opacityAttr>$cOpen');
       if (clipAttr.isNotEmpty) buf.writeln('  <g$clipAttr>');
       if (t.background.enabled) {
         final pad = t.background.padding, w = content.size[0] + 2 * pad, h = content.size[1] + 2 * pad;
@@ -113,16 +119,18 @@ String exportProjectToSvg(Project project, int globalFrame, double frameWidth, d
         buf.writeln('    <path d="$d" fill="${t.color}"$stroke/>');
       }
       if (clipAttr.isNotEmpty) buf.writeln('  </g>');
-      buf.writeln('  </g>');
+      buf.writeln('  $cClose</g>');
     } else if (isNodeLine(content)) {
-      buf.writeln('  ${_lineElement(layer, ' $transformAttr$opacityAttr')}');
+      buf.writeln('  <g $transformAttr$opacityAttr>$cOpen${_lineElement(layer, '')}$cClose</g>');
+    } else if (isMediaShape(content.shape)) {
+      buf.writeln('  <g $transformAttr$opacityAttr>$cOpen${_mediaElement(layer, mediaHref!(layer)!)}$cClose</g>');
     } else {
       // every other shape as the stage draws it: its real outline (rounded
       // corners, effects, masks, cuts), its shadow and its glows.
       final el = _contentElement(layer, project, globalFrame);
-      if (el == null) continue;
-      buf.writeln('  <g $transformAttr$opacityAttr>$el</g>');
+      if (el != null) buf.writeln('  <g $transformAttr$opacityAttr>$cOpen$el$cClose</g>');
     }
+    buf.write(fClose);
   }
   if (camera) buf.writeln('</g>');
   if (mirrored) buf.writeln('</g>');
@@ -139,7 +147,7 @@ String exportProjectToSvg(Project project, int globalFrame, double frameWidth, d
 /// deformation have no SVG equivalent and aren't included.
 String exportProjectToAnimatedSvg(Project project, int startFrame, int endFrame, double fps, double frameWidth,
     double frameHeight,
-    {bool mirrorX = false, bool mirrorY = false}) {
+    {bool mirrorX = false, bool mirrorY = false, String? Function(Layer layer)? mediaHref}) {
   final frames = [for (var f = startFrame; f <= endFrame; f++) f];
   final dur = frames.length / fps;
   final buf = StringBuffer();
@@ -161,10 +169,11 @@ String exportProjectToAnimatedSvg(Project project, int startFrame, int endFrame,
   }
 
   for (final layer in project.layers) {
-    if (layer.hidden || isMediaShape(layer.content.shape) || isAudioShape(layer.content.shape) || isCameraShape(layer.content.shape)) continue;
+    if (layer.hidden || !_exportable(layer, mediaHref)) continue;
     // the shape itself, per frame: deforming effects, masks, text keys and
     // animators, text parts, line points and reveal change it over time.
-    final elements = [for (final f in frames) _contentElement(layer, project, f, idSuffix: '-$f')];
+    final media = isMediaShape(layer.content.shape) ? _mediaElement(layer, mediaHref!(layer)!) : null;
+    final elements = [for (final f in frames) media ?? _contentElement(layer, project, f, idSuffix: '-$f')];
     final element = elements.firstWhere((e) => e != null, orElse: () => null);
     if (element == null) continue;
     final changes = elements.toSet().length > 1;
@@ -196,8 +205,13 @@ String exportProjectToAnimatedSvg(Project project, int startFrame, int endFrame,
       op.add(_fmt(evaluateTrack(project, layer.transform.opacity, layerLocalFrame(layer, f), layer) as double));
       vis.add(state.inRange ? 'visible' : 'hidden');
     }
+    // filters (their values at the start) and crop, as the stage has them.
+    final (fOpen, fClose) = _filterWrap(project, layer, startFrame,
+        _withLayerMirror(layer, toFrameMatrix(getLayerStateAt(project, layer.id, startFrame).matrix)), '-a');
+    final (cOpen, cClose) = _clipWrap(layer, '-a');
+    buf.write(fOpen);
     buf.writeln('  <g transform="translate(${tx.first}) rotate(${rot.first}) skewX(${skew.first}) scale(${sc.first})" '
-        'opacity="${op.first}" visibility="${vis.first}">');
+        'opacity="${op.first}" visibility="${vis.first}">$cOpen');
     // the first replaces the static transform, the rest add to it - so
     // when any part moves, all four are written.
     final moves = [tx, rot, skew, sc].any((v) => v.toSet().length > 1);
@@ -233,7 +247,8 @@ String exportProjectToAnimatedSvg(Project project, int startFrame, int endFrame,
         buf.writeln('    </g>');
       }
     }
-    buf.writeln('  </g>');
+    buf.writeln('  $cClose</g>');
+    buf.write(fClose);
   }
   if (view != null) buf.writeln('</g>');
   if (mirrored) buf.writeln('</g>');
@@ -1160,6 +1175,117 @@ String _mixHex(String a, String? b, double k) {
     out.write((x + (y - x) * k.clamp(0.0, 1.0)).round().toRadixString(16).padLeft(2, '0'));
   }
   return out.toString();
+}
+
+/// Layers the SVG has: shapes, text, lines - and pictures when there is
+/// a way to put their bytes in (`mediaHref`).
+bool _exportable(Layer layer, String? Function(Layer layer)? mediaHref) {
+  final s = layer.content.shape;
+  if (isAudioShape(s) || isCameraShape(s) || layer.mirrorProbe || s == 'null') return false;
+  if (isMediaShape(s)) return mediaHref != null && mediaHref(layer) != null;
+  return true;
+}
+
+/// A picture in its content box (local space).
+String _mediaElement(Layer layer, String href) {
+  final c = layer.content;
+  return '<image x="${_fmt(c.offset[0] - c.size[0] / 2)}" y="${_fmt(c.offset[1] - c.size[1] / 2)}" '
+      'width="${_fmt(c.size[0])}" height="${_fmt(c.size[1])}" preserveAspectRatio="none" href="$href"/>';
+}
+
+/// The layer's crop and detached-piece cuts as nested clip groups, in
+/// its (mirrored) local space - the cut stays where it is on the stage,
+/// the picture flips inside it. (open, close).
+(String, String) _clipWrap(Layer layer, String suffix) {
+  final clips = <String>[];
+  final flip = (layer.mirrorX || layer.mirrorY) ? _mirrorOf(layer) : null;
+  List<double> f(List<double> p) => flip == null ? p : applyAffine(flip, p);
+  String ring(List<List<double>> r) => 'M${r.map((p) => f(p)).map((p) => '${_fmt(p[0])} ${_fmt(p[1])}').join('L')}Z';
+  if (layerHasCrop(layer)) {
+    final b = croppedBox(layer);
+    clips.add('<path d="${ring([
+      [b.minX, b.minY], [b.maxX, b.minY], [b.maxX, b.maxY], [b.minX, b.maxY],
+    ])}"/>');
+  }
+  for (final cut in layer.pieceClips) {
+    if (cut.points.length < 3) continue;
+    clips.add(cut.inside
+        ? '<path d="${ring(cut.points)}"/>'
+        : '<path clip-rule="evenodd" d="M-1000000 -1000000L1000000 -1000000L1000000 1000000L-1000000 1000000Z${ring(cut.points)}"/>');
+  }
+  if (clips.isEmpty) return ('', '');
+  final open = StringBuffer(), close = StringBuffer();
+  for (var i = 0; i < clips.length; i++) {
+    final id = 'cut-${layer.id}$suffix-$i';
+    open.write('<clipPath id="$id">${clips[i]}</clipPath><g clip-path="url(#$id)">');
+    close.write('</g>');
+  }
+  return (open.toString(), close.toString());
+}
+
+/// The flip of a mirrored layer about its own middle.
+List<double> _mirrorOf(Layer layer) {
+  final b = shapeBoundingBox(layer.content);
+  final cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+  final sx = layer.mirrorX ? -1.0 : 1.0, sy = layer.mirrorY ? -1.0 : 1.0;
+  return [sx, 0, 0, sy, (1 - sx) * cx, (1 - sy) * cy];
+}
+
+/// The layer's own filters (Filters tab, "Object") as an SVG filter
+/// around it, in frame px: gamma (component transfer), the wheels and
+/// negative (one colour matrix), fractal warp (turbulence displacing it)
+/// and blur. (open, close) - empty without filters.
+(String, String) _filterWrap(Project project, Layer layer, int frame, List<double> m, String suffix) {
+  final f = layer.filters;
+  if (!f.any || f.scope != 'self') return ('', '');
+  final lf = layerLocalFrame(layer, frame);
+  double tv(Track t) => (evaluateTrack(project, t, lf, layer) as num).toDouble();
+  final neg = tv(f.negative).clamp(0.0, 1.0);
+  final blur = math.max(0.0, tv(f.blur));
+  final warp = tv(f.warp);
+  final parts = StringBuffer();
+  if (f.gamma.any((v) => v != 0)) {
+    parts.write('<feComponentTransfer>');
+    for (var i = 0; i < 3; i++) {
+      parts.write('<feFunc${'RGB'[i]} type="gamma" amplitude="1" exponent="${_fmt(math.pow(2, -f.gamma[i]).toDouble())}" offset="0"/>');
+    }
+    parts.write('</feComponentTransfer>');
+  }
+  if (neg > 0 || f.graded) {
+    final lin = liftGainLinear(f);
+    final k = 1 - 2 * neg;
+    final rows = [
+      for (var i = 0; i < 3; i++)
+        [for (var j = 0; j < 3; j++) i == j ? k * lin.a[i] : 0.0, 0.0, k * lin.b[i] + neg]
+    ];
+    parts.write('<feColorMatrix type="matrix" values="${[
+      for (final r in rows) ...r,
+      0, 0, 0, 1, 0,
+    ].map((v) => _fmt(v.toDouble())).join(' ')}"/>');
+  }
+  if (warp != 0) {
+    final t = frame / fps * f.warpSpeed;
+    parts.write('<feTurbulence type="fractalNoise" baseFrequency="${_fmt(1 / math.max(1, f.warpScale))}" numOctaves="5" '
+        'seed="${(t * 10).round()}" result="noise"/>'
+        '<feDisplacementMap in="SourceGraphic" in2="noise" scale="${_fmt(warp * 2)}" xChannelSelector="R" yChannelSelector="G"/>');
+  }
+  if (blur > 0.1) {
+    final sigma = blur / 2;
+    if (f.blurKind == 'directional') {
+      final a = (f.blurAngle % 180 + 180) % 180;
+      final along = a < 45 || a > 135;
+      parts.write('<feGaussianBlur stdDeviation="${along ? _fmt(sigma) : '0'} ${along ? '0' : _fmt(sigma)}"/>');
+    } else {
+      parts.write('<feGaussianBlur stdDeviation="${_fmt(sigma)}"/>');
+    }
+  }
+  if (parts.isEmpty) return ('', '');
+  final id = 'flt-${layer.id}$suffix';
+  return (
+    '  <filter id="$id" x="-50%" y="-50%" width="200%" height="200%" color-interpolation-filters="sRGB" '
+        'filterUnits="objectBoundingBox">$parts</filter>\n  <g filter="url(#$id)">\n',
+    '  </g>\n'
+  );
 }
 
 /// A layer flipped (Crop tab, Mirror) about its own middle: the flip goes

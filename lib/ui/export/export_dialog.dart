@@ -42,9 +42,6 @@ enum _ExportKind { image, gif, video, svg, audio }
 /// SVG: the whole animation (true) or the current frame.
 bool _svgAnimated = true;
 
-/// SVG animation: pictures per second.
-double _svgFps = 24;
-
 class ExportView extends StatefulWidget {
   final AppState app;
   const ExportView({super.key, required this.app});
@@ -158,7 +155,7 @@ class _ExportViewState extends State<ExportView> {
     _ExportKind.image: ('Image', Icons.image_outlined, 'One picture: the frame under the playhead'),
     _ExportKind.gif: ('GIF', Icons.gif_box_outlined, 'A short looping animation, no sound'),
     _ExportKind.video: ('Video', Icons.movie_outlined, 'The whole animation, with its sound'),
-    _ExportKind.svg: ('SVG', Icons.polyline_outlined, 'Exactly what the stage shows, in an SVG file'),
+    _ExportKind.svg: ('SVG', Icons.polyline_outlined, 'Vectors as the stage shows them: sharp at any size'),
     _ExportKind.audio: ('Sound', Icons.music_note_outlined, 'Only the sound, all of it mixed'),
   };
 
@@ -674,23 +671,13 @@ class _ExportViewState extends State<ExportView> {
           selected: {_svgAnimated},
           onSelectionChanged: (s) => setState(() => _svgAnimated = s.first),
         ),
-        if (_svgAnimated) ...[
-          const SizedBox(height: 4),
-          Text('Pictures per second: ${_svgFps.round()}', style: const TextStyle(fontSize: 12)),
-          Slider(
-              key: const ValueKey('svg-fps'),
-              value: _svgFps,
-              min: 1,
-              max: 60,
-              divisions: 59,
-              onChanged: (v) => setState(() => _svgFps = v)),
-        ],
         const SizedBox(height: 4),
         Text(
             _svgAnimated
-                ? 'Frames 0 - ${widget.app.maxFrame}, looping. Each frame is a picture of the stage (crop, effects, '
-                    'filters exactly as you see them) - more per second, a bigger file.'
-                : 'Current frame: ${widget.app.currentFrame}, exactly as the stage shows it.',
+                ? 'Frames 0 - ${widget.app.maxFrame} at ${fps.round()} fps, looping. Shapes, text and lines as '
+                    'vectors, with their crop, cuts and filters; pictures embedded.'
+                : 'Current frame: ${widget.app.currentFrame} - shapes, text and lines as vectors, with their crop, '
+                    'cuts and filters; pictures embedded.',
             style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
@@ -718,7 +705,7 @@ class _ExportViewState extends State<ExportView> {
     final short = math.min(widget.app.frameWidth, widget.app.frameHeight);
     final outShort = _kind == _ExportKind.gif ? _gifShort : _outShort;
     widget.app.renderer.outputScale =
-        outShort == null || short <= 0 || !(_kind == _ExportKind.image || _kind == _ExportKind.video || _kind == _ExportKind.gif || _kind == _ExportKind.svg)
+        outShort == null || short <= 0 || !(_kind == _ExportKind.image || _kind == _ExportKind.video || _kind == _ExportKind.gif)
             ? 1
             : outShort / short;
     try {
@@ -771,31 +758,15 @@ class _ExportViewState extends State<ExportView> {
 
   Future<void> _exportSvg() async {
     final app = widget.app;
-    final renderer = app.renderer;
-    // exactly as on the stage: the frame (or every frame) as pictures.
-    final frames = _svgAnimated ? exportFrameNumbers(0, app.maxFrame, _svgFps) : [app.currentFrame];
-    renderer.beginExportReuse(app.project);
-    try {
-      final svg = await exportStageSvg(
-        renderer: renderer,
-        project: app.project,
-        frames: frames,
-        fps: _svgFps,
-        cancelled: () => _cancelRequested,
-        onProgress: (done, total) {
-          if (!mounted) return;
-          setState(() {
-            _progress = done / total;
-            _status = 'Drawing frame $done of $total';
-          });
-        },
-      );
-      final path = await _saveBytes(
-          exportFileName(app.projectName, 'svg', frame: _svgAnimated ? null : app.currentFrame), utf8.encode(svg));
-      setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
-    } finally {
-      renderer.endExportReuse();
-    }
+    // vectors, as the stage shows them (crop, cuts, filters, pictures in).
+    final svg = _svgAnimated
+        ? exportProjectToAnimatedSvg(app.project, 0, app.maxFrame, fps.toDouble(), app.frameWidth, app.frameHeight,
+            mirrorX: app.stageMirrorX, mirrorY: app.stageMirrorY, mediaHref: svgMediaHref)
+        : exportProjectToSvg(app.project, app.currentFrame, app.frameWidth, app.frameHeight,
+            mirrorX: app.stageMirrorX, mirrorY: app.stageMirrorY, mediaHref: svgMediaHref);
+    final path = await _saveBytes(
+        exportFileName(app.projectName, 'svg', frame: _svgAnimated ? null : app.currentFrame), utf8.encode(svg));
+    setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
   }
 
   Future<void> _exportGif() async {
@@ -1037,4 +1008,32 @@ final Set<String> _issuedExportNames = {};
     reason: '${hasSound ? 'has sound' : hasMedia ? 'has video / images' : big ? 'large frame' : 'long'} - '
         'WebM ${videoFps.round()} fps, ${(kbps / 1000).toStringAsFixed(1)} Mbit/s${transparent ? ', transparent' : ''}'
   );
+}
+
+
+/// SVG: a picture layer's bytes as a data URL (embedded, or read from its
+/// file); null when there is none (a video, a missing file).
+String? svgMediaHref(Layer layer) {
+  final c = layer.content;
+  if (c.shape != 'image') return null;
+  String mime(List<int> head) {
+    if (head.length > 3 && head[0] == 0x89 && head[1] == 0x50) return 'image/png';
+    if (head.length > 2 && head[0] == 0xFF && head[1] == 0xD8) return 'image/jpeg';
+    if (head.length > 3 && head[0] == 0x47 && head[1] == 0x49) return 'image/gif';
+    if (head.length > 11 && head[8] == 0x57 && head[9] == 0x45) return 'image/webp';
+    return 'image/png';
+  }
+
+  try {
+    if (c.imageSourceType == 'embedded' && c.imageData != null) {
+      final data = c.imageData!;
+      if (data.startsWith('data:')) return data;
+      return 'data:${mime(base64Decode(data.substring(0, math.min(data.length, 24)).padRight(24, '=')))};base64,$data';
+    }
+    if (c.imagePath != null) {
+      final bytes = File(c.imagePath!).readAsBytesSync();
+      return 'data:${mime(bytes)};base64,${base64Encode(bytes)}';
+    }
+  } catch (_) {}
+  return null;
 }
