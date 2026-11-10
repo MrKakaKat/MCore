@@ -211,6 +211,14 @@ class SettingsView extends StatelessWidget {
             onChanged: (v) => app.setAppPreference('handlesRightHanded', v),
           ),
           SwitchListTile(
+            key: const ValueKey('pref-eyedropperAlpha'),
+            dense: true,
+            title: const Text('Eyedropper takes the alpha'),
+            subtitle: hint('The picked colour keeps how see-through it is on the stage (its opacity too). Off: always solid'),
+            value: app.eyedropperAlpha,
+            onChanged: (v) => app.setAppPreference('eyedropperAlpha', v),
+          ),
+          SwitchListTile(
             key: const ValueKey('pref-playOnPlayheadTap'),
             dense: true,
             title: const Text('Tap the playhead to play'),

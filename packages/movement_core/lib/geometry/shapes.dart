@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../effects/geometry_effect_registry.dart';
 import '../model/project.dart';
+import '../model/prop_links.dart' show linkOffset;
 import '../core/interpolation.dart' show evaluateTrack;
 import '../effects/builtins/origami_fold.dart' show origamiFoldLines, origamiScale;
 import 'contour.dart' show warpPoint, densifyRing;
@@ -130,9 +131,10 @@ List<List<double>> getContentOutline(Content content, Layer? layer, int? globalF
     final w = content.size[0], h = content.size[1];
     // rounded corners change the shape itself: masks, cuts, the outline,
     // physics and merge all take the rounded one.
-    if (layer != null && content.shape == 'rect' && layer.fill.cornerRadius > 0) {
+    if (layer != null && content.shape == 'rect' && (layer.fill.cornerRadius > 0 || _roundLinked(layer))) {
       final (rx, ry) = cornerRadii(layer, globalFrame, project: project);
-      return roundedRectRing(ox, oy, w, h, rx, ry, k: layer.fill.cornerShape, corners: layer.fill.cornersOn);
+      return roundedRectRing(ox, oy, w, h, rx, ry,
+          k: layer.fill.cornerShape, corners: layer.fill.cornersOn, each: cornerRadiiEach(layer, globalFrame, project: project));
     }
     return [
       [ox - w / 2, oy - h / 2], [ox + w / 2, oy - h / 2],
@@ -185,66 +187,84 @@ List<List<double>> warpRingThroughEffects(Layer layer, Content content, List<Lis
 /// keeping them round - divided by the layer's scale on each axis, so on
 /// screen they are circles of the radius times the smaller scale.
 (double, double) cornerRadii(Layer layer, int? globalFrame, {Project? project}) {
+  final each = cornerRadiiEach(layer, globalFrame, project: project);
+  // the biggest of the corners (they are all the same without links).
+  var best = each.first;
+  for (final e in each) {
+    if (e.$1 > best.$1) best = e;
+  }
+  return best;
+}
+
+/// Each corner's radii (top left, top right, bottom right, bottom left):
+/// the rounding plus what links add to it ('round' all, 'round0'..'round3'
+/// one). Kept round when scaled: a circle on the screen, at most half the
+/// shorter side as it is drawn - whatever the scale.
+List<(double, double)> cornerRadiiEach(Layer layer, int? globalFrame, {Project? project}) {
   final c = layer.content;
-  final r = layer.fill.cornerRadius;
-  var rx = r, ry = r;
+  final base = layer.fill.cornerRadius;
+  final all = project == null || globalFrame == null || layer.links.isEmpty ? 0.0 : linkOffset(project, layer, 'round', globalFrame);
+  final w = c.size[0].abs(), h = c.size[1].abs();
+  var sx = 1.0, sy = 1.0;
   if (layer.fill.cornersKeepRound) {
     final f = globalFrame == null ? 0.0 : layerLocalFrame(layer, globalFrame).toDouble();
     final sc = evaluateTrack(project, layer.transform.scale, f, layer) as List;
-    final sx = (sc[0] as num).toDouble().abs(), sy = (sc[1] as num).toDouble().abs();
-    final m = math.min(sx, sy);
-    if (sx > 1e-9 && sy > 1e-9) {
-      rx = r * m / sx;
-      ry = r * m / sy;
-    }
+    sx = (sc[0] as num).toDouble().abs();
+    sy = (sc[1] as num).toDouble().abs();
   }
-  return (rx.clamp(0.0, c.size[0].abs() / 2).toDouble(), ry.clamp(0.0, c.size[1].abs() / 2).toDouble());
+  return [
+    for (var i = 0; i < 4; i++)
+      () {
+        final one = project == null || globalFrame == null || layer.links.isEmpty ? 0.0 : linkOffset(project, layer, 'round$i', globalFrame);
+        final r = math.max(0.0, base + all + one);
+        if (!layer.fill.cornersKeepRound || sx <= 1e-9 || sy <= 1e-9) {
+          return (r.clamp(0.0, w / 2).toDouble(), r.clamp(0.0, h / 2).toDouble());
+        }
+        // on the screen: the smaller scale's size, up to half the shorter
+        // drawn side - then back into the layer's own units.
+        final screen = (r * math.min(sx, sy)).clamp(0.0, math.min(w * sx, h * sy) / 2).toDouble();
+        return (screen / sx, screen / sy);
+      }()
+  ];
 }
 
-/// A rounded rect's outline: each corner a quarter ellipse (rx, ry).
+/// A rounded rect's outline: each corner a quarter ellipse (rx, ry) - or
+/// each its own (`each`); `corners` off stay sharp.
 List<List<double>> roundedRectRing(double cx, double cy, double w, double h, double rx, double ry,
-    {int perCorner = 10, double k = 0.5523, List<bool>? corners}) {
+    {int perCorner = 10, double k = 0.5523, List<bool>? corners, List<(double, double)>? each}) {
   final x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2;
   final out = <List<double>>[];
-  // some corners sharp: those are just their point.
-  if (corners != null && corners.any((c) => !c)) {
-    final pts = [
-      [x0, y0],
-      [x1, y0],
-      [x1, y1],
-      [x0, y1]
-    ];
-    final full = roundedRectRing(cx, cy, w, h, rx, ry, perCorner: perCorner, k: k);
-    final per = full.length ~/ 4;
-    for (var i = 0; i < 4; i++) {
-      corners[i] ? out.addAll(full.sublist(i * per, (i + 1) * per)) : out.add(pts[i]);
+  final circle = (k - 0.5523).abs() < 1e-4;
+  final pts = [
+    [x0, y0],
+    [x1, y0],
+    [x1, y1],
+    [x0, y1]
+  ];
+  // which way the two sides run from each corner (x, y).
+  const dirs = [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)];
+  for (var i = 0; i < 4; i++) {
+    final (ax, ay) = corners != null && !corners[i] ? (0.0, 0.0) : (each?[i] ?? (rx, ry));
+    final p = pts[i];
+    if (ax <= 1e-9 || ay <= 1e-9) {
+      out.add(p);
+      continue;
     }
-    return out;
-  }
-  // a circle's quarter (the usual shape) - or, with another shape factor,
-  // a bezier between the two touching points with handles `k` of the way
-  // to the corner.
-  if ((k - 0.5523).abs() < 1e-4) {
-    for (final (ccx, ccy, a0) in [
-      (x0 + rx, y0 + ry, math.pi), // top left
-      (x1 - rx, y0 + ry, 1.5 * math.pi), // top right
-      (x1 - rx, y1 - ry, 0.0), // bottom right
-      (x0 + rx, y1 - ry, 0.5 * math.pi), // bottom left
-    ]) {
-      for (var i = 0; i <= perCorner; i++) {
-        final a = a0 + i / perCorner * math.pi / 2;
-        out.add([ccx + rx * math.cos(a), ccy + ry * math.sin(a)]);
+    final (dx, dy) = dirs[i];
+    if (circle) {
+      // a quarter ellipse round the corner's centre.
+      final ccx = p[0] + dx * ax, ccy = p[1] + dy * ay;
+      final a0 = const [math.pi, 1.5 * math.pi, 0.0, 0.5 * math.pi][i];
+      for (var j = 0; j <= perCorner; j++) {
+        final a = a0 + j / perCorner * math.pi / 2;
+        out.add([ccx + ax * math.cos(a), ccy + ay * math.sin(a)]);
       }
+    } else {
+      // from the side before the corner to the side after it.
+      final before = i.isEven ? [p[0], p[1] + dy * ay] : [p[0] + dx * ax, p[1]];
+      final after = i.isEven ? [p[0] + dx * ax, p[1]] : [p[0], p[1] + dy * ay];
+      out.addAll(roundCornerCurve(before, p, after, k, steps: perCorner));
     }
-    return out;
-  }
-  for (final (corner, from, to) in [
-    ([x0, y0], [x0, y0 + ry], [x0 + rx, y0]),
-    ([x1, y0], [x1 - rx, y0], [x1, y0 + ry]),
-    ([x1, y1], [x1, y1 - ry], [x1 - rx, y1]),
-    ([x0, y1], [x0 + rx, y1], [x0, y1 - ry]),
-  ]) {
-    out.addAll(roundCornerCurve(from, corner, to, k, steps: perCorner));
   }
   return out;
 }
@@ -333,10 +353,10 @@ List<List<double>> layerShapePoints(Layer layer) {
 List<List<double>> layerFlatOutline(Layer layer, {int? globalFrame, Project? project}) {
   final c = layer.content;
   if (c.shape == 'rect') {
-    if (layer.fill.cornerRadius > 0) {
+    if (layer.fill.cornerRadius > 0 || _roundLinked(layer)) {
       final (rx, ry) = cornerRadii(layer, globalFrame, project: project);
       return roundedRectRing(c.offset[0], c.offset[1], c.size[0], c.size[1], rx, ry,
-          k: layer.fill.cornerShape, corners: layer.fill.cornersOn);
+          k: layer.fill.cornerShape, corners: layer.fill.cornersOn, each: cornerRadiiEach(layer, globalFrame, project: project));
     }
     final w = c.size[0] / 2, h = c.size[1] / 2;
     return [
@@ -434,3 +454,5 @@ List<double>? _insidePoint(List<List<double>> r) {
   }
   return [(xs[best] + xs[best + 1]) / 2, y];
 }
+
+bool _roundLinked(Layer layer) => layer.links.any((k) => k.enabled && k.to.startsWith('round'));

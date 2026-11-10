@@ -30,8 +30,10 @@ import 'package:xml/xml.dart';
 import '../core/interpolation.dart';
 import '../core/stage_size.dart';
 import '../core/state_cache.dart';
-import '../effects/geometry_effect_registry.dart' show isDeformingEffect;
+import '../effects/geometry_effect_registry.dart' show isDeformingEffect, deformsPointwise;
 import '../geometry/contour_layer.dart' show layerVectorRings, layerMaskClipLocal;
+import '../model/shape_fill.dart' show evaluateGlows, glowFalloff, GlowSample;
+import '../model/stage_camera.dart' show cameraViewMatrix;
 import '../geometry/shapes.dart';
 import '../model/project.dart';
 import '../text/text_animators.dart' show animatedTextUnits;
@@ -64,6 +66,10 @@ String exportProjectToSvg(Project project, int globalFrame, double frameWidth, d
     buf.writeln('<g transform="matrix(${mirrorX ? -1 : 1},0,0,${mirrorY ? -1 : 1},'
         '${_fmt(mirrorX ? frameWidth : 0)},${_fmt(mirrorY ? frameHeight : 0)})">');
   }
+  // the stage camera: what it sees, as the video export shows it.
+  final view = cameraViewMatrix(project, globalFrame, frameWidth, frameHeight);
+  final camera = view != null;
+  if (camera) buf.writeln('<g transform="matrix(${view.map(_fmt).join(',')})">');
   for (final layer in project.layers) {
     if (layer.hidden || isMediaShape(layer.content.shape) || isAudioShape(layer.content.shape) || isCameraShape(layer.content.shape)) continue;
     final state = getLayerStateAt(project, layer.id, globalFrame);
@@ -71,9 +77,6 @@ String exportProjectToSvg(Project project, int globalFrame, double frameWidth, d
     final m = _withLayerMirror(layer, toFrameMatrix(state.matrix));
     final localFrame = layerLocalFrame(layer, globalFrame);
     final opacity = evaluateTrack(project, layer.transform.opacity, localFrame, layer) as double;
-    final color = layer.color ?? '#888888';
-    final outline = layer.renderMode == 'outline';
-    final fillAttr = outline ? 'fill="none" stroke="$color" stroke-width="1.5"' : 'fill="$color" stroke="none"';
     final transformAttr = 'transform="matrix(${m.map(_fmt).join(',')})"';
     final opacityAttr = opacity < 1 ? ' opacity="${_fmt(opacity)}"' : '';
 
@@ -113,30 +116,15 @@ String exportProjectToSvg(Project project, int globalFrame, double frameWidth, d
       buf.writeln('  </g>');
     } else if (isNodeLine(content)) {
       buf.writeln('  ${_lineElement(layer, ' $transformAttr$opacityAttr')}');
-    } else if (_shapedPath(project, layer, globalFrame) case final d?) {
-      buf.writeln('  <path d="$d" fill-rule="evenodd" $fillAttr $transformAttr$opacityAttr/>');
-    } else if (content.shape == 'compound' && content.contours != null) {
-      final d = [
-        for (final c in layerContours(layer))
-          if (c.isNotEmpty) 'M${c.map((p) => '${_fmt(p[0])} ${_fmt(p[1])}').join('L')}Z'
-      ].join();
-      buf.writeln('  <path d="$d" $fillAttr $transformAttr$opacityAttr/>');
-    } else if (isRectLikeShape(content.shape)) {
-      final w = content.size[0], h = content.size[1];
-      final x = content.offset[0] - w / 2, y = content.offset[1] - h / 2;
-      buf.writeln(
-          '  <rect x="${_fmt(x)}" y="${_fmt(y)}" width="${_fmt(w)}" height="${_fmt(h)}" $fillAttr $transformAttr$opacityAttr/>');
-    } else if (content.shape == 'circle' && content.size[0] == content.size[1]) {
-      final r = content.size[0] / 2;
-      buf.writeln(
-          '  <circle cx="${_fmt(content.offset[0])}" cy="${_fmt(content.offset[1])}" r="${_fmt(r)}" $fillAttr $transformAttr$opacityAttr/>');
     } else {
-      final pts = layerShapePoints(layer);
-      if (pts.isEmpty) continue;
-      final pointsAttr = pts.map((p) => '${_fmt(p[0])},${_fmt(p[1])}').join(' ');
-      buf.writeln('  <polygon points="$pointsAttr" $fillAttr $transformAttr$opacityAttr/>');
+      // every other shape as the stage draws it: its real outline (rounded
+      // corners, effects, masks, cuts), its shadow and its glows.
+      final el = _contentElement(layer, project, globalFrame);
+      if (el == null) continue;
+      buf.writeln('  <g $transformAttr$opacityAttr>$el</g>');
     }
   }
+  if (camera) buf.writeln('</g>');
   if (mirrored) buf.writeln('</g>');
   buf.writeln('</svg>');
   return buf.toString();
@@ -163,6 +151,9 @@ String exportProjectToAnimatedSvg(Project project, int startFrame, int endFrame,
     buf.writeln('<g transform="matrix(${mirrorX ? -1 : 1},0,0,${mirrorY ? -1 : 1},'
         '${_fmt(mirrorX ? frameWidth : 0)},${_fmt(mirrorY ? frameHeight : 0)})">');
   }
+  // the stage camera, where it is at the start.
+  final view = cameraViewMatrix(project, startFrame, frameWidth, frameHeight);
+  if (view != null) buf.writeln('<g transform="matrix(${view.map(_fmt).join(',')})">');
   String anim(String tag, String attrs, List<String> values, {bool always = false}) {
     final timing = 'dur="${_fmt(dur)}s" repeatCount="indefinite"';
     if (!always && values.toSet().length == 1) return '';
@@ -244,6 +235,7 @@ String exportProjectToAnimatedSvg(Project project, int startFrame, int endFrame,
     }
     buf.writeln('  </g>');
   }
+  if (view != null) buf.writeln('</g>');
   if (mirrored) buf.writeln('</g>');
   buf.writeln('</svg>');
   return buf.toString();
@@ -290,8 +282,41 @@ String? _contentElement(Layer layer, Project project, int frame, {String idSuffi
   final fillAttr = layer.renderMode == 'outline' ? 'fill="none" stroke="$color" stroke-width="1.5"' : 'fill="$color" stroke="none"';
   final content = layer.content;
   if (content.shape != 'text' && !isNodeLine(content)) {
-    final d = _shapedPath(project, layer, frame);
-    if (d != null) return '<path d="$d" fill-rule="evenodd" $fillAttr/>';
+    final body = _shapeBody(layer, project, frame, fillAttr);
+    if (body == null) return null;
+    // its shadow under it, its glows over it (inside its outline).
+    final d = _outlineD(project, layer, frame);
+    if (d == null) return body;
+    final out = StringBuffer();
+    final sh = layer.fill.shadow;
+    if (sh.enabled && layer.renderMode != 'outline') {
+      final c = content.offset;
+      out.write('<g opacity="${_fmt(sh.opacity.clamp(0.0, 1.0))}" transform="translate(${_fmt(sh.dx)},${_fmt(sh.dy)}) '
+          'translate(${_fmt(c[0])},${_fmt(c[1])}) scale(${_fmt(sh.scale)}) translate(${_fmt(-c[0])},${_fmt(-c[1])})">'
+          '<path d="$d" fill-rule="${_rule(layer)}" fill="${sh.color}"/></g>');
+    }
+    out.write(body);
+    final glows = layer.fill.active && layer.renderMode != 'outline' ? evaluateGlows(project, layer, frame) : const <GlowSample>[];
+    if (glows.isNotEmpty) {
+      final clip = 'glowclip-${layer.id}$idSuffix';
+      out.write('<clipPath id="$clip"><path d="$d" clip-rule="${_rule(layer)}"/></clipPath><g clip-path="url(#$clip)">');
+      var gi = 0;
+      for (final g in glows) {
+        if (g.radius <= 0 || g.strength <= 0 || g.glow.color == 'transparent') continue;
+        final id = 'glow-${layer.id}$idSuffix-${gi++}';
+        const n = 6;
+        final stops = [
+          for (var i = 0; i <= n; i++)
+            '<stop offset="${_fmt(i / n)}" stop-color="${g.glow.color}" stop-opacity="${_fmt((g.strength * glowFalloff(i / n)).clamp(0.0, 1.0))}"/>'
+        ].join();
+        // a line glow: round its middle (an approximation).
+        final cx = (g.a[0] + g.b[0]) / 2, cy = (g.a[1] + g.b[1]) / 2;
+        out.write('<radialGradient id="$id" gradientUnits="userSpaceOnUse" cx="${_fmt(cx)}" cy="${_fmt(cy)}" r="${_fmt(g.radius)}">$stops</radialGradient>'
+            '<circle cx="${_fmt(cx)}" cy="${_fmt(cy)}" r="${_fmt(g.radius)}" fill="url(#$id)"/>');
+      }
+      out.write('</g>');
+    }
+    return out.toString();
   }
   if (content.shape == 'text' && content.text != null) {
     // at its frame: its text keys, animators and parts.
@@ -328,24 +353,7 @@ String? _contentElement(Layer layer, Project project, int frame, {String idSuffi
         '<g clip-path="url(#$id)">$out</g></g>';
   }
   if (isNodeLine(content)) return _lineElement(layer, '', project: project, frame: frame);
-  if (content.shape == 'compound' && content.contours != null) {
-    final d = [
-      for (final c in layerContours(layer))
-        if (c.isNotEmpty) 'M${c.map((p) => '${_fmt(p[0])} ${_fmt(p[1])}').join('L')}Z'
-    ].join();
-    return '<path d="$d" $fillAttr/>';
-  }
-  if (isRectLikeShape(content.shape)) {
-    final w = content.size[0], h = content.size[1];
-    return '<rect x="${_fmt(content.offset[0] - w / 2)}" y="${_fmt(content.offset[1] - h / 2)}" '
-        'width="${_fmt(w)}" height="${_fmt(h)}" $fillAttr/>';
-  }
-  if (content.shape == 'circle' && content.size[0] == content.size[1]) {
-    return '<circle cx="${_fmt(content.offset[0])}" cy="${_fmt(content.offset[1])}" r="${_fmt(content.size[0] / 2)}" $fillAttr/>';
-  }
-  final pts = layerShapePoints(layer);
-  if (pts.isEmpty) return null;
-  return '<polygon points="${pts.map((p) => '${_fmt(p[0])},${_fmt(p[1])}').join(' ')}" $fillAttr/>';
+  return null;
 }
 
 String _svgPathData(List<PathCmd> cmds) {
@@ -1124,7 +1132,9 @@ List<List<double>> _parsePointsAttr(String raw) {
 String? _shapedPath(Project project, Layer layer, int frame) {
   final c = layer.content;
   if (c.shape == 'text' || isNodeLine(c)) return null;
-  final shaped = (c.shape == 'rect' && layer.fill.cornerRadius > 0) ||
+  final shaped = layer.fill.cornerRadius > 0 ||
+      layer.fill.outerRadius > 0 ||
+      layer.links.any((k) => k.enabled && k.to.startsWith('round')) ||
       layer.masks.any((m) => m.enabled && m.sourceLayerId != null) ||
       layer.cuts.any((k) => k.enabled && k.cutterId != null) ||
       (layer.maskRegions?.enabled ?? false) ||
@@ -1160,4 +1170,46 @@ List<double> _withLayerMirror(Layer layer, List<double> m) {
   final cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
   final sx = layer.mirrorX ? -1.0 : 1.0, sy = layer.mirrorY ? -1.0 : 1.0;
   return matMul(m, [sx, 0, 0, sy, (1 - sx) * cx, (1 - sy) * cy]);
+}
+
+
+/// A shape's own body (local space): its real outline when it isn't a
+/// plain primitive, else the primitive.
+String? _shapeBody(Layer layer, Project project, int frame, String fillAttr) {
+  final content = layer.content;
+  final shaped = _shapedPath(project, layer, frame);
+  if (shaped != null) return '<path d="$shaped" fill-rule="${_rule(layer)}" $fillAttr/>';
+  if (content.shape == 'compound' && content.contours != null) {
+    final d = [
+      for (final c in layerContours(layer))
+        if (c.isNotEmpty) 'M${c.map((p) => '${_fmt(p[0])} ${_fmt(p[1])}').join('L')}Z'
+    ].join();
+    return '<path d="$d" $fillAttr/>';
+  }
+  if (isRectLikeShape(content.shape)) {
+    final w = content.size[0], h = content.size[1];
+    return '<rect x="${_fmt(content.offset[0] - w / 2)}" y="${_fmt(content.offset[1] - h / 2)}" '
+        'width="${_fmt(w)}" height="${_fmt(h)}" $fillAttr/>';
+  }
+  if (content.shape == 'circle' && content.size[0] == content.size[1]) {
+    return '<circle cx="${_fmt(content.offset[0])}" cy="${_fmt(content.offset[1])}" r="${_fmt(content.size[0] / 2)}" $fillAttr/>';
+  }
+  final pts = layerShapePoints(layer);
+  if (pts.isEmpty) return null;
+  return '<polygon points="${pts.map((p) => '${_fmt(p[0])},${_fmt(p[1])}').join(' ')}" $fillAttr/>';
+}
+
+/// Pieces of folded paper lie over each other: non-zero, so they add up.
+String _rule(Layer layer) => deformsPointwise(layer) ? 'nonzero' : 'evenodd';
+
+/// The shape's outline as path data (local space), for its shadow and
+/// glows.
+String? _outlineD(Project project, Layer layer, int frame) {
+  final rings = layerVectorRings(project, layer, frame);
+  if (rings == null) return null;
+  final d = [
+    for (final r in rings)
+      if (r.length >= 3) 'M${r.map((p) => '${_fmt(p[0])} ${_fmt(p[1])}').join('L')}Z'
+  ].join();
+  return d.isEmpty ? null : d;
 }

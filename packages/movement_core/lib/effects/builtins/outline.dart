@@ -27,6 +27,24 @@ void registerOutline() {
   ));
 }
 
+/// Edge blur (next to Outline): the layer's edge fades out over
+/// `radius` px - inside the silhouette, or centred on it. Moves no points;
+/// the renderer masks the layer with its blurred contour.
+void registerEdgeBlur() {
+  registerEffect(EffectDef(
+    id: 'edge_blur',
+    name: 'Edge blur',
+    category: 'style',
+    type: 'stroke',
+    deforms: false,
+    params: const [
+      ParamDef(key: 'radius', type: 'float', defaultValue: 8.0, range: [0, 100]),
+      ParamDef(key: 'position', type: 'enum', defaultValue: 'inside', animatable: false, options: ['inside', 'center']),
+    ],
+    apply: (grid, params, localFrame) => grid,
+  ));
+}
+
 /// The Outline's smoothness (0..4) as contour settings: simplify
 /// tolerance in working pixels plus Chaikin passes.
 ({double simplify, int smooth}) outlineSmoothness(double s) =>

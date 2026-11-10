@@ -358,6 +358,33 @@ class CanvasRenderer implements Renderer {
     _drawOutlines(canvas, project, layer, globalFrame, behind: behind);
   }
 
+  /// Edge blur: the content (and its outlines) kept by its own contour
+  /// drawn soft - the edge fades out over the radius.
+  void _edgeBlur(ui.Canvas canvas, Project project, Layer layer, int globalFrame) {
+    final lf = math.min(layer.durationFrames, math.max(0, layerTimeFrame(layer, globalFrame) - layer.startFrame)).toDouble();
+    final inst = layer.effectStack
+        .where((i) => i.enabled && i.effectId == 'edge_blur' && effectActiveAt(layer, i.id, lf))
+        .firstOrNull;
+    if (inst == null) return;
+    final prm = resolveEffectParams(inst, lf);
+    final r = (prm['radius'] as num?)?.toDouble() ?? 0;
+    if (r <= 0) return;
+    final inside = prm['position'] != 'center';
+    final contour = layerContourDrawn(project, layer, globalFrame, ContourParams(offset: inside ? -r / 2 : 0));
+    if (contour == null || contour.rings.isEmpty) return;
+    final path = ui.Path()..fillType = ui.PathFillType.evenOdd;
+    for (final ring in contour.rings) {
+      if (ring.points.length >= 3) path.addPolygon([for (final q in ring.points) ui.Offset(q[0], q[1])], true);
+    }
+    canvas.saveLayer(null, ui.Paint()..blendMode = ui.BlendMode.dstIn);
+    canvas.drawPath(
+        path,
+        ui.Paint()
+          ..color = const ui.Color(0xFFFFFFFF)
+          ..maskFilter = ui.MaskFilter.blur(ui.BlurStyle.normal, r / 2));
+    canvas.restore();
+  }
+
   final Map<String, ui.Image> _imageCache = {};
   final Set<String> _decodingKeys = {};
 
@@ -463,6 +490,10 @@ class CanvasRenderer implements Renderer {
     // project here, over the background and under every layer.
     underlay?.call(canvas);
 
+    // a digging layer cuts down to the background, never through it:
+    // the layers go into a group of their own over it.
+    final digs = project.layers.any((l) => l.dig && !l.hidden);
+    if (digs) canvas.saveLayer(null, ui.Paint());
     // the stage camera (export, the player, or "camera view"): the scene
     // as seen through its frame; the background stays put.
     final view = useStageCamera ? cameraViewMatrix(project, frame, _width, _height) : null;
@@ -471,6 +502,12 @@ class CanvasRenderer implements Renderer {
       canvas.transform(_toMatrix4(view));
     }
     _hiddenCutters = hiddenCutters(project);
+    // layers that are another's back side: drawn only there.
+    _hiddenCutters = {
+      ..._hiddenCutters,
+      for (final l in project.layers)
+        if (l.backSourceId != null) l.backSourceId!,
+    };
     // paint order = array order - every layer draws the same way, no
     // special-cased hardcoded first/last layer.
     for (final l in project.layers) {
@@ -516,7 +553,11 @@ class CanvasRenderer implements Renderer {
     }
 
     if (view != null) canvas.restore();
+    if (digs) canvas.restore();
     _picture = recorder.endRecording();
+    if (project.layers.any((l) => l.filters.scope == 'scene' && l.filters.any)) {
+      _picture = _sceneFilters(project, _picture!, frame, cull);
+    }
     if (perf) {
       PerfMonitor.instance.recordRender(totalMs: perfWatch!.elapsedMicroseconds / 1000, layers: layerCosts!);
     }
@@ -744,6 +785,13 @@ class CanvasRenderer implements Renderer {
     final isPrecompose = (layer.precompose ?? false) &&
         layer.groupedChildren != null &&
         layer.groupedChildren!.isNotEmpty;
+    // Objects: turned over about its vertical middle (its back shows).
+    final baseM = mCanvas;
+    final flipAbout = _flipMatrix(layer);
+    if (layer.showBack) mCanvas = matMul(mCanvas, flipAbout);
+    final backLayer = layer.backSourceId == null ? null : findLayer(project, layer.backSourceId);
+    final hasBack = (backLayer != null && backLayer.id != layer.id) || layer.backSame;
+    final flipped = mCanvas[0] * mCanvas[3] - mCanvas[1] * mCanvas[2] < 0;
 
     // triangle's 3-point corner pin is an EXACT affine solve on its 3
     // raw vertices - texture warping can't improve on exact, and that
@@ -755,7 +803,11 @@ class CanvasRenderer implements Renderer {
     final needsSubdivision = layer.effectStack.any(isDeformingEffect) || inheritsDeform;
     // a gradient-filled rect under an effect goes through the texture
     // path too, so its glows bend with it.
+    // a back side of its own: turned over (or with flaps folded over) it
+    // goes through the texture path, back faces drawn from the back.
+    final backTexture = hasBack && !isNodeLine(layer.content) && !isPrecompose && (flipped || needsSubdivision);
     final isTextured = !isNodeLine(layer.content) && (isPrecompose ||
+        backTexture ||
         ((!(layer.content.shape == 'rect' || layer.content.shape == 'line') || layer.fill.active) &&
             !hasExactPointPin &&
             needsSubdivision));
@@ -871,7 +923,7 @@ class CanvasRenderer implements Renderer {
               ..strokeJoin = ui.StrokeJoin.round);
         });
       }
-    } else if (isTextured && _warpsAsVector(layer)) {
+    } else if (isTextured && !backTexture && _warpsAsVector(layer)) {
       // a vector shape under a deforming effect stays a vector: its outline
       // follows the effect grid point by point (sharp at any zoom, no
       // texture edge - a caved-in corner pin or a squeeze keeps the shape).
@@ -977,7 +1029,10 @@ class CanvasRenderer implements Renderer {
                 globalFrame,
                 project: project),
             globalFrame);
-        _drawWarpedGrid(contentCanvas, sourceImage, srcGrid, dstGrid);
+        final back = backTexture
+            ? _backImage(project, layer, backLayer, sourceImage, baseM, flipAbout, globalFrame, depth)
+            : null;
+        _drawWarpedGrid(contentCanvas, sourceImage, srcGrid, dstGrid, back: back, flipped: flipped);
       }
     } else if (layer.content.shape == 'rect' || layer.content.shape == 'line') {
       _withGlows(contentCanvas, project, layer, globalFrame, deviceScale, () {
@@ -1001,15 +1056,18 @@ class CanvasRenderer implements Renderer {
             : buildGrid(layer.content, 2, 2);
         grid = applyInheritedDeform(project, layer, applyEffectStack(layer, grid, globalFrame, project: project), globalFrame);
         // rounded corners (Fill tab) on an undeformed rect.
-        final radius = layer.fill.cornerRadius;
-        if (radius > 0 && !needsSub && layer.content.shape == 'rect') {
+        // (a link can round it too.)
+        final rounded = layer.fill.cornerRadius > 0 || layer.links.any((k) => k.enabled && k.to.startsWith('round'));
+        if (rounded && !needsSub && layer.content.shape == 'rect') {
           if ((layer.fill.cornerShape - circleRoundK).abs() > 1e-4 || layer.fill.cornersOn.any((c) => !c)) {
             final c = layer.content;
             final (rx, ry) = cornerRadii(layer, _radiiFrame, project: _radiiProject);
             contentCanvas.drawPath(
                 _pathFromPoints(
                     roundedRectRing(c.offset[0], c.offset[1], c.size[0], c.size[1], rx, ry,
-                        k: layer.fill.cornerShape, corners: layer.fill.cornersOn),
+                        k: layer.fill.cornerShape,
+                        corners: layer.fill.cornersOn,
+                        each: cornerRadiiEach(layer, _radiiFrame, project: _radiiProject)),
                     close: true),
                 outline ? strokePaint : fillPaint);
             return;
@@ -1100,9 +1158,10 @@ class CanvasRenderer implements Renderer {
             ui.Paint()..filterQuality = ui.FilterQuality.medium);
       }
     } else {
-      // only reached for a triangle with an active 3-point corner pin -
-      // exact vector affine warp.
-      var row = [shapePoints(layer.content)];
+      // a plain polygon (triangle, star, ...) with its corner rounding;
+      // with an exact 3-point corner pin, its bare points (the pin warps
+      // exactly those).
+      var row = [hasExactPointPin ? shapePoints(layer.content) : layerShapePoints(layer)];
       row = applyEffectStack(layer, row, globalFrame, project: project);
       final pts = row[0];
       if (pts.isNotEmpty) {
@@ -1125,6 +1184,7 @@ class CanvasRenderer implements Renderer {
     contentCanvas.restore();
     // Outline strokes "center" / "inside" go over it.
     if (!isPrecompose) _outlinesAround(contentCanvas, project, layer, globalFrame, behind: false);
+    if (!isPrecompose) _edgeBlur(contentCanvas, project, layer, globalFrame);
     contentCanvas.restore();
 
     // mask stack: painted into its own picture, then multiplied onto
@@ -1160,7 +1220,9 @@ class CanvasRenderer implements Renderer {
     final layerPaint = ui.Paint()
       ..color = ui.Color.fromRGBO(0, 0, 0, opacity.clamp(0.0, 1.0))
       // see-through text cuts its letters out of what is under it.
-      ..blendMode = blend ?? (layer.content.text?.knockout == true ? ui.BlendMode.dstOut : ui.BlendMode.srcOver);
+      // a digging layer cuts its shape out of everything under it.
+      ..blendMode = blend ??
+          (layer.content.text?.knockout == true || layer.dig ? ui.BlendMode.dstOut : ui.BlendMode.srcOver);
     // effect shading (3D Rotate turning away): a grey multiply on the
     // colour channels only - modulate by an opaque grey keeps alpha.
     final brightness = layerEffectBrightness(layer, globalFrame);
@@ -1169,22 +1231,261 @@ class CanvasRenderer implements Renderer {
       layerPaint.colorFilter =
           ui.ColorFilter.mode(ui.Color.fromARGB(255, g, g, g), ui.BlendMode.modulate);
     }
-    destCanvas.saveLayer(null, layerPaint);
-    // Filters: negative, blended in by its amount.
-    final neg = layer.filters.any
-        ? (evaluateTrack(project, layer.filters.negative, localFrameOp, layer) as num).toDouble().clamp(0.0, 1.0)
-        : 0.0;
-    if (neg > 0) {
-      final k = 1 - 2 * neg, o = 255 * neg;
-      destCanvas.saveLayer(
-          null,
-          ui.Paint()
-            ..colorFilter = ui.ColorFilter.matrix(
-                [k, 0, 0, 0, o, 0, k, 0, 0, o, 0, 0, k, 0, o, 0, 0, 0, 1, 0]));
+    final filters = layer.filters;
+    // Filters as glass: what is under the layer, filtered, inside its
+    // shape - the layer itself is only the glass.
+    if (filters.scope == 'glass' && filters.any) {
+      final rec = ui.PictureRecorder();
+      _drawLayersBelow(ui.Canvas(rec), project, project.layers.indexOf(layer), globalFrame, 0, layer);
+      final below = rec.endRecording();
+      destCanvas.saveLayer(null, layerPaint);
+      _drawFiltered(destCanvas, below, project, layer, localFrameOp, globalFrame);
+      destCanvas.saveLayer(null, ui.Paint()..blendMode = ui.BlendMode.dstIn);
+      destCanvas.drawPicture(contentPicture);
+      destCanvas.restore();
+      destCanvas.restore();
+      return;
     }
-    destCanvas.drawPicture(contentPicture);
-    if (neg > 0) destCanvas.restore();
+    destCanvas.saveLayer(null, layerPaint);
+    // Filters on the layer itself (the whole scene's are applied once
+    // every layer is drawn - see renderFrame).
+    if (filters.scope == 'self' && filters.any) {
+      _drawFiltered(destCanvas, contentPicture, project, layer, localFrameOp, globalFrame);
+    } else {
+      destCanvas.drawPicture(contentPicture);
+    }
+    if (filters.scope == 'self' && filters.lightWrap > 0) {
+      _lightWrap(destCanvas, project, layer, contentPicture, globalFrame);
+    }
     destCanvas.restore();
+  }
+
+  // ============================================================
+  // filters
+  // ============================================================
+
+  static ui.FragmentProgram? _filterProgram;
+  static bool _filterProgramLoading = false;
+
+  /// The filters' shader (fractal warp, gamma) - loaded once; until it is
+  /// there those two are skipped, and a render follows when it lands.
+  void _loadFilterProgram() {
+    if (_filterProgram != null || _filterProgramLoading) return;
+    _filterProgramLoading = true;
+    ui.FragmentProgram.fromAsset('shaders/filter.frag').then((p) {
+      _filterProgram = p;
+      onImageDecoded?.call();
+    }, onError: (Object _) {});
+  }
+
+  /// `pic` (canvas-sized, canvas units) through the layer's filters onto
+  /// `canvas`: warp and gamma (the shader), then the colour wheels' linear
+  /// part and negative (one colour matrix), with the blur.
+  void _drawFiltered(ui.Canvas canvas, ui.Picture pic, Project project, Layer layer, num lf, int globalFrame) {
+    final f = layer.filters;
+    double tv(Track t) => (evaluateTrack(project, t, lf.toDouble(), layer) as num).toDouble();
+    final neg = tv(f.negative).clamp(0.0, 1.0);
+    final blur = math.max(0.0, tv(f.blur));
+    final warp = tv(f.warp);
+    var p = pic;
+    if (warp != 0 || f.gamma.any((v) => v != 0)) {
+      p = _shaderPass(p, warp, f, globalFrame) ?? p;
+    }
+    final paint = ui.Paint();
+    if (neg > 0 || f.graded) {
+      final lin = liftGainLinear(f);
+      final k = 1 - 2 * neg, o = 255 * neg;
+      paint.colorFilter = ui.ColorFilter.matrix([
+        k * lin.a[0], 0, 0, 0, k * lin.b[0] * 255 + o, //
+        0, k * lin.a[1], 0, 0, k * lin.b[1] * 255 + o, //
+        0, 0, k * lin.a[2], 0, k * lin.b[2] * 255 + o, //
+        0, 0, 0, 1, 0,
+      ]);
+    }
+    final sigma = blur / 2;
+    if (sigma > 0.05 && f.blurKind == 'gaussian') {
+      paint.imageFilter = ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma, tileMode: ui.TileMode.decal);
+    } else if (sigma > 0.05 && f.blurKind == 'directional') {
+      // along the angle: turned so it lies along x, blurred, turned back.
+      final a = f.blurAngle * math.pi / 180;
+      Float64List rot(double t) =>
+          Float64List.fromList([math.cos(t), math.sin(t), 0, 0, -math.sin(t), math.cos(t), 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+      paint.imageFilter = ui.ImageFilter.compose(
+          outer: ui.ImageFilter.matrix(rot(a)),
+          inner: ui.ImageFilter.compose(
+              outer: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: 0, tileMode: ui.TileMode.decal),
+              inner: ui.ImageFilter.matrix(rot(-a))));
+    }
+    canvas.saveLayer(null, paint);
+    if (blur > 0.1 && (f.blurKind == 'zoom' || f.blurKind == 'spin')) {
+      // copies spread out from / around the layer's middle, averaged.
+      final st = getLayerStateAt(project, layer.id, globalFrame);
+      final c = layer.filters.scope == 'scene'
+          ? ui.Offset(_width / 2, _height / 2)
+          : ui.Offset(st.matrix[4] * _width, st.matrix[5] * _height);
+      const n = 12;
+      for (var i = 0; i < n; i++) {
+        final t = i / (n - 1) - (f.blurKind == 'spin' ? 0.5 : 0.0);
+        canvas.saveLayer(null, ui.Paint()..color = ui.Color.fromRGBO(0, 0, 0, 1 / (i + 1)));
+        canvas.translate(c.dx, c.dy);
+        if (f.blurKind == 'zoom') {
+          final k = 1 + t * blur / 200;
+          canvas.scale(k, k);
+        } else {
+          canvas.rotate(t * blur * math.pi / 180);
+        }
+        canvas.translate(-c.dx, -c.dy);
+        canvas.drawPicture(p);
+        canvas.restore();
+      }
+    } else {
+      canvas.drawPicture(p);
+    }
+    canvas.restore();
+  }
+
+  /// Warp and gamma per pixel (the shader) - null until it is loaded.
+  ui.Picture? _shaderPass(ui.Picture pic, double warp, LayerFilters f, int globalFrame) {
+    final prog = _filterProgram;
+    if (prog == null) {
+      _loadFilterProgram();
+      return null;
+    }
+    final w = math.max(1, _width.round()), h = math.max(1, _height.round());
+    final img = pic.toImageSync(w, h);
+    final shader = prog.fragmentShader()
+      ..setFloat(0, w.toDouble())
+      ..setFloat(1, h.toDouble())
+      ..setFloat(2, warp)
+      ..setFloat(3, f.warpScale)
+      ..setFloat(4, globalFrame / fps * f.warpSpeed)
+      ..setFloat(5, math.pow(2, -f.gamma[0]).toDouble())
+      ..setFloat(6, math.pow(2, -f.gamma[1]).toDouble())
+      ..setFloat(7, math.pow(2, -f.gamma[2]).toDouble())
+      ..setImageSampler(0, img);
+    final rec = ui.PictureRecorder();
+    ui.Canvas(rec).drawRect(ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), ui.Paint()..shader = shader);
+    final out = rec.endRecording().toImageSync(w, h);
+    img.dispose();
+    shader.dispose();
+    final rec2 = ui.PictureRecorder();
+    ui.Canvas(rec2).drawImage(out, ui.Offset.zero, ui.Paint());
+    return rec2.endRecording();
+  }
+
+  /// Light wrap: the blurred light of what is under the layer, kept in a
+  /// rim just inside its edge, screened over it.
+  void _lightWrap(ui.Canvas canvas, Project project, Layer layer, ui.Picture content, int globalFrame) {
+    final f = layer.filters;
+    final rec = ui.PictureRecorder();
+    _drawLayersBelow(ui.Canvas(rec), project, project.layers.indexOf(layer), globalFrame, 0, layer);
+    final below = rec.endRecording();
+    final s = math.max(0.5, f.lightWrapWidth / 2);
+    final blur = ui.ImageFilter.blur(sigmaX: s, sigmaY: s, tileMode: ui.TileMode.decal);
+    canvas.saveLayer(
+        null,
+        ui.Paint()
+          ..blendMode = ui.BlendMode.screen
+          ..color = ui.Color.fromRGBO(0, 0, 0, f.lightWrap.clamp(0.0, 1.0)));
+    canvas.saveLayer(null, ui.Paint()..imageFilter = blur);
+    canvas.drawPicture(below);
+    canvas.restore();
+    canvas.saveLayer(null, ui.Paint()..blendMode = ui.BlendMode.dstIn);
+    canvas.drawPicture(content);
+    canvas.restore();
+    canvas.saveLayer(null, ui.Paint()
+      ..blendMode = ui.BlendMode.dstOut
+      ..imageFilter = blur);
+    canvas.drawPicture(content);
+    canvas.restore();
+    canvas.restore();
+  }
+
+  /// Match Color: the colour statistics (mean, deviation per channel,
+  /// 0..1) of the layer itself (no filters) and of what is under it,
+  /// both weighed by the layer's own coverage. Null: nothing to compare.
+  Future<({List<double> srcMean, List<double> srcDev, List<double> dstMean, List<double> dstDev})?> matchColorStats(
+      Project project, Layer layer, int frame) async {
+    final k = 256 / math.max(_width, _height);
+    final w = math.max(1, (_width * k).round()), h = math.max(1, (_height * k).round());
+    Future<ByteData?> grab(void Function(ui.Canvas c) draw) async {
+      final rec = ui.PictureRecorder();
+      final c = ui.Canvas(rec)..scale(k, k);
+      draw(c);
+      final img = await rec.endRecording().toImage(w, h);
+      final b = await img.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
+      img.dispose();
+      return b;
+    }
+
+    final saved = layer.filters;
+    layer.filters = LayerFilters();
+    final own = await grab((c) => _drawLayer(c, project, layer.id, frame));
+    layer.filters = saved;
+    final below = await grab((c) => _drawLayersBelow(c, project, project.layers.indexOf(layer), frame, 0, layer));
+    if (own == null || below == null) return null;
+    ({List<double> mean, List<double> dev})? stats(ByteData b, {required bool weighOwn}) {
+      final sum = [0.0, 0.0, 0.0], sq = [0.0, 0.0, 0.0];
+      var total = 0.0;
+      for (var i = 0; i < w * h; i++) {
+        final a = own.getUint8(i * 4 + 3) / 255 * (weighOwn ? 1 : b.getUint8(i * 4 + 3) / 255);
+        if (a <= 0) continue;
+        total += a;
+        for (var ch = 0; ch < 3; ch++) {
+          final v = b.getUint8(i * 4 + ch) / 255;
+          sum[ch] += v * a;
+          sq[ch] += v * v * a;
+        }
+      }
+      if (total < 1) return null;
+      final mean = [for (var ch = 0; ch < 3; ch++) sum[ch] / total];
+      return (
+        mean: mean,
+        dev: [for (var ch = 0; ch < 3; ch++) math.sqrt(math.max(0, sq[ch] / total - mean[ch] * mean[ch]))],
+      );
+    }
+
+    final src = stats(own, weighOwn: true);
+    // what is under the layer - or, if nothing is under it, the whole
+    // scene below.
+    var dst = stats(below, weighOwn: false);
+    if (dst == null) {
+      final sum = [0.0, 0.0, 0.0], sq = [0.0, 0.0, 0.0];
+      var total = 0.0;
+      for (var i = 0; i < w * h; i++) {
+        final a = below.getUint8(i * 4 + 3) / 255;
+        if (a <= 0) continue;
+        total += a;
+        for (var ch = 0; ch < 3; ch++) {
+          final v = below.getUint8(i * 4 + ch) / 255;
+          sum[ch] += v * a;
+          sq[ch] += v * v * a;
+        }
+      }
+      if (total >= 1) {
+        final mean = [for (var ch = 0; ch < 3; ch++) sum[ch] / total];
+        dst = (
+          mean: mean,
+          dev: [for (var ch = 0; ch < 3; ch++) math.sqrt(math.max(0, sq[ch] / total - mean[ch] * mean[ch]))],
+        );
+      }
+    }
+    if (src == null || dst == null) return null;
+    return (srcMean: src.mean, srcDev: src.dev, dstMean: dst.mean, dstDev: dst.dev);
+  }
+
+  /// Filters on the whole scene: every such layer in range, in order,
+  /// over the finished frame.
+  ui.Picture _sceneFilters(Project project, ui.Picture frame, int globalFrame, ui.Rect cull) {
+    var pic = frame;
+    for (final l in project.layers) {
+      if (l.hidden || l.filters.scope != 'scene' || !l.filters.any) continue;
+      if (!getLayerStateAt(project, l.id, globalFrame).inRange) continue;
+      final rec = ui.PictureRecorder();
+      _drawFiltered(ui.Canvas(rec, cull), pic, project, l, layerLocalFrame(l, globalFrame), globalFrame);
+      pic = rec.endRecording();
+    }
+    return pic;
   }
 
   // ============================================================
@@ -1633,14 +1934,10 @@ class CanvasRenderer implements Renderer {
   ui.RRect _roundedRect(Layer layer) {
     final c = layer.content;
     final r = ui.Rect.fromCenter(center: ui.Offset(c.offset[0], c.offset[1]), width: c.size[0], height: c.size[1]);
-    final (rx, ry) = cornerRadii(layer, _radiiFrame, project: _radiiProject);
+    final each = cornerRadiiEach(layer, _radiiFrame, project: _radiiProject);
     final on = layer.fill.cornersOn;
-    final rad = ui.Radius.elliptical(rx, ry);
-    return ui.RRect.fromRectAndCorners(r,
-        topLeft: on[0] ? rad : ui.Radius.zero,
-        topRight: on[1] ? rad : ui.Radius.zero,
-        bottomRight: on[2] ? rad : ui.Radius.zero,
-        bottomLeft: on[3] ? rad : ui.Radius.zero);
+    ui.Radius rad(int i) => on[i] ? ui.Radius.elliptical(each[i].$1, each[i].$2) : ui.Radius.zero;
+    return ui.RRect.fromRectAndCorners(r, topLeft: rad(0), topRight: rad(1), bottomRight: rad(2), bottomLeft: rad(3));
   }
 
   /// The outline a shape's shadow takes (content-local); null for content
@@ -1650,7 +1947,9 @@ class CanvasRenderer implements Renderer {
     if (isMediaShape(c.shape) || c.shape == 'text' || c.shape == 'textGroup' || isAudioShape(c.shape) || isCameraShape(c.shape) || c.shape == 'null') {
       return null;
     }
-    if (c.shape == 'rect' && layer.fill.cornerRadius > 0) return ui.Path()..addRRect(_roundedRect(layer));
+    if (c.shape == 'rect' && (layer.fill.cornerRadius > 0 || layer.links.any((k) => k.enabled && k.to.startsWith('round')))) {
+      return ui.Path()..addRRect(_roundedRect(layer));
+    }
     if (c.shape == 'rect' || (c.shape == 'line' && !isNodeLine(c))) {
       return ui.Path()
         ..addRect(ui.Rect.fromCenter(center: ui.Offset(c.offset[0], c.offset[1]), width: c.size[0], height: c.size[1]));
@@ -2443,15 +2742,58 @@ class CanvasRenderer implements Renderer {
   /// onto the DEFORMED destination grid's positions, rather than the
   /// JS's many small per-cell drawImage(sx,sy,sw,sh -> dst) calls. Each
   /// grid cell becomes 2 triangles.
+  /// Turning a layer over: a mirror about its content's vertical middle.
+  List<double> _flipMatrix(Layer layer) {
+    final b = shapeBoundingBox(layer.content);
+    final cx = (b.minX + b.maxX) / 2;
+    return [-1, 0, 0, 1, 2 * cx, 0];
+  }
+
+  /// The back side's picture, in the same buffer as the front's
+  /// (`front`): the front the right way round (backSame), or the back
+  /// layer drawn as it was placed within the turned-over layer.
+  ui.Image? _backImage(Project project, Layer layer, Layer? backLayer, ui.Image front, List<double> baseM,
+      List<double> flip, int globalFrame, int depth) {
+    final w = front.width, h = front.height;
+    final rec = ui.PictureRecorder();
+    final canvas = ui.Canvas(rec);
+    if (backLayer != null && backLayer.id != layer.id && depth < 3) {
+      final st = getLayerStateAt(project, backLayer.id, globalFrame);
+      final bm = [st.matrix[0], st.matrix[1], st.matrix[2], st.matrix[3], st.matrix[4] * _width, st.matrix[5] * _height];
+      final toBuffer = matMul([1, 0, 0, 1, w / 2, h / 2], invertAffine(matMul(baseM, flip)));
+      // the paper itself (the front seen from behind), the back picture
+      // printed on it - only within the layer's own shape.
+      canvas.drawImage(front, ui.Offset.zero, ui.Paint());
+      canvas.saveLayer(null, ui.Paint()..blendMode = ui.BlendMode.srcATop);
+      _drawLayerInto(canvas, project, backLayer, globalFrame, matMul(toBuffer, bm), depth + 1, 1);
+      canvas.restore();
+    } else if (layer.backSame) {
+      // buffer(p) = front(flip(p)): read the right way round once turned.
+      canvas.translate(2 * (flip[4] / 2 + w / 2), 0);
+      canvas.scale(-1, 1);
+      canvas.drawImage(front, ui.Offset.zero, ui.Paint());
+    } else {
+      return null;
+    }
+    return rec.endRecording().toImageSync(w, h);
+  }
+
   void _drawWarpedGrid(ui.Canvas canvas, ui.Image sourceImage, Grid srcGrid,
-      Grid dstGrid) {
+      Grid dstGrid, {ui.Image? back, bool flipped = false}) {
     final rows = math.min(srcGrid.length, dstGrid.length);
     final cols = rows == 0 ? 0 : math.min(srcGrid[0].length, dstGrid[0].length);
     if (perfInstrumentation && rows > 1 && cols > 1) perfCounters.gridCells += (rows - 1) * (cols - 1);
     final positions = <double>[];
     final uvs = <double>[];
     final indices = <int>[];
+    // with a back side: the triangles seen from behind (their winding
+    // turned against the source's) take it.
+    final backIndices = <int>[];
     var vertexIndex = 0;
+    double cross(List<double> a, List<double> b, List<double> c) =>
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    bool isBack(List<double> d0, List<double> d1, List<double> d2, List<double> s0, List<double> s1, List<double> s2) =>
+        (cross(d0, d1, d2) * cross(s0, s1, s2) < 0) != flipped;
     final imgW = sourceImage.width.toDouble(),
         imgH = sourceImage.height.toDouble();
 
@@ -2481,19 +2823,36 @@ class CanvasRenderer implements Renderer {
         addVertex(d10, uv10); // vertexIndex + 1
         addVertex(d01, uv01); // vertexIndex + 2
         addVertex(d11, uv11); // vertexIndex + 3
-        indices.addAll([
-          vertexIndex,
-          vertexIndex + 1,
-          vertexIndex + 2,
-          vertexIndex + 1,
-          vertexIndex + 3,
-          vertexIndex + 2
-        ]);
+        if (back == null) {
+          indices.addAll([
+            vertexIndex,
+            vertexIndex + 1,
+            vertexIndex + 2,
+            vertexIndex + 1,
+            vertexIndex + 3,
+            vertexIndex + 2
+          ]);
+        } else {
+          (isBack(d00, d10, d01, s00, s10, s01) ? backIndices : indices)
+              .addAll([vertexIndex, vertexIndex + 1, vertexIndex + 2]);
+          (isBack(d10, d11, d01, s10, s11, s01) ? backIndices : indices)
+              .addAll([vertexIndex + 1, vertexIndex + 3, vertexIndex + 2]);
+        }
         vertexIndex += 4;
       }
     }
 
     if (positions.isEmpty) return;
+    if (back != null && backIndices.isNotEmpty) {
+      canvas.drawVertices(
+          ui.Vertices.raw(ui.VertexMode.triangles, Float32List.fromList(positions),
+              textureCoordinates: Float32List.fromList(uvs), indices: Uint16List.fromList(backIndices)),
+          ui.BlendMode.srcOver,
+          ui.Paint()
+            ..shader = ui.ImageShader(back, ui.TileMode.clamp, ui.TileMode.clamp, Matrix4Identity.value)
+            ..filterQuality = ui.FilterQuality.medium);
+    }
+    if (indices.isEmpty) return;
     final vertices = ui.Vertices.raw(
       ui.VertexMode.triangles,
       Float32List.fromList(positions),
@@ -2646,6 +3005,20 @@ class CanvasRenderer implements Renderer {
       }
       // implication: not R, then S over it.
       if (mk.mode == 'implication') flip();
+      // a picture among the sources: masks by its own alpha, not by its
+      // rectangle - the coverage is drawn per pixel into a layer, which
+      // then lands with the mode's blend.
+      final pictures = [
+        for (final id in mk.sourceIds)
+          if (findLayer(project, id) case final s?
+              when isMediaShape(s.content.shape) && _layerImage(s, globalFrame) != null)
+            s
+      ];
+      if (pictures.isNotEmpty) {
+        _paintPictureMask(canvas, project, layer, mCanvasTarget, mk, pictures, globalFrame, all);
+        if (mk.mode == 'equivalence') flip();
+        continue;
+      }
       canvas.save();
       canvas.transform(_toMatrix4(mCanvasTarget));
       var projected =
@@ -2814,6 +3187,62 @@ class CanvasRenderer implements Renderer {
   }
 
   /// A mask's shape in the target's space: all its sources together.
+  /// One mask whose sources include pictures: coverage = the vector
+  /// sources' union plus each picture's alpha, inverted if asked,
+  /// feathered by a blur, then combined with the mode's blend.
+  void _paintPictureMask(ui.Canvas canvas, Project project, Layer layer, List<double> mCanvasTarget, Mask mk,
+      List<Layer> pictures, int globalFrame, ui.Rect all) {
+    final blendMode = switch (mk.mode) {
+      'subtract' || 'intersect' => ui.BlendMode.dstOut,
+      'exclude' || 'equivalence' => ui.BlendMode.xor,
+      _ => ui.BlendMode.srcOver,
+    };
+    final localFrame = math.min(layer.durationFrames, math.max(0, globalFrame - layer.startFrame)).toDouble();
+    final featherPx = (evaluateTrack(project, mk.feather, localFrame) as num).toDouble();
+    final deviceScale = math.sqrt((mCanvasTarget[0] * mCanvasTarget[3] - mCanvasTarget[2] * mCanvasTarget[1]).abs());
+    final sigma = featherPx * (deviceScale == 0 ? 1.0 : deviceScale) / 2;
+    final layerPaint = ui.Paint()..blendMode = blendMode;
+    if (sigma > 0.01) layerPaint.imageFilter = ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma);
+    canvas.saveLayer(null, layerPaint);
+    canvas.save();
+    canvas.transform(_toMatrix4(mCanvasTarget));
+    final white = ui.Paint()..color = const ui.Color(0xFFFFFFFF);
+    final pictureIds = {for (final p in pictures) p.id};
+    for (final id in mk.sourceIds) {
+      if (pictureIds.contains(id)) continue;
+      final p = _buildSourcePath(project, layer, mCanvasTarget, id, globalFrame,
+          part: id == mk.sourceLayerId ? mk.sourcePart : null);
+      if (p != null) canvas.drawPath(p, white);
+    }
+    canvas.restore();
+    for (final src in pictures) {
+      final img = _layerImage(src, globalFrame);
+      if (img == null) continue;
+      final st = getLayerStateAt(project, src.id, globalFrame);
+      canvas.save();
+      canvas.transform(_toMatrix4([
+        st.matrix[0], st.matrix[1], st.matrix[2], st.matrix[3], st.matrix[4] * _width, st.matrix[5] * _height,
+      ]));
+      final c = src.content;
+      canvas.drawImageRect(
+          img,
+          ui.Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
+          ui.Rect.fromCenter(center: ui.Offset(c.offset[0], c.offset[1]), width: c.size[0], height: c.size[1]),
+          ui.Paint()
+            ..filterQuality = ui.FilterQuality.medium
+            ..colorFilter = const ui.ColorFilter.mode(ui.Color(0xFFFFFFFF), ui.BlendMode.srcIn));
+      canvas.restore();
+    }
+    // intersect cuts away everything outside S (dstOut of not S).
+    final invert = mk.mode == 'intersect' ? !mk.invert : mk.invert;
+    if (invert) {
+      canvas.drawRect(all, ui.Paint()
+        ..color = const ui.Color(0xFFFFFFFF)
+        ..blendMode = ui.BlendMode.xor);
+    }
+    canvas.restore();
+  }
+
   ui.Path? _buildMaskPath(Project project, Layer targetLayer,
       List<double> mCanvasTarget, Mask mk, int globalFrame) {
     ui.Path? out;

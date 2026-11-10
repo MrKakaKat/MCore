@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import '../../app_state.dart';
 import 'stage_camera.dart';
 import 'stage_gesture_controller.dart';
 import 'stage_painter.dart';
+import '../crop/crop_view.dart' show CropLineControls;
 
 /// The stage widget: renders the current frame + the interactive
 /// handle/visual overlay defined by movement-mobile-gesture-spec.md
@@ -188,6 +190,7 @@ class _StageViewState extends State<StageView> {
             projectOutlines: _projectOutlines(),
             hiddenLines: _hiddenLines(),
             unitOverlay: _unitOverlay(),
+            cropLine: _cropLine(selectedLayer),
           ),
         ),
       ),
@@ -210,6 +213,46 @@ class _StageViewState extends State<StageView> {
               label: Text('Link ${widget.app.parentPicked.length}'),
             ),
           ]),
+        ),
+      // Detach a piece set like a crop: detach it from here too.
+      if (pieceInsets != null && selectedLayer != null)
+        Positioned(
+          right: 8,
+          bottom: 8,
+          child: FilledButton.icon(
+            key: const ValueKey('stage-piece-detach'),
+            onPressed: () => widget.app.detachPieceInsets(selectedLayer.id),
+            icon: const Icon(Icons.content_cut, size: 18),
+            label: const Text('Detach this part'),
+          ),
+        ),
+      // crop lines: their controls over the stage while drawing.
+      if (widget.app.cropLine != null && selectedLayer != null)
+        Positioned(
+          left: 8,
+          right: 8,
+          bottom: 8,
+          child: Material(
+            color: Theme.of(context).colorScheme.surface.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              child: CropLineControls(app: widget.app, compact: true),
+            ),
+          ),
+        ),
+      // a new shape / picture: fill the frame with it in one tap (the
+      // Crop tab's Fill) - only until it is let go.
+      if (selectedLayer != null && widget.app.freshFillLayerId == selectedLayer.id && pieceInsets == null)
+        Positioned(
+          right: 8,
+          top: 8,
+          child: FilledButton.tonalIcon(
+            key: const ValueKey('stage-fresh-fill'),
+            onPressed: () => widget.app.fitSelectedToStage('fill'),
+            icon: const Icon(Icons.crop_square, size: 18),
+            label: const Text('Fill'),
+          ),
         ),
       // a new shape waiting for its box: cancel.
       if (widget.app.pendingPlaceShape != null)
@@ -342,6 +385,12 @@ class _StageViewState extends State<StageView> {
     final app = widget.app;
     if (app.contourDebugLayers.isEmpty) return const [];
     final out = <({List<List<double>> points, bool hole})>[];
+    // several selected together: one contour around all of them (their
+    // union), drawn as rings of its own.
+    final group = app.selectedGroup;
+    final shown = app.contourDebugLayers.where(group.contains).toList();
+    final merge = group.length > 1 && shown.length > 1;
+    ui.Path? union;
     for (final id in app.contourDebugLayers) {
       final layer = findLayer(app.project, id);
       if (layer == null) continue;
@@ -350,9 +399,43 @@ class _StageViewState extends State<StageView> {
       final contour = app.renderer.layerContourDrawn(app.project, layer, app.currentFrame, const ContourParams());
       if (contour == null) continue;
       final m = toFrameMatrix(state.matrix);
+      if (merge && shown.contains(id)) {
+        final p = ui.Path()..fillType = ui.PathFillType.evenOdd;
+        for (final r in contour.rings) {
+          if (r.points.length < 3) continue;
+          p.addPolygon([for (final q in r.points) applyAffine(m, q)].map((q) => ui.Offset(q[0], q[1])).toList(), true);
+        }
+        union = union == null ? p : ui.Path.combine(ui.PathOperation.union, union, p);
+        continue;
+      }
       for (final r in contour.rings) {
         out.add((points: [for (final q in r.points) applyAffine(m, q)], hole: r.isHole));
       }
+    }
+    if (union != null) out.addAll(_pathRings(union));
+    return out;
+  }
+
+  /// A path's contours as point rings (every few px); a ring wound
+  /// against the first one is a hole.
+  static List<({List<List<double>> points, bool hole})> _pathRings(ui.Path path) {
+    final out = <({List<List<double>> points, bool hole})>[];
+    double? outerSign;
+    for (final metric in path.computeMetrics()) {
+      final n = math.max(8, (metric.length / 3).ceil());
+      final pts = <List<double>>[];
+      for (var i = 0; i < n; i++) {
+        final t = metric.getTangentForOffset(metric.length * i / n);
+        if (t != null) pts.add([t.position.dx, t.position.dy]);
+      }
+      if (pts.length < 3) continue;
+      var area = 0.0;
+      for (var i = 0; i < pts.length; i++) {
+        final a = pts[i], b = pts[(i + 1) % pts.length];
+        area += a[0] * b[1] - b[0] * a[1];
+      }
+      outerSign ??= area.sign;
+      out.add((points: pts, hole: area.sign != outerSign));
     }
     return out;
   }
@@ -374,6 +457,25 @@ class _StageViewState extends State<StageView> {
   }
 
   /// Invisible vector lines: where each runs, frame space.
+  /// The crop line being drawn over the selected layer (frame space).
+  CropLineOverlay? _cropLine(Layer? layer) {
+    final pts = widget.app.cropLine;
+    if (pts == null || layer == null) return null;
+    final m = toFrameMatrix(getLayerStateAt(widget.app.project, layer.id, widget.app.currentFrame).matrix);
+    final outline = [
+      for (final q in getContentOutline(layer.content, layer, widget.app.currentFrame, project: widget.app.project))
+        applyAffine(m, q)
+    ];
+    final area = [for (final q in widget.app.cropLineRegion(layer)) applyAffine(m, q)];
+    return (
+      points: [for (final p in pts) [...p]],
+      outline: outline,
+      area: area,
+      invert: widget.app.cropLineInvert,
+      closed: widget.app.cropLineClosed,
+    );
+  }
+
   List<List<List<double>>> _hiddenLines() {
     final app = widget.app;
     final follower = app.editingEffectId == 'follow' ? findLayer(app.project, app.selection.selectedLayer) : null;
@@ -491,6 +593,7 @@ class _StageCustomPainter extends CustomPainter {
     this.projectOutlines = const [],
     this.hiddenLines = const [],
     this.unitOverlay = const [],
+    this.cropLine,
     required this.contentPicture,
     required this.frameWidth,
     required this.frameHeight,
@@ -524,8 +627,11 @@ class _StageCustomPainter extends CustomPainter {
       projectOutlines: projectOutlines,
       hiddenLines: hiddenLines,
       unitOverlay: unitOverlay,
+      cropLine: cropLine,
     );
   }
+
+  final CropLineOverlay? cropLine;
 
   final List<PhysicsContact> physicsContacts;
 

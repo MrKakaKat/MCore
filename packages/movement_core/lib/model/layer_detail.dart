@@ -89,7 +89,7 @@ String keyDetailTabOf(String trackName) {
   if (trackName.startsWith('mask ')) return 'Masks';
   if (trackName.startsWith('glow ')) return 'Figures';
   if (trackName == 'volume') return 'Audio';
-  if (trackName == 'negative') return 'Filters';
+  if (trackName == 'negative' || trackName == 'filter blur' || trackName == 'fractal warp') return 'Filters';
   if (trackName == 'shadow echo fade') return 'Figures';
   if (trackName == 'text' || trackName.startsWith('text ')) return 'Text';
   if (trackName.startsWith('line ')) return 'Line';

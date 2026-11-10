@@ -36,7 +36,10 @@ class GlowSample {
   final List<double> a, b; // b == a for a point
   final double radius;
   final double strength;
-  GlowSample(this.glow, this.a, this.b, this.radius, this.strength);
+
+  /// A guided glow's guide line (its point moves only along it).
+  final List<double>? guideA, guideB;
+  GlowSample(this.glow, this.a, this.b, this.radius, this.strength, {this.guideA, this.guideB});
 }
 
 List<double> _vec(Project? project, Track t, double frame, Layer layer) {
@@ -58,9 +61,15 @@ List<GlowSample> evaluateGlows(Project? project, Layer layer, num globalFrame) {
       if (g.enabled)
         () {
           final a = place(_vec(project, g.position, frame, layer));
-          final b = g.kind == 'line' ? place(_vec(project, g.end, frame, layer)) : a;
           final r = (evaluateTrack(project, g.radius, frame, layer) as double) * side;
           final s = (evaluateTrack(project, g.strength, frame, layer) as double).clamp(0.0, 1.0);
+          if (g.kind == 'guided') {
+            final e = place(_vec(project, g.end, frame, layer));
+            final t = (evaluateTrack(project, g.along, frame, layer) as num).toDouble().clamp(0.0, 1.0);
+            final p = [a[0] + (e[0] - a[0]) * t, a[1] + (e[1] - a[1]) * t];
+            return GlowSample(g, p, p, math.max(r, 0.0), s, guideA: a, guideB: e);
+          }
+          final b = g.kind == 'line' ? place(_vec(project, g.end, frame, layer)) : a;
           return GlowSample(g, a, b, math.max(r, 0.0), s);
         }()
   ];
@@ -71,6 +80,21 @@ int _glowCounter = 0;
 /// Adds a glow to the layer (turning the gradient fill on): a point in
 /// the middle, or a line across the middle. Returns it.
 GlowEmitter addGlow(Layer layer, String kind, {String color = '#ffffff'}) {
+  if (kind == 'guided') {
+    // across the middle, its ends on the shape's edge.
+    final ends = _edgeAcross(layer, [0.5, 0.5], 0);
+    final g = GlowEmitter(
+      id: 'glow_${DateTime.now().microsecondsSinceEpoch}_${_glowCounter++}',
+      kind: kind,
+      color: color,
+      position: track(ends.$1, true),
+      end: track(ends.$2, true),
+      radius: track(0.35),
+    );
+    layer.fill.gradient = true;
+    layer.fill.glows.add(g);
+    return g;
+  }
   final g = GlowEmitter(
     id: 'glow_${DateTime.now().microsecondsSinceEpoch}_${_glowCounter++}',
     kind: kind,
@@ -82,6 +106,58 @@ GlowEmitter addGlow(Layer layer, String kind, {String color = '#ffffff'}) {
   layer.fill.gradient = true;
   layer.fill.glows.add(g);
   return g;
+}
+
+/// The shape's outline (content-local) and its bounding box.
+({List<List<double>> outline, double minX, double minY, double w, double h}) _shapeEdge(Layer layer) {
+  final box = shapeBoundingBox(layer.content);
+  final outline = getContentOutline(layer.content, layer, layer.startFrame);
+  return (outline: outline, minX: box.minX, minY: box.minY, w: box.maxX - box.minX, h: box.maxY - box.minY);
+}
+
+/// The nearest point of the shape's edge to `local` (content space).
+List<double> _nearestOnEdge(List<List<double>> outline, List<double> local) {
+  if (outline.length < 2) return local;
+  List<double>? best;
+  var bestD = double.infinity;
+  for (var i = 0; i < outline.length; i++) {
+    final a = outline[i], b = outline[(i + 1) % outline.length];
+    final dx = b[0] - a[0], dy = b[1] - a[1];
+    final len2 = dx * dx + dy * dy;
+    final t = len2 == 0 ? 0.0 : (((local[0] - a[0]) * dx + (local[1] - a[1]) * dy) / len2).clamp(0.0, 1.0);
+    final p = [a[0] + dx * t, a[1] + dy * t];
+    final d = math.pow(p[0] - local[0], 2) + math.pow(p[1] - local[1], 2);
+    if (d < bestD) {
+      bestD = d.toDouble();
+      best = p;
+    }
+  }
+  return best ?? local;
+}
+
+/// The line through `center` (box fractions) at `angle` (radians) cut
+/// by the shape's edge: its two ends, box fractions.
+(List<double>, List<double>) _edgeAcross(Layer layer, List<double> center, double angle) {
+  final e = _shapeEdge(layer);
+  if (e.w <= 0 || e.h <= 0) return ([0.0, 0.5], [1.0, 0.5]);
+  final c = [e.minX + center[0] * e.w, e.minY + center[1] * e.h];
+  final d = [math.cos(angle), math.sin(angle)];
+  var tMin = double.infinity, tMax = -double.infinity;
+  final o = e.outline;
+  for (var i = 0; i < o.length; i++) {
+    final a = o[i], b = o[(i + 1) % o.length];
+    final sx = b[0] - a[0], sy = b[1] - a[1];
+    final den = d[0] * sy - d[1] * sx;
+    if (den.abs() < 1e-12) continue;
+    final t = ((a[0] - c[0]) * sy - (a[1] - c[1]) * sx) / den;
+    final u = ((a[0] - c[0]) * d[1] - (a[1] - c[1]) * d[0]) / den;
+    if (u < 0 || u > 1) continue;
+    tMin = math.min(tMin, t);
+    tMax = math.max(tMax, t);
+  }
+  if (!tMin.isFinite || !tMax.isFinite) return ([0.0, 0.5], [1.0, 0.5]);
+  List<double> frac(double t) => [(c[0] + d[0] * t - e.minX) / e.w, (c[1] + d[1] * t - e.minY) / e.h];
+  return (frac(tMin), frac(tMax));
 }
 
 /// Stage handles of a layer's glows, in frame space: `key` is
@@ -97,10 +173,15 @@ class GlowHandle {
 List<GlowHandle> getGlowHandles(Project project, Layer layer, int globalFrame) {
   final m = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
   return [
-    for (final s in evaluateGlows(project, layer, globalFrame)) ...[
-      GlowHandle(s.glow, 'a', applyAffine(m, s.a)),
-      if (s.glow.kind == 'line') GlowHandle(s.glow, 'b', applyAffine(m, s.b)),
-    ]
+    for (final s in evaluateGlows(project, layer, globalFrame))
+      if (s.glow.kind == 'guided') ...[
+        GlowHandle(s.glow, 'a', applyAffine(m, s.guideA!)),
+        GlowHandle(s.glow, 'b', applyAffine(m, s.guideB!)),
+        GlowHandle(s.glow, 'c', applyAffine(m, s.a)),
+      ] else ...[
+        GlowHandle(s.glow, 'a', applyAffine(m, s.a)),
+        if (s.glow.kind == 'line') GlowHandle(s.glow, 'b', applyAffine(m, s.b)),
+      ]
   ];
 }
 
@@ -139,7 +220,26 @@ class GlowDragOp implements DragOp {
     final box = shapeBoundingBox(layer.content);
     final w = box.maxX - box.minX, h = box.maxY - box.minY;
     if (w <= 0 || h <= 0) return;
-    setTrackValueAt(end == 'b' ? glow.end : glow.position, localFrameOf(layer, globalFrame), [
+    final lf = localFrameOf(layer, globalFrame);
+    if (glow.kind == 'guided') {
+      final p = [local[0] - grabDelta[0], local[1] - grabDelta[1]];
+      final ga = evaluateTrack(project, glow.position, lf.toDouble(), layer) as List, gb = evaluateTrack(project, glow.end, lf.toDouble(), layer) as List;
+      final a = [box.minX + (ga[0] as num) * w, box.minY + (ga[1] as num) * h];
+      final b = [box.minX + (gb[0] as num) * w, box.minY + (gb[1] as num) * h];
+      if (end == 'c') {
+        // the point: only along its line.
+        final dx = b[0] - a[0], dy = b[1] - a[1];
+        final len2 = dx * dx + dy * dy;
+        final t = len2 == 0 ? 0.0 : (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2).clamp(0.0, 1.0);
+        setTrackValueAt(glow.along, lf, t);
+        return;
+      }
+      // an end: stays on the shape's edge.
+      final q = _nearestOnEdge(_shapeEdge(layer).outline, p);
+      setTrackValueAt(end == 'b' ? glow.end : glow.position, lf, [(q[0] - box.minX) / w, (q[1] - box.minY) / h]);
+      return;
+    }
+    setTrackValueAt(end == 'b' ? glow.end : glow.position, lf, [
       (local[0] - grabDelta[0] - box.minX) / w,
       (local[1] - grabDelta[1] - box.minY) / h,
     ]);

@@ -109,6 +109,12 @@ class _FillViewState extends State<FillView> {
                     label: const Text('Add line'),
                     onPressed: () => _edit(() => addGlow(layer, 'line')),
                   ),
+                  OutlinedButton.icon(
+                    key: const ValueKey('fill-add-guided'),
+                    icon: const Icon(Icons.linear_scale, size: 16),
+                    label: const Text('Add on a line'),
+                    onPressed: () => _edit(() => addGlow(layer, 'guided')),
+                  ),
                 ],
               ),
               if (fill.glows.isEmpty)
@@ -139,9 +145,9 @@ class _FillViewState extends State<FillView> {
             Row(
               children: [
                 Checkbox(value: g.enabled, onChanged: (v) => _edit(() => g.enabled = v ?? true)),
-                Icon(g.kind == 'line' ? Icons.horizontal_rule : Icons.blur_on, size: 18),
+                Icon(g.kind == 'line' ? Icons.horizontal_rule : g.kind == 'guided' ? Icons.linear_scale : Icons.blur_on, size: 18),
                 const SizedBox(width: 6),
-                Expanded(child: Text('${g.kind == 'line' ? 'Line' : 'Point'} ${index + 1}')),
+                Expanded(child: Text('${g.kind == 'line' ? 'Line' : g.kind == 'guided' ? 'On a line' : 'Point'} ${index + 1}')),
                 IconButton(
                   icon: const Icon(Icons.arrow_upward, size: 16),
                   tooltip: 'draw under the previous glow',
@@ -178,6 +184,12 @@ class _FillViewState extends State<FillView> {
               selected: g.color == 'transparent',
               onSelected: (v) => _edit(() => g.color = v ? 'transparent' : '#ffffff'),
             ),
+            if (g.kind == 'guided') ...[
+              const Hint('The line lies on the shape - drag its ends (white squares) along the edge; the glow '
+                  'moves only along it.'),
+              _trackRow(context, 'glow.along', 'along', g.along, localFrame, 0.5,
+                  const ParamScale.slider(0, 1, decimals: 2)),
+            ] else
             _trackRow(context, 'glow.position', g.kind == 'line' ? 'start' : 'position', g.position, localFrame,
                 [0.5, 0.5], const ParamScale.ruler(unitsPerPixel: 0.005, minorTick: 0.05, majorTick: 0.25, decimals: 2)),
             if (g.kind == 'line')

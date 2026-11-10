@@ -83,6 +83,8 @@ class CropView extends StatelessWidget {
               ],
             ),
             const Divider(height: 24),
+            _CutLinesSection(app: app),
+            const Divider(height: 24),
             _DetachSection(app: app, layer: layer),
             const Divider(height: 20),
             const Text('Fit to frame', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -255,6 +257,98 @@ class _DetachSectionState extends State<_DetachSection> {
               label: Text(cuts > 0 ? 'Fill the cut-out holes back in ($cuts)' : 'Remove this piece\'s cut'),
             ),
           ),
+      ],
+    );
+  }
+}
+
+
+/// Cut by lines: straight lines (or a long line of many points) tapped on
+/// the stage mark an area - erased, or taken out as a new layer.
+class _CutLinesSection extends StatelessWidget {
+  final AppState app;
+  const _CutLinesSection({required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    final line = app.cropLine;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Cut by lines', style: TextStyle(fontWeight: FontWeight.bold)),
+        if (line == null) ...[
+          const Hint('Tap points on the stage: straight lines between them (two points: one diagonal cut, or '
+              'hundreds for a free outline). The marked side is erased or becomes a layer of its own.'),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              key: const ValueKey('crop-line-start'),
+              onPressed: app.startCropLine,
+              icon: const Icon(Icons.timeline, size: 18),
+              label: const Text('Draw a cut line'),
+            ),
+          ),
+        ] else
+          CropLineControls(app: app),
+      ],
+    );
+  }
+}
+
+/// The crop line's controls (the Crop tab and the stage share them).
+class CropLineControls extends StatelessWidget {
+  final AppState app;
+  final bool compact;
+  const CropLineControls({super.key, required this.app, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final line = app.cropLine ?? const [];
+    final ready = line.length >= (app.cropLineClosed ? 3 : 2);
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (!compact) Text('${line.length} points', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        IconButton(
+          key: const ValueKey('crop-line-undo'),
+          tooltip: 'remove the last point',
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.undo, size: 18),
+          onPressed: line.isEmpty ? null : app.undoCropLinePoint,
+        ),
+        FilterChip(
+          key: const ValueKey('crop-line-closed'),
+          label: const Text('Closed'),
+          visualDensity: VisualDensity.compact,
+          selected: app.cropLineClosed,
+          onSelected: app.setCropLineClosed,
+        ),
+        FilterChip(
+          key: const ValueKey('crop-line-invert'),
+          label: const Text('Invert'),
+          visualDensity: VisualDensity.compact,
+          selected: app.cropLineInvert,
+          onSelected: app.setCropLineInvert,
+        ),
+        FilledButton.tonalIcon(
+          key: const ValueKey('crop-line-erase'),
+          onPressed: ready ? () => app.applyCropLine(extract: false) : null,
+          icon: const Icon(Icons.delete_outline, size: 18),
+          label: const Text('Erase'),
+        ),
+        FilledButton.tonalIcon(
+          key: const ValueKey('crop-line-extract'),
+          onPressed: ready ? () => app.applyCropLine(extract: true) : null,
+          icon: const Icon(Icons.call_split, size: 18),
+          label: const Text('New layer'),
+        ),
+        TextButton(
+          key: const ValueKey('crop-line-cancel'),
+          onPressed: app.cancelCropLine,
+          child: const Text('Cancel'),
+        ),
       ],
     );
   }

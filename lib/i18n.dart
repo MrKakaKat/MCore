@@ -40,6 +40,7 @@ const _ru = <String, String>{
   'Collide': 'Столкновения',
   'Figures': 'Фигуры',
   'Filters': 'Фильтры',
+  'Objects': 'Объекты',
   'Links': 'Связи',
   'Palettes': 'Палитры',
   'Text': 'Текст',

@@ -20,6 +20,7 @@ import 'ui/perf/perf_hud.dart';
 import 'ui/fill/fill_view.dart';
 import 'ui/ai/ai_dialogs.dart';
 import 'ui/filters/filters_view.dart';
+import 'ui/objects/objects_view.dart';
 import 'ui/links/links_view.dart';
 import 'ui/palettes/palettes_view.dart';
 import 'ui/effects/effects_view.dart';
@@ -503,11 +504,14 @@ Widget _stageOverlayIcons(AppState app, {required bool narrow}) {
                       shape: const CircleBorder(),
                       child: PopupMenuButton<String>(
                     key: const ValueKey('ai-menu'),
-                    padding: const EdgeInsets.all(6),
-                    constraints: const BoxConstraints(),
-                    iconSize: 18,
+                    padding: EdgeInsets.zero,
                     tooltip: 'edit with AI',
-                    icon: const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+                    // the same size as the other round buttons (no 48 px
+                    // icon-button box around it).
+                    child: const Padding(
+                      padding: EdgeInsets.all(6),
+                      child: Icon(Icons.auto_awesome, color: Colors.white, size: 18),
+                    ),
                     onSelected: (v) async {
                       if (v == 'prompt') await showAiPromptDialog(context, app: app);
                       if (v == 'paste' && context.mounted) {
@@ -612,7 +616,7 @@ class _MobileParamsSheet extends StatefulWidget {
   final double fullHeight;
   const _MobileParamsSheet({required this.app, required this.dock, required this.fullHeight});
 
-  static const tabs = ['Layers', 'Movement', 'Keyframes', 'Timeline', 'Masks', 'Effects', 'Collide', 'Figures', 'Filters', 'Links', 'Palettes', 'Text', 'Line', 'Crop', 'Chroma', 'Audio', 'Reverse', 'Presets', 'Stage', 'Snapping', 'Settings'];
+  static const tabs = ['Layers', 'Movement', 'Keyframes', 'Timeline', 'Masks', 'Effects', 'Collide', 'Figures', 'Filters', 'Objects', 'Links', 'Palettes', 'Text', 'Line', 'Crop', 'Chroma', 'Audio', 'Reverse', 'Presets', 'Stage', 'Snapping', 'Settings'];
 
   @override
   State<_MobileParamsSheet> createState() => _MobileParamsSheetState();
@@ -793,7 +797,7 @@ class _MobileParamsSheetState extends State<_MobileParamsSheet> {
 // since they already have dedicated 220px/260px columns there; including
 // them again here would reintroduce the exact top-icon duplication this
 // round removed, just relocated into the drawer instead.
-const _wideDrawerTabs = ['Keyframes', 'Timeline', 'Masks', 'Effects', 'Collide', 'Figures', 'Filters', 'Links', 'Palettes', 'Text', 'Line', 'Crop', 'Chroma', 'Audio', 'Reverse', 'Presets', 'Stage', 'Snapping', 'Settings'];
+const _wideDrawerTabs = ['Keyframes', 'Timeline', 'Masks', 'Effects', 'Collide', 'Figures', 'Filters', 'Objects', 'Links', 'Palettes', 'Text', 'Line', 'Crop', 'Chroma', 'Audio', 'Reverse', 'Presets', 'Stage', 'Snapping', 'Settings'];
 
 /// the tab-rail + tab-body switch shared by both the narrow layout's
 /// `_MobileParamsSheet` (all tabs) and the wide layout's new endDrawer (see
@@ -921,6 +925,8 @@ class _ParamsTabsState extends State<_ParamsTabs> {
         return FillView(app: widget.app);
       case 'Filters':
         return FiltersView(app: widget.app);
+      case 'Objects':
+        return ObjectsView(app: widget.app);
       case 'Links':
         return LinksView(app: widget.app);
       case 'Palettes':

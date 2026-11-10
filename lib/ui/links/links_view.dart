@@ -8,6 +8,10 @@ import '../stage/stage_painter.dart' show showPropLinks;
 
 const _propNames = {
   'x': 'X', 'y': 'Y', 'rotation': 'Rotation', 'scaleX': 'Scale X', 'scaleY': 'Scale Y', 'opacity': 'Opacity',
+  'scaleLeft': 'left size handle', 'scaleRight': 'right size handle',
+  'scaleTop': 'top size handle', 'scaleBottom': 'bottom size handle',
+  'round': 'rounding (all corners)', 'round0': 'rounding: top left', 'round1': 'rounding: top right',
+  'round2': 'rounding: bottom right', 'round3': 'rounding: bottom left',
 };
 
 /// Links: dependencies - one property of this layer follows one property
@@ -119,7 +123,7 @@ class LinksView extends StatelessWidget {
                         key: ValueKey('link-to-$i'),
                         value: k.to,
                         items: [
-                          for (final p in linkProps) DropdownMenuItem(value: p, child: Text('my ${_propNames[p]}')),
+                          for (final p in linkTargets) DropdownMenuItem(value: p, child: Text('my ${_propNames[p]}')),
                         ],
                         onChanged: (v) => set(() => k.to = v ?? k.to),
                       ),
@@ -151,6 +155,8 @@ class LinksView extends StatelessWidget {
     const defaults = {
       'x': (0.0, 30.0), 'y': (0.0, -30.0), 'rotation': (0.0, 15.0),
       'scaleX': (0.0, 0.3), 'scaleY': (0.0, 0.3), 'opacity': (-0.6, 0.0),
+      'scaleLeft': (0.0, 0.3), 'scaleRight': (0.0, 0.3), 'scaleTop': (0.0, 0.3), 'scaleBottom': (0.0, 0.3),
+      'round': (0.0, 30.0), 'round0': (0.0, 30.0), 'round1': (0.0, 30.0), 'round2': (0.0, 30.0), 'round3': (0.0, 30.0),
     };
     Widget num(String key, String label, double v, void Function(double) on) => Row(mainAxisSize: MainAxisSize.min, children: [
           Text(label, style: const TextStyle(fontSize: 12)),
@@ -204,7 +210,7 @@ class LinksView extends StatelessWidget {
                   DropdownButton<String>(
                     key: ValueKey('sound-link-to-$i'),
                     value: k.to,
-                    items: [for (final p in linkProps) DropdownMenuItem(value: p, child: Text('changes ${_propNames[p]}'))],
+                    items: [for (final p in linkTargets) DropdownMenuItem(value: p, child: Text('changes ${_propNames[p]}'))],
                     onChanged: (v) => set(() {
                       if (v == null || v == k.to) return;
                       k.to = v;

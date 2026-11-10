@@ -4,6 +4,7 @@ import 'dart:math' as math;
 // curve helpers) that collides with movement_core's `Easing` (the
 // {x1,y1,x2,y2} cubic-bezier value this whole file edits) - hidden here
 // since every use of the name in this file means the movement_core one.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart' hide Easing;
 import 'package:movement_core/movement_core.dart';
 
@@ -84,99 +85,125 @@ class _GraphEditorViewState extends State<GraphEditorView> {
   @override
   Widget build(BuildContext context) {
     final t = _state.getEditingTemporal();
-    // SingleChildScrollView is kept here (content can genuinely exceed
-    // a small dialog's available height, e.g. a track with many
-    // segments wrapping the tab row to several lines) - the easing
-    // square's own drag reliability doesn't depend on removing it:
-    // _EasingSquare uses Listener rather than GestureDetector
-    // specifically so its drag keeps working correctly regardless of
-    // whether a scrollable ancestor is also competing for the same
-    // gesture (see its own doc comment).
+    // Compact: the curve beside its result and its numbers, one row of
+    // types; no scrolling around the curve - its drags never fight a
+    // scroll (the curve takes the finger at once, see _claimFinger).
     Widget toolIcon(String key, IconData icon, String tip, VoidCallback? onPressed) => IconButton(
           key: ValueKey(key),
           icon: Icon(icon, size: 18),
           tooltip: tip,
           visualDensity: VisualDensity.compact,
+          padding: const EdgeInsets.all(4),
+          constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
           onPressed: onPressed,
         );
-    Widget label(String text) => Padding(
-          padding: const EdgeInsets.only(top: 10, bottom: 4),
-          child: Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-        );
-    return AlertDialog(
-      titlePadding: const EdgeInsets.fromLTRB(20, 16, 8, 0),
-      contentPadding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-      // title: what is eased, and the curve tools (copy, paste, reset).
-      title: Row(children: [
-        Expanded(child: Text(_state.wholePath ? 'Ease - whole path' : 'Ease')),
-        toolIcon('ease-copy', Icons.copy, 'copy this curve',
-            () => setState(() => widget.app.copiedEasing = _state.getEditingTemporal())),
-        toolIcon('ease-paste', Icons.paste, 'paste the copied curve',
-            widget.app.copiedEasing == null ? null : () => _updateEasing(widget.app.copiedEasing!)),
-        toolIcon('ease-reset', Icons.restart_alt, 'back to the default curve', _reset),
-      ]),
-      content: SingleChildScrollView(
-        child: SizedBox(
-          width: 280,
+    const small = TextStyle(fontSize: 11, color: Colors.grey);
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+      child: SizedBox(
+        width: 340,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // which transition (one line, scrolls sideways) and X / Y.
-              if (!_state.wholePath)
-                SingleChildScrollView(scrollDirection: Axis.horizontal, child: _segmentTabs()),
-              if (_state.componentCount > 1) _componentTabs(),
-              label('Type'),
-              _kindChips(t),
-              if (!t.isOvershoot)
-                Row(children: [
-                  Expanded(child: label(speedView ? 'Speed over time' : 'Curve')),
-                  // the same curve as a speed graph, or back.
+              // what is eased, and the curve tools (copy, paste, reset, close).
+              Row(children: [
+                Expanded(
+                  child: Text(_state.wholePath ? 'Ease - whole path' : 'Ease',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                ),
+                toolIcon('ease-copy', Icons.copy, 'copy this curve',
+                    () => setState(() => widget.app.copiedEasing = _state.getEditingTemporal())),
+                toolIcon('ease-paste', Icons.paste, 'paste the copied curve',
+                    widget.app.copiedEasing == null ? null : () => _updateEasing(widget.app.copiedEasing!)),
+                toolIcon('ease-reset', Icons.restart_alt, 'back to the default curve', _reset),
+                toolIcon('ease-close', Icons.close, 'close', () => Navigator.pop(context)),
+              ]),
+              // which transition (one line, sideways) and X / Y.
+              if (!_state.wholePath || _state.componentCount > 1)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: [
+                    if (_state.componentCount > 1) ...[_componentTabs(), const SizedBox(width: 8)],
+                    if (!_state.wholePath) _segmentTabs(),
+                  ]),
+                ),
+              const SizedBox(height: 4),
+              Row(children: [
+                Expanded(child: _kindChips(t)),
+                if (!t.isOvershoot)
                   toolIcon('ease-speed-view', speedView ? Icons.show_chart : Icons.speed,
                       speedView ? 'edit as a curve' : 'edit as a speed graph', () => setState(() => speedView = !speedView)),
-                ]),
+              ]),
+              const SizedBox(height: 6),
               if (t.isOvershoot)
                 _overshootControls(t)
               else if (speedView)
                 _SpeedGraph(easing: t, onChanged: _updateEasing)
               else
-                AspectRatio(
-                  aspectRatio: 1,
-                  child: _EasingSquare(easing: t, onChanged: _updateEasing),
-                ),
-              label('Result'),
-              SizedBox(
-                height: 70,
-                child: CustomPaint(painter: _CurvePainter(_state.sampleCurve()), size: Size.infinite),
-              ),
-              if (!t.isOvershoot) ...[
-                label('Exact values'),
-                Row(children: [
-                  for (final (i, name) in const [(0, 'x1'), (1, 'y1'), (2, 'x2'), (3, 'y2')]) ...[
-                    if (i > 0) const SizedBox(width: 6),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 170,
+                      height: 170,
+                      child: _claimFinger(_EasingSquare(easing: t, onChanged: _updateEasing)),
+                    ),
+                    const SizedBox(width: 10),
                     Expanded(
-                      child: _CoordField(
-                        label: name,
-                        value: [t.x1, t.y1, t.x2, t.y2][i],
-                        onCommit: (v) => _updateEasing(switch (i) {
-                          0 => t.withBezier(GraphEditorState.clampX(v), t.y1, t.x2, t.y2),
-                          1 => t.withBezier(t.x1, GraphEditorState.clampY(v), t.x2, t.y2),
-                          2 => t.withBezier(t.x1, t.y1, GraphEditorState.clampX(v), t.y2),
-                          _ => t.withBezier(t.x1, t.y1, t.x2, GraphEditorState.clampY(v)),
-                        }),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Result', style: small),
+                          SizedBox(
+                            height: 56,
+                            child: CustomPaint(painter: _CurvePainter(_state.sampleCurve()), size: Size.infinite),
+                          ),
+                          const SizedBox(height: 6),
+                          for (final row in const [
+                            [(0, 'x1'), (1, 'y1')],
+                            [(2, 'x2'), (3, 'y2')],
+                          ])
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Row(children: [
+                                for (final (i, name) in row) ...[
+                                  if (i.isOdd) const SizedBox(width: 6),
+                                  Expanded(
+                                    child: _CoordField(
+                                      label: name,
+                                      value: [t.x1, t.y1, t.x2, t.y2][i],
+                                      onCommit: (v) => _updateEasing(switch (i) {
+                                        0 => t.withBezier(GraphEditorState.clampX(v), t.y1, t.x2, t.y2),
+                                        1 => t.withBezier(t.x1, GraphEditorState.clampY(v), t.x2, t.y2),
+                                        2 => t.withBezier(t.x1, t.y1, GraphEditorState.clampX(v), t.y2),
+                                        _ => t.withBezier(t.x1, t.y1, t.x2, GraphEditorState.clampY(v)),
+                                      }),
+                                    ),
+                                  ),
+                                ],
+                              ]),
+                            ),
+                        ],
                       ),
                     ),
                   ],
-                ]),
+                ),
+              if (t.isOvershoot || speedView) ...[
+                const SizedBox(height: 4),
+                const Text('Result', style: small),
+                SizedBox(
+                  height: 48,
+                  child: CustomPaint(painter: _CurvePainter(_state.sampleCurve()), size: Size.infinite),
+                ),
               ],
-              const SizedBox(height: 8),
             ],
           ),
         ),
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
-      ],
     );
   }
 
@@ -190,6 +217,8 @@ class _GraphEditorViewState extends State<GraphEditorView> {
         for (final (kind, label) in kinds)
           ChoiceChip(
             key: ValueKey('ease-kind-$kind'),
+            visualDensity: VisualDensity.compact,
+            labelStyle: const TextStyle(fontSize: 12),
             label: Text(label),
             selected: t.kind == kind,
             onSelected: (_) => _updateEasing(t.withOvershoot(kind: kind)),
@@ -268,6 +297,17 @@ class _GraphEditorViewState extends State<GraphEditorView> {
 
 
 }
+
+/// The curve takes the finger the moment it lands: nothing behind it (a
+/// scrolling list, the sheet) can start moving instead while it is dragged.
+Widget _claimFinger(Widget child) => RawGestureDetector(
+      gestures: {
+        EagerGestureRecognizer:
+            GestureRecognizerFactoryWithHandlers<EagerGestureRecognizer>(() => EagerGestureRecognizer(), (_) {}),
+      },
+      behavior: HitTestBehavior.opaque,
+      child: child,
+    );
 
 /// Same persistent-controller pattern as params_panel_view.dart's
 /// `_NumField`, for the same reason: a fresh TextEditingController built
@@ -512,15 +552,16 @@ class _SpeedGraphState extends State<_SpeedGraph> {
         AspectRatio(
           aspectRatio: 1.6,
           child: LayoutBuilder(
-            builder: (context, c) => GestureDetector(
+            builder: (context, c) => _claimFinger(Listener(
               key: const ValueKey('speed-graph'),
-              onPanStart: (d) => _drag(d.localPosition, c.biggest),
-              onPanUpdate: (d) => _drag(d.localPosition, c.biggest),
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: (d) => _drag(d.localPosition, c.biggest),
+              onPointerMove: (d) => _drag(d.localPosition, c.biggest),
               child: CustomPaint(
                 size: c.biggest,
                 painter: _SpeedPainter(easeSpeedSamples(widget.easing), Theme.of(context).colorScheme.primary),
               ),
-            ),
+            )),
           ),
         ),
         Wrap(spacing: 4, children: [

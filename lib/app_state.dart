@@ -265,6 +265,7 @@ class AppState extends ChangeNotifier {
         linkInTime(project, layer, sound);
       }
       selection.selectedLayer = layer.id;
+      freshFillLayerId = layer.id;
       _fitTimeline();
       _render();
       notifyListeners();
@@ -573,7 +574,10 @@ class AppState extends ChangeNotifier {
   final Set<String> contourDebugLayers = {};
 
   void toggleContourDebug(String layerId) {
-    contourDebugLayers.contains(layerId) ? contourDebugLayers.remove(layerId) : contourDebugLayers.add(layerId);
+    // several selected together: all of them (one contour around them).
+    final ids = selectedGroup.length > 1 && selectedGroup.contains(layerId) ? selectedGroup : {layerId};
+    final on = !contourDebugLayers.contains(layerId);
+    on ? contourDebugLayers.addAll(ids) : contourDebugLayers.removeAll(ids);
     notifyListeners();
   }
 
@@ -1036,10 +1040,40 @@ class AppState extends ChangeNotifier {
     _render();
     final image = await renderer.captureFrame();
     final bytes = await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
+    // the alpha of what is there (without the background): once more,
+    // with the background off.
+    ByteData? alpha;
+    if (eyedropperAlpha) {
+      final bg = renderer.backgroundColor;
+      renderer.backgroundColor = null;
+      _render();
+      final clear = await renderer.captureFrame();
+      renderer.backgroundColor = bg;
+      _render();
+      alpha = await clear.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
+      clear.dispose();
+    }
     if (_stagePick != onPick) return; // finished or replaced meanwhile
     stagePickImage = image;
     _stagePickRgba = bytes;
+    _stagePickAlpha = alpha;
     notifyListeners();
+  }
+
+  ByteData? _stagePickAlpha;
+
+  /// Settings: the eyedropper takes the alpha of what it picks too (a
+  /// see-through colour, and the layer's opacity) - off: always opaque.
+  bool eyedropperAlpha = false;
+
+  /// The picked point without the background: its own colour and alpha.
+  List<int>? _stagePickAlphaAt(List<double> framePoint) {
+    final img = stagePickImage, b = _stagePickAlpha;
+    if (img == null || b == null) return null;
+    final x = framePoint[0].floor(), y = framePoint[1].floor();
+    if (x < 0 || y < 0 || x >= img.width || y >= img.height) return null;
+    final i = (y * img.width + x) * 4;
+    return [b.getUint8(i), b.getUint8(i + 1), b.getUint8(i + 2), b.getUint8(i + 3)];
   }
 
   /// The colour of the frame at `framePoint` while picking (null: outside,
@@ -1058,12 +1092,22 @@ class AppState extends ChangeNotifier {
   void finishStageColorPick(List<double>? framePoint) {
     final cb = _stagePick;
     final rgb = framePoint == null ? null : stagePickRgbAt(framePoint);
+    final a = framePoint == null ? null : _stagePickAlphaAt(framePoint);
     _stagePick = null;
+    _stagePickAlpha = null;
     eyedropperOwner.value = null;
     stagePickImage = null;
     _stagePickRgba = null;
     chromaTool = 'none';
-    if (cb != null && rgb != null) cb(rgbHex(rgb[0], rgb[1], rgb[2]));
+    if (cb != null && rgb != null) {
+      if (a != null && a[3] < 255) {
+        // see-through: its own colour (not mixed with the background).
+        final c = a[3] == 0 ? rgb : a;
+        cb('${rgbHex(c[0], c[1], c[2])}${a[3].toRadixString(16).padLeft(2, '0')}');
+      } else {
+        cb(rgbHex(rgb[0], rgb[1], rgb[2]));
+      }
+    }
     notifyListeners();
   }
 
@@ -1778,6 +1822,8 @@ class AppState extends ChangeNotifier {
 
   void selectLayer(String? id) {
     multiSelection = {};
+    if (id != freshFillLayerId) freshFillLayerId = null;
+    if (id != selection.selectedLayer) cropLine = null; // the line belongs to its layer
     switchKeySelection(selection.selectedLayer, id, notify: false);
     selection.selectedLayer = id;
     // a keyframe selection tied to the PREVIOUS layer's tracks doesn't
@@ -1934,7 +1980,7 @@ class AppState extends ChangeNotifier {
   }
 
   /// Movement tab: scale x and y change together.
-  bool scaleLinked = false;
+  bool scaleLinked = true;
 
   // ===== layered keys =====
 
@@ -2328,6 +2374,102 @@ class AppState extends ChangeNotifier {
     return _detach(layerId, (l) => rectRegion(project, l, currentFrame, a, b));
   }
 
+  // ===== crop lines (Crop tab) =====
+
+  /// The line being drawn over the selected layer (frame points; null:
+  /// the tool is off). It is not a layer: nothing of it is saved, it
+  /// lives until it is applied or cancelled.
+  List<List<double>>? cropLine;
+
+  /// Closed: the area inside it; open: the side on its left.
+  bool cropLineClosed = false;
+
+  /// The other side (everything but the marked area).
+  bool cropLineInvert = false;
+
+  void startCropLine() {
+    cropLine = [];
+    cropLineClosed = false;
+    cropLineInvert = false;
+    pieceRectTool = false;
+    notifyListeners();
+  }
+
+  void cancelCropLine() {
+    cropLine = null;
+    notifyListeners();
+  }
+
+  /// A tap: one more point, pulled onto what is near (`radius`, frame px).
+  void cropLineTap(List<double> framePoint, double radius) {
+    final line = cropLine;
+    final layer = findLayer(project, selection.selectedLayer);
+    if (line == null || layer == null) return;
+    line.add(snapCropLinePoint(project, layer, currentFrame, framePoint, radius));
+    notifyListeners();
+  }
+
+  /// A point dragged.
+  void moveCropLinePoint(int i, List<double> framePoint, double radius) {
+    final line = cropLine;
+    final layer = findLayer(project, selection.selectedLayer);
+    if (line == null || layer == null || i < 0 || i >= line.length) return;
+    line[i] = snapCropLinePoint(project, layer, currentFrame, framePoint, radius);
+    notifyListeners();
+  }
+
+  void undoCropLinePoint() {
+    if (cropLine?.isNotEmpty ?? false) cropLine!.removeLast();
+    notifyListeners();
+  }
+
+  void setCropLineClosed(bool v) {
+    cropLineClosed = v;
+    notifyListeners();
+  }
+
+  void setCropLineInvert(bool v) {
+    cropLineInvert = v;
+    notifyListeners();
+  }
+
+  /// The marked area in the selected layer's own space (empty: not
+  /// enough points).
+  List<List<double>> cropLineRegion(Layer layer) {
+    final line = cropLine;
+    if (line == null || line.length < 2) return const [];
+    return cutLineRegion(layer, frameToLayerLocal(project, layer, currentFrame, line), closed: cropLineClosed);
+  }
+
+  /// Applies the line: the marked area (the other side when inverted) is
+  /// erased - or becomes a new layer of its own (`extract`), the rest
+  /// staying. One undo step; the line is gone after.
+  Layer? applyCropLine({required bool extract}) {
+    final layer = findLayer(project, selection.selectedLayer);
+    if (layer == null) return null;
+    final region = cropLineRegion(layer);
+    if (region.length < 3) return null;
+    Layer? piece;
+    if (extract) {
+      piece = _detach(layer.id, (_) => region);
+      // inverted: the new layer takes everything but the area.
+      if (piece != null && cropLineInvert) {
+        piece.pieceClips.last.inside = false;
+        layer.pieceClips.last.inside = true;
+        if (recenterDetachedPieces) recenterPiece(project, piece);
+        clearStateCaches();
+      }
+    } else {
+      undo.pushUndoState(project);
+      layer.pieceClips.add(PieceClip(points: region, inside: cropLineInvert));
+      clearStateCaches();
+    }
+    cropLine = null;
+    _render();
+    notifyListeners();
+    return piece;
+  }
+
   /// The precise tool: the current shape of another layer.
   Layer? detachPieceByLayer(String layerId, String referenceId) {
     final ref = findLayer(project, referenceId);
@@ -2586,7 +2728,30 @@ class AppState extends ChangeNotifier {
   void focusNewLayer(String id) {
     selection.groupSelection.clear();
     selectLayer(id);
+    final l = findLayer(project, id);
+    // a shape or a picture: a Fill button in the stage's corner until it
+    // is let go.
+    if (l != null && l.content.shape != 'text' && l.content.shape != 'audio' && l.content.shape != 'line') {
+      freshFillLayerId = id;
+    }
   }
+
+  /// Filters, Match Color: the layer's colour wheels set so its colours
+  /// take on those of what is under it. False: nothing to match.
+  Future<bool> matchColor(String layerId) async {
+    final layer = findLayer(project, layerId);
+    if (layer == null) return false;
+    final st = await renderer.matchColorStats(project, layer, currentFrame);
+    if (st == null) return false;
+    undo.pushUndoState(project);
+    matchColorInto(layer.filters, st.srcMean, st.srcDev, st.dstMean, st.dstDev);
+    commitEdit();
+    return true;
+  }
+
+  /// The new layer showing the stage's Fill button (gone once another
+  /// layer, or none, is selected - it never comes back).
+  String? freshFillLayerId;
 
   void showTab(String name, {bool open = true}) {
     requestedTab = name;
@@ -3998,7 +4163,8 @@ class AppState extends ChangeNotifier {
     'showDescriptions': (() => descriptionsVisible.value, (v) => descriptionsVisible.value = v as bool, true),
     'keyMode': (() => keyMode, (v) => keyMode = v as String, 'base'),
     'showKeyParams': (() => showKeyParams, (v) => showKeyParams = v as bool, false),
-    'scaleLinked': (() => scaleLinked, (v) => scaleLinked = v as bool, false),
+    'scaleLinked': (() => scaleLinked, (v) => scaleLinked = v as bool, true),
+    'eyedropperAlpha': (() => eyedropperAlpha, (v) => eyedropperAlpha = v as bool, false),
     'videoDecoder': (() => videoDecoder, (v) => videoDecoder = v as String, 'auto'),
     'timelineSnapFrames': (() => timelineSnapFrames, (v) => timelineSnapFrames = (v as num).toInt(), kLayerEdgeSnapThresholdFrames),
   };

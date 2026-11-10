@@ -97,4 +97,34 @@ void main() {
     expect(hs.map((h) => h.end), ['a', 'b']);
     expect(hs[1].screen, [130.0, 100.0]);
   });
+
+  test('guided glow: its line lies on the shape, the point moves only along it', () {
+    final l = createLayer('circle')
+      ..id = 'c'
+      ..content.offset = [0, 0]
+      ..content.size = [100, 100]
+      ..transform.anchor.defaultValue = [0.5, 0.5];
+    final g = addGlow(l, 'guided');
+    final s = evaluateGlows(null, l, 0).single;
+    // across the middle, from edge to edge of the circle.
+    expect(s.guideA![0], closeTo(-50, 1.5));
+    expect(s.guideB![0], closeTo(50, 1.5));
+    expect(s.a, [closeTo(0, 1.5), closeTo(0, 1.5)]);
+    final p = Project(layers: [l]);
+    final hs = getGlowHandles(p, l, 0);
+    expect(hs.map((h) => h.end), ['a', 'b', 'c']);
+    // dragging the point off its line: it stays on it.
+    final op = GlowDragOp.grab(p, l, hs[2], 0, hs[2].screen);
+    op.apply(p, 0, [hs[2].screen[0] + 25, hs[2].screen[1] + 40]);
+    final s2 = evaluateGlows(p, l, 0).single;
+    expect(s2.a[1], closeTo(0, 1.5));
+    expect(s2.a[0], closeTo(25, 1.5));
+    expect(g.along.defaultValue, closeTo(0.75, 0.02));
+    // dragging an end inside: it snaps back onto the edge.
+    final opA = GlowDragOp.grab(p, l, hs[0], 0, hs[0].screen);
+    opA.apply(p, 0, [100, 70]);
+    final s3 = evaluateGlows(p, l, 0).single;
+    final r = (s3.guideA![0] * s3.guideA![0] + s3.guideA![1] * s3.guideA![1]);
+    expect(r, closeTo(2500, 150));
+  });
 }

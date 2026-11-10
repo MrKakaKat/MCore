@@ -68,13 +68,16 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
   final volume = layer.content.volume;
   if (volume != null) fn('volume', volume);
   fn('negative', layer.filters.negative);
+  fn('filter blur', layer.filters.blur);
+  fn('fractal warp', layer.filters.warp);
   fn('shadow echo fade', layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
   if (ts != null) fn('text shadow echo fade', ts.echoFade);
   for (var i = 0; i < layer.fill.glows.length; i++) {
     final g = layer.fill.glows[i];
     fn('glow ${i + 1} position', g.position);
-    if (g.kind == 'line') fn('glow ${i + 1} end', g.end);
+    if (g.kind == 'line' || g.kind == 'guided') fn('glow ${i + 1} end', g.end);
+    if (g.kind == 'guided') fn('glow ${i + 1} along', g.along);
     fn('glow ${i + 1} radius', g.radius);
     fn('glow ${i + 1} strength', g.strength);
   }
@@ -135,12 +138,15 @@ void visitLayerTracks(Layer layer, void Function(Track track) fn) {
   final volume = layer.content.volume;
   if (volume != null) fn(volume);
   fn(layer.filters.negative);
+  fn(layer.filters.blur);
+  fn(layer.filters.warp);
   fn(layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
   if (ts != null) fn(ts.echoFade);
   for (final g in layer.fill.glows) {
     fn(g.position);
-    if (g.kind == 'line') fn(g.end);
+    if (g.kind == 'line' || g.kind == 'guided') fn(g.end);
+    if (g.kind == 'guided') fn(g.along);
     fn(g.radius);
     fn(g.strength);
   }

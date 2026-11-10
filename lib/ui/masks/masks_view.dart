@@ -59,6 +59,22 @@ class MasksView extends StatelessWidget {
               value: showMaskViz,
               onChanged: (v) => app.setAppPreference('showMaskViz', v),
             ),
+            // dig: this layer is a hole through everything under it.
+            SwitchListTile(
+              key: const ValueKey('mask-dig'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.hide_source),
+              title: const Text('Dig a hole'),
+              subtitle: hint('This layer\'s shape cuts a hole through every layer under it, down to the background '
+                  '(the layer itself is not drawn)'),
+              value: layer.dig,
+              onChanged: (v) {
+                app.pushUndo();
+                layer.dig = v;
+                app.commitEdit();
+              },
+            ),
             // the stack (modes in order) or regions (pick what shows).
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -682,6 +698,40 @@ class MasksView extends StatelessWidget {
                       app.commitEdit();
                     },
                   ),
+                ),
+                // one more mode on the same sources: the next step of the
+                // stack, right under this one.
+                PopupMenuButton<String>(
+                  key: ValueKey('mask-add-mode-$idx'),
+                  tooltip: 'add another mode with the same sources',
+                  icon: const Icon(Icons.add_circle_outline, size: 18),
+                  itemBuilder: (_) => [
+                    for (final (v, name) in const [
+                      ('add', 'Add'),
+                      ('subtract', 'Subtract'),
+                      ('intersect', 'Intersect'),
+                      ('exclude', 'Exclude'),
+                      ('implication', 'Implication'),
+                      ('equivalence', 'Equivalence'),
+                    ])
+                      PopupMenuItem(value: v, child: Text(name)),
+                  ],
+                  onSelected: (v) {
+                    app.pushUndo();
+                    layer.masks.insert(
+                        idx + 1,
+                        Mask(
+                          mode: v,
+                          sourceLayerId: mask.sourceLayerId,
+                          moreSources: [...mask.moreSources],
+                          sourcePart: mask.sourcePart,
+                          invert: mask.invert,
+                          feather: cloneTrack(mask.feather),
+                          featherOutside: mask.featherOutside,
+                          range: mask.range == null ? null : [...mask.range!],
+                        ));
+                    app.commitEdit();
+                  },
                 ),
               ],
             ),

@@ -281,6 +281,11 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
   void _tapLaneAt(Offset contentPos) {
     final id = _laneAt?.call(contentPos);
     if (id == null) return;
+    // picking several: a tap here adds / removes that layer, as on its lane.
+    if (widget.app.timelineGroupPick && id != _focusedLayerId) {
+      widget.app.toggleMultiSelect(id);
+      return;
+    }
     if (id == _focusedLayerId) {
       _toggleFocus(id);
     } else if (widget.app.layerQuickSwitchEnabled) {

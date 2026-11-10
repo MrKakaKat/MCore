@@ -123,10 +123,11 @@ class LayerPanelView extends StatelessWidget {
                       app.project.layers.indexOf(layer),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.circle, size: 12, color: _parseColor(layer.color)),
-                    // its place in the stack (1: the bottom).
+                    // its row on the timeline (1: the bottom of the
+                    // stack) - layers sharing a row share the number.
                     SizedBox(
                       width: 26,
-                      child: Text('${app.project.layers.indexOf(layer) + 1}',
+                      child: Text('${timelineRowOf(app.project, layer.id) + 1}',
                           key: ValueKey('layer-order-${layer.id}'),
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 10, color: Colors.grey)),

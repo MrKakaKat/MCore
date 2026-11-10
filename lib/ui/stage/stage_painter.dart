@@ -99,6 +99,7 @@ void paintStage({
   List<List<List<double>>> projectOutlines = const [],
   List<List<List<double>>> hiddenLines = const [],
   List<(List<List<double>>, double)> unitOverlay = const [],
+  CropLineOverlay? cropLine,
 }) {
   camera.mirrorX = mirrorX;
   camera.mirrorY = mirrorY;
@@ -270,6 +271,7 @@ void paintStage({
             ..style = ui.PaintingStyle.stroke
             ..strokeWidth = inv);
     }
+    if (cropLine != null) _paintCropLine(canvas, cropLine, inv);
     // invisible lines: a thin guide where each runs (editor only).
     for (final q in hiddenLines) {
       if (q.length < 2) continue;
@@ -1014,13 +1016,47 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
           ..style = ui.PaintingStyle.stroke
           ..strokeWidth = 1.5 * inv);
   }
+  // a rect being lengthened: what it gains (blue) and loses (red).
+  final extendOp = activeDrag?.op;
+  if (extendOp is ScaleDragOp && extendOp.extendStart != null && extendOp.layer == layer) {
+    final m = getTransformBoxHandles(project, layer, globalFrame).mCanvas;
+    ui.Path box(List<double> b) {
+      final pts = [
+        [b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]],
+      ].map((p) => applyAffine(m, p)).toList();
+      return ui.Path()..addPolygon([for (final p in pts) ui.Offset(p[0], p[1])], true);
+    }
+
+    final c = layer.content;
+    final now = box([c.offset[0] - c.size[0] / 2, c.offset[1] - c.size[1] / 2, c.offset[0] + c.size[0] / 2, c.offset[1] + c.size[1] / 2]);
+    final was = box(extendOp.extendStart!);
+    canvas.drawPath(ui.Path.combine(ui.PathOperation.difference, now, was), ui.Paint()..color = const ui.Color(0x663D8BFF));
+    canvas.drawPath(ui.Path.combine(ui.PathOperation.difference, was, now), ui.Paint()..color = const ui.Color(0x66FF4040));
+  }
   // Origami: the fold lines (where a fold is, even before it folds), a
   // dot in each one's middle to drag it.
   if (origamiFoldsOnStage) {
     final line = ui.Paint()
       ..color = const ui.Color(0xCCFFD54F)
       ..strokeWidth = 1.5 * inv;
-    for (final f in origamiFoldLinesFrame(project, layer, globalFrame)) {
+    // the lines stay on the paper: clipped to the shape as it is drawn
+    // (every piece, folded flaps too) - past its edge they only confused.
+    ui.Path? paper;
+    final rings = layerBaseRings(project, layer, globalFrame);
+    if (rings != null) {
+      final m = getTransformBoxHandles(project, layer, globalFrame).mCanvas;
+      for (final r in rings) {
+        if (r.length < 3) continue;
+        final p = ui.Path()..addPolygon([for (final q in r) applyAffine(m, q)].map((q) => ui.Offset(q[0], q[1])).toList(), true);
+        paper = paper == null ? p : ui.Path.combine(ui.PathOperation.union, paper, p);
+      }
+    }
+    final folds = origamiFoldLinesFrame(project, layer, globalFrame);
+    canvas.save();
+    if (paper != null) {
+      canvas.clipPath(paper);
+    }
+    for (final f in folds) {
       // dashed, along its points (it bends where it lies on a flap).
       final step = 8 * inv;
       var on = true, left = step;
@@ -1041,6 +1077,9 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
           }
         }
       }
+    }
+    canvas.restore();
+    for (final f in folds) {
       final active = activeDrag?.family == 'origami' && activeDrag?.activeKey == '${f.inst.id}:${f.key}';
       canvas.drawCircle(ui.Offset(f.mid[0], f.mid[1]), 6 * inv, ui.Paint()..color = const ui.Color(0xFFFFD54F));
       if (!active) canvas.drawCircle(ui.Offset(f.mid[0], f.mid[1]), 3.5 * inv, ui.Paint()..color = const ui.Color(0xFF000000));
@@ -1411,8 +1450,10 @@ void _paintGlowHandles(ui.Canvas canvas, Project project, Layer layer, int globa
           ..strokeWidth = 1 * inv
           ..color = const ui.Color(0x99FFFFFF));
     final hs = getGlowHandles(project, layer, globalFrame).where((h) => h.glow == s.glow).toList();
-    if (hs.length == 2) {
-      canvas.drawLine(ui.Offset(hs[0].screen[0], hs[0].screen[1]), ui.Offset(hs[1].screen[0], hs[1].screen[1]),
+    // a line glow's segment, or a guided glow's guide (end to end).
+    final ends = hs.where((h) => h.end != 'c').toList();
+    if (ends.length == 2) {
+      canvas.drawLine(ui.Offset(ends[0].screen[0], ends[0].screen[1]), ui.Offset(ends[1].screen[0], ends[1].screen[1]),
           ui.Paint()
             ..strokeWidth = 1.5 * inv
             ..color = const ui.Color(0xCCFFFFFF));
@@ -1420,6 +1461,11 @@ void _paintGlowHandles(ui.Canvas canvas, Project project, Layer layer, int globa
     for (final h in hs) {
       final p = ui.Offset(h.screen[0], h.screen[1]);
       final active = activeDrag?.family == 'glow' && activeDrag?.activeKey == h.key;
+      // a guided glow's ends: small white squares on the shape's edge.
+      if (s.glow.kind == 'guided' && h.end != 'c') {
+        canvas.drawRect(ui.Rect.fromCenter(center: p, width: 9 * inv, height: 9 * inv), ui.Paint()..color = const ui.Color(0xFFFFFFFF));
+        continue;
+      }
       canvas.drawCircle(p, (active ? 8 : 6) * inv, ui.Paint()..color = color);
       canvas.drawCircle(
           p,
@@ -1658,4 +1704,40 @@ void _diamond(ui.Canvas canvas, ui.Offset c, double r, ui.Paint paint) {
         ..lineTo(c.dx - r, c.dy)
         ..close(),
       paint);
+}
+
+
+/// Crop lines on the stage: the line (thin, orange like Collide's
+/// contour, a small dot at each point) and the area it marks, tinted red
+/// within the layer - the other side when inverted. Frame space.
+typedef CropLineOverlay = ({
+  List<List<double>> points,
+  List<List<double>> outline,
+  List<List<double>> area,
+  bool invert,
+  bool closed,
+});
+
+void _paintCropLine(ui.Canvas canvas, CropLineOverlay c, double inv) {
+  ui.Path poly(List<List<double>> pts, bool close) =>
+      ui.Path()..addPolygon([for (final p in pts) ui.Offset(p[0], p[1])], close);
+  if (c.outline.length >= 3 && c.area.length >= 3) {
+    final shape = poly(c.outline, true);
+    final area = poly(c.area, true);
+    final marked = ui.Path.combine(c.invert ? ui.PathOperation.difference : ui.PathOperation.intersect, shape, area);
+    canvas.drawPath(marked, ui.Paint()..color = const ui.Color(0x55FF3D00));
+  }
+  const orange = ui.Color(0xFFFF9800);
+  if (c.points.length >= 2) {
+    canvas.drawPath(
+        poly(c.points, c.closed),
+        ui.Paint()
+          ..style = ui.PaintingStyle.stroke
+          ..strokeWidth = 1 * inv
+          ..color = orange);
+  }
+  final dot = ui.Paint()..color = orange;
+  for (final p in c.points) {
+    canvas.drawCircle(ui.Offset(p[0], p[1]), 2.2 * inv, dot);
+  }
 }

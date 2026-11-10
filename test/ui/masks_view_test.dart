@@ -109,7 +109,10 @@ void main() {
     expect(layer.masks.first.feather.defaultValue, equals(5.0));
 
     expect(layer.masks.first.feather.keyframes, isEmpty);
-    await tester.tap(find.byIcon(Icons.diamond_outlined));
+    final diamond = find.descendant(of: featherRow, matching: find.byIcon(Icons.diamond_outlined));
+    await tester.ensureVisible(diamond);
+    await tester.pump();
+    await tester.tap(diamond);
     await tester.pump();
     expect(layer.masks.first.feather.keyframes, hasLength(1));
   });

@@ -535,6 +535,7 @@ Map<String, dynamic> shapeFillToJson(ShapeFill f) => {
             'end': trackToJson(g.end),
             'radius': trackToJson(g.radius),
             'strength': trackToJson(g.strength),
+            if (g.kind == 'guided') 'along': trackToJson(g.along),
           }
       ],
       if (f.cornerRadius > 0) 'cornerRadius': f.cornerRadius,
@@ -629,6 +630,7 @@ ShapeFill shapeFillFromJson(Map<String, dynamic> j) {
           end: t(g, 'end'),
           radius: t(g, 'radius'),
           strength: t(g, 'strength'),
+          along: t(g, 'along'),
         )
     ],
     cornerRadius: (j['cornerRadius'] as num?)?.toDouble() ?? 0,
@@ -676,6 +678,10 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.parentUntil != null) 'parentUntil': l.parentUntil,
       if (l.mirrorSourceId != null) 'mirror': {'source': l.mirrorSourceId, 'axis': l.mirrorAxis},
       if (l.mirrorProbe) 'mirrorProbe': true,
+      if (l.dig) 'dig': true,
+      if (l.showBack) 'showBack': true,
+      if (l.backSourceId != null) 'backSourceId': l.backSourceId,
+      if (l.backSame) 'backSame': true,
       if (l.mirrorAllLayers) 'mirrorAllLayers': true,
       if (l.locked) 'locked': true,
       if (l.parentKeepDifference) 'parentKeepDifference': true,
@@ -714,7 +720,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
               if (c.onlyWhenTouching) 'onlyWhenTouching': true,
             }
         ],
-      if (l.filters.any) 'filters': {'negative': trackToJson(l.filters.negative)},
+      if (l.filters.changed) 'filters': l.filters.toJson(),
       if (l.follow.enabled || l.follow.targetId != null) 'follow': l.follow.toJson(),
       if (l.confirmHistory.isNotEmpty) 'confirmHistory': l.confirmHistory,
       if (l.pieceClips.isNotEmpty)
@@ -839,9 +845,7 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
             onlyWhenTouching: c['onlyWhenTouching'] as bool? ?? false,
           )
       ],
-      filters: j['filters'] is Map && j['filters']['negative'] is Map
-          ? LayerFilters(negative: trackFromJson(j['filters']['negative'] as Map<String, dynamic>))
-          : null,
+      filters: j['filters'] is Map ? LayerFilters.fromJson(j['filters'] as Map<String, dynamic>) : null,
       follow: j['follow'] is Map ? FollowSettings.fromJson(j['follow'] as Map<String, dynamic>) : null,
       pieceClips: [
         for (final c in (j['pieces'] as List? ?? const []))
@@ -867,6 +871,10 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
       ..parentFrom = (j['parentFrom'] as num?)?.toInt()
       ..parentUntil = (j['parentUntil'] as num?)?.toInt()
       ..mirrorProbe = j['mirrorProbe'] == true
+      ..dig = j['dig'] == true
+      ..showBack = j['showBack'] == true
+      ..backSourceId = j['backSourceId'] as String?
+      ..backSame = j['backSame'] == true
       ..mirrorAllLayers = j['mirrorAllLayers'] == true
       ..locked = j['locked'] == true
       ..parentKeepDifference = j['parentKeepDifference'] == true

@@ -86,16 +86,18 @@ bool _polyLike(String s) => s == 'triangle' || s == 'ngon' || s == 'polygon';
 List<RoundedCorner> roundedCorners(Layer layer, int globalFrame, {Project? project}) {
   final c = layer.content, f = layer.fill;
   if (c.shape == 'rect' && f.cornerRadius > 0) {
-    final (rx, ry) = cornerRadii(layer, globalFrame, project: project);
+    final e = cornerRadiiEach(layer, globalFrame, project: project);
     final x0 = c.offset[0] - c.size[0] / 2, x1 = c.offset[0] + c.size[0] / 2;
     final y0 = c.offset[1] - c.size[1] / 2, y1 = c.offset[1] + c.size[1] / 2;
     final k = f.cornerShape;
-    return [
-      RoundedCorner([x0, y0], [x0, y0 + ry], [x0 + rx, y0], k),
-      RoundedCorner([x1, y0], [x1 - rx, y0], [x1, y0 + ry], k),
-      RoundedCorner([x1, y1], [x1, y1 - ry], [x1 - rx, y1], k),
-      RoundedCorner([x0, y1], [x0 + rx, y1], [x0, y1 - ry], k),
+    // only the corners that round (Fill tab, Each corner).
+    final all = [
+      RoundedCorner([x0, y0], [x0, y0 + e[0].$2], [x0 + e[0].$1, y0], k),
+      RoundedCorner([x1, y0], [x1 - e[1].$1, y0], [x1, y0 + e[1].$2], k),
+      RoundedCorner([x1, y1], [x1, y1 - e[2].$2], [x1 - e[2].$1, y1], k),
+      RoundedCorner([x0, y1], [x0 + e[3].$1, y1], [x0, y1 - e[3].$2], k),
     ];
+    return [for (var i = 0; i < 4; i++) if (f.cornersOn[i]) all[i]];
   }
   if (_polyLike(c.shape) && (f.cornerRadius > 0 || f.outerRadius > 0)) {
     return _ringCorners(shapePoints(c), f.cornerRadius, f.outerRadius, f.cornerShape);

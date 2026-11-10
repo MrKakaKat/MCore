@@ -44,7 +44,7 @@ class EffectsView extends StatelessWidget {
         return 'Time';
     }
     final inst = layer.effectStack.where((e) => e.id == id).firstOrNull;
-    if (inst?.effectId == 'outline') return 'Contour';
+    if (inst?.effectId == 'outline' || inst?.effectId == 'edge_blur') return 'Contour';
     return 'Shape';
   }
 
@@ -1639,7 +1639,7 @@ class _AddEffectRowState extends State<_AddEffectRow> {
     // by type (a type's name heads its items).
     String typeOfOption(String key) => key.startsWith('motion:')
         ? (key == 'motion:motionBlur' || key == 'motion:timeQuantize' ? 'Time' : 'Motion')
-        : (key == 'outline' ? 'Contour' : 'Shape');
+        : (key == 'outline' || key == 'edge_blur' ? 'Contour' : 'Shape');
     final all = <String, String>{
       for (final e in effectRegistry.entries) e.key: e.value.name,
       for (final m in motionPanelIds)

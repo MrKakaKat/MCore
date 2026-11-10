@@ -31,8 +31,13 @@ void main() {
     final app = AppState();
     final layer = findLayer(app.project, app.selection.selectedLayer)!;
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: ParamsPanelView(app: app))));
+    // linked by default.
+    expect(app.scaleLinked, isTrue);
     final link = find.byKey(const ValueKey('scale-link'));
     await tester.ensureVisible(link);
+    await tester.tap(link);
+    await tester.pump();
+    expect(app.scaleLinked, isFalse);
     await tester.tap(link);
     await tester.pump();
     expect(app.scaleLinked, isTrue);

@@ -159,4 +159,24 @@ void main() {
     expect(r1[0][0], r2[0][0]);
     expect((r1[0][2][0] - r2[0][2][0]).abs() + (r1[0][2][1] - r2[0][2][1]).abs(), greaterThan(1e-6));
   });
+
+  test('the turn handle turns the fold the way the finger goes', () {
+    stageSize.width = 480;
+    stageSize.height = 480;
+    final project = Project(fps: 30);
+    final l = createLayer('rect', size: 100);
+    project.layers.add(l);
+    final inst = createEffectInstance('origami_fold', 'o1', l);
+    l.effectStack.add(inst);
+    final h = origamiDirectionHandlesFrame(project, l, 0).single;
+    final mid = origamiFoldLinesFrame(project, l, 0).single.mid;
+    final op = OrigamiDirectionDragOp(l, inst);
+    op.apply(project, 0, h.p);
+    // 20 degrees clockwise on the screen (y down) round the middle.
+    final a = math.atan2(h.p[1] - mid[1], h.p[0] - mid[0]) + 20 * math.pi / 180;
+    final r = math.sqrt(math.pow(h.p[0] - mid[0], 2) + math.pow(h.p[1] - mid[1], 2));
+    op.apply(project, 0, [mid[0] + r * math.cos(a), mid[1] + r * math.sin(a)]);
+    final d = ((inst.params['direction'] as Track).defaultValue as num).toDouble();
+    expect(d, closeTo(20, 1e-6), reason: 'clockwise on screen, the direction grows');
+  });
 }

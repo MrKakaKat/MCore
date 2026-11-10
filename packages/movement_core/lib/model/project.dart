@@ -31,6 +31,7 @@ import 'dart:math' as math;
 import 'line_path.dart' show LineNode, straightLineNodes, syncLineBox;
 import '../text/text_animators.dart' show TextAnimator;
 import '../effects/motion/follow.dart' show FollowSettings;
+import 'project_json.dart' show trackToJson, trackFromJson;
 
 int fps = 60;
 
@@ -1302,9 +1303,14 @@ class PieceClip {
 /// fading out to nothing at `radius` from it. Positions are fractions of
 /// the content's bounding box (0..1, may go outside), `radius` a fraction
 /// of the box's larger side, `strength` 0..1 - all animatable.
+///
+/// 'guided': a guide line between `position` and `end` that lies on the
+/// shape (its ends on the shape's edge); the glow is a point that only
+/// moves along it, at `along` (0..1).
 class GlowEmitter {
   String id;
-  String kind; // 'point' | 'line'
+  String kind; // 'point' | 'line' | 'guided'
+  Track along;
   String color;
   bool enabled;
   Track position;
@@ -1320,7 +1326,9 @@ class GlowEmitter {
     Track? end,
     Track? radius,
     Track? strength,
-  })  : position = position ?? track([0.5, 0.5], true),
+    Track? along,
+  })  : along = along ?? track(0.5),
+        position = position ?? track([0.5, 0.5], true),
         end = end ?? track([0.8, 0.5], true),
         radius = radius ?? track(0.5),
         strength = strength ?? track(1.0);
@@ -1334,6 +1342,7 @@ class GlowEmitter {
         end: cloneTrack(end),
         radius: cloneTrack(radius),
         strength: cloneTrack(strength),
+        along: cloneTrack(along),
       );
 }
 
@@ -1492,6 +1501,14 @@ class PropLink {
 
 const linkProps = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity'];
 
+/// What a link can move: the properties above, one size handle (its side
+/// grows, the one across stays) and a rect's rounding (all corners or one).
+const linkTargets = [
+  ...linkProps,
+  'scaleLeft', 'scaleRight', 'scaleTop', 'scaleBottom',
+  'round', 'round0', 'round1', 'round2', 'round3',
+];
+
 /// Cut by layer: this layer's shape combined with another layer's (the
 /// cutter), the cutter grown by `gap` first - a live boolean.
 class CutByLayer {
@@ -1532,13 +1549,168 @@ class CutByLayer {
       onlyWhenTouching: onlyWhenTouching);
 }
 
-/// Colour filters on a layer, applied to everything it draws.
+/// Colour filters on a layer.
+///
+/// `scope`: what they act on - 'self' (the layer's own picture), 'scene'
+/// (the whole frame, every layer) or 'glass' (whatever is under the
+/// layer's shape; the layer itself is only the glass - not drawn - so a
+/// negative glass over a negative glass cancels out).
 class LayerFilters {
   /// Negative: 0 (off) .. 1 (colours inverted), keyable.
   Track negative;
-  LayerFilters({Track? negative}) : negative = negative ?? Track(0.0, false);
-  bool get any => negative.defaultValue != 0.0 || negative.keyframes.isNotEmpty;
-  LayerFilters copy() => LayerFilters(negative: cloneTrack(negative));
+  String scope;
+
+  /// Blur, px (keyable); its kind: 'gaussian', 'directional' (along
+  /// `blurAngle`, degrees), 'zoom' (out from the middle) or 'spin'
+  /// (around the middle).
+  Track blur;
+  String blurKind;
+  double blurAngle;
+
+  /// Colour wheels, per channel (r, g, b): lift (the shadows, an offset),
+  /// gamma (the midtones, exponent 2^-v) and gain (the highlights, 1 + v).
+  List<double> lift;
+  List<double> gamma;
+  List<double> gain;
+
+  /// Fractal warp: px the picture is pushed around by fractal noise
+  /// (keyable), the noise's feature size (px) and how fast it changes
+  /// (per second).
+  Track warp;
+  double warpScale;
+  double warpSpeed;
+
+  /// Light wrap: the light of what is under the layer bleeding over its
+  /// edges - strength 0..1 and how far in, px.
+  double lightWrap;
+  double lightWrapWidth;
+
+  LayerFilters({
+    Track? negative,
+    this.scope = 'self',
+    Track? blur,
+    this.blurKind = 'gaussian',
+    this.blurAngle = 0,
+    List<double>? lift,
+    List<double>? gamma,
+    List<double>? gain,
+    Track? warp,
+    this.warpScale = 60,
+    this.warpSpeed = 0.5,
+    this.lightWrap = 0,
+    this.lightWrapWidth = 12,
+  })  : negative = negative ?? Track(0.0, false),
+        blur = blur ?? Track(0.0, false),
+        lift = lift ?? [0, 0, 0],
+        gamma = gamma ?? [0, 0, 0],
+        gain = gain ?? [0, 0, 0],
+        warp = warp ?? Track(0.0, false);
+
+  static bool _on(Track t) => t.defaultValue != 0.0 || t.keyframes.isNotEmpty;
+
+  /// The colour wheels move anything.
+  bool get graded => [...lift, ...gamma, ...gain].any((v) => v != 0);
+
+  bool get any =>
+      _on(negative) || _on(blur) || _on(warp) || graded || lightWrap > 0;
+
+  /// Settings that differ from a fresh one (saved even with nothing on).
+  bool get changed => any || scope != 'self' || blurKind != 'gaussian' || blurAngle != 0 ||
+      warpScale != 60 || warpSpeed != 0.5 || lightWrapWidth != 12;
+
+  LayerFilters copy() => LayerFilters(
+        negative: cloneTrack(negative),
+        scope: scope,
+        blur: cloneTrack(blur),
+        blurKind: blurKind,
+        blurAngle: blurAngle,
+        lift: [...lift],
+        gamma: [...gamma],
+        gain: [...gain],
+        warp: cloneTrack(warp),
+        warpScale: warpScale,
+        warpSpeed: warpSpeed,
+        lightWrap: lightWrap,
+        lightWrapWidth: lightWrapWidth,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'negative': trackToJson(negative),
+        if (scope != 'self') 'scope': scope,
+        if (_on(blur)) 'blur': trackToJson(blur),
+        if (blurKind != 'gaussian') 'blurKind': blurKind,
+        if (blurAngle != 0) 'blurAngle': blurAngle,
+        if (graded) ...{'lift': lift, 'gamma': gamma, 'gain': gain},
+        if (_on(warp)) 'warp': trackToJson(warp),
+        if (warpScale != 60) 'warpScale': warpScale,
+        if (warpSpeed != 0.5) 'warpSpeed': warpSpeed,
+        if (lightWrap != 0) 'lightWrap': lightWrap,
+        if (lightWrapWidth != 12) 'lightWrapWidth': lightWrapWidth,
+      };
+
+  static LayerFilters fromJson(Map<String, dynamic> j) {
+    List<double>? three(Object? v) =>
+        v is List && v.length == 3 ? [for (final x in v) (x as num).toDouble()] : null;
+    double n(Object? v, double d) => v is num ? v.toDouble() : d;
+    return LayerFilters(
+      negative: j['negative'] is Map ? trackFromJson(j['negative'] as Map<String, dynamic>) : null,
+      scope: j['scope'] as String? ?? 'self',
+      blur: j['blur'] is Map ? trackFromJson(j['blur'] as Map<String, dynamic>) : null,
+      blurKind: j['blurKind'] as String? ?? 'gaussian',
+      blurAngle: n(j['blurAngle'], 0),
+      lift: three(j['lift']),
+      gamma: three(j['gamma']),
+      gain: three(j['gain']),
+      warp: j['warp'] is Map ? trackFromJson(j['warp'] as Map<String, dynamic>) : null,
+      warpScale: n(j['warpScale'], 60),
+      warpSpeed: n(j['warpSpeed'], 0.5),
+      lightWrap: n(j['lightWrap'], 0),
+      lightWrapWidth: n(j['lightWrapWidth'], 12),
+    );
+  }
+}
+
+/// A colour wheel's (x, y) chroma (-1..1, x toward red) and master
+/// (`m`) as per-channel offsets.
+List<double> wheelToRgb(double x, double y, double m) => [
+      for (var i = 0; i < 3; i++)
+        m + x * math.cos(i * 2 * math.pi / 3) + y * math.sin(i * 2 * math.pi / 3)
+    ];
+
+/// The other way: per-channel offsets as (x, y, master).
+List<double> rgbToWheel(List<double> c) {
+  final m = (c[0] + c[1] + c[2]) / 3;
+  var x = 0.0, y = 0.0;
+  for (var i = 0; i < 3; i++) {
+    x += (c[i] - m) * math.cos(i * 2 * math.pi / 3);
+    y += (c[i] - m) * math.sin(i * 2 * math.pi / 3);
+  }
+  return [x * 2 / 3, y * 2 / 3, m];
+}
+
+/// The wheels' linear part per channel: `out = a * x + b` (x, out in
+/// 0..1) before the gamma.
+({List<double> a, List<double> b}) liftGainLinear(LayerFilters f) {
+  final a = <double>[], b = <double>[];
+  for (var i = 0; i < 3; i++) {
+    final lift = f.lift[i], gain = 1 + f.gain[i];
+    a.add(gain - lift);
+    b.add(lift);
+  }
+  return (a: a, b: b);
+}
+
+/// Match Color: lift / gain (per channel) that move the colours with
+/// statistics `src` (mean, deviation per channel, 0..1) onto `dst`'s.
+void matchColorInto(LayerFilters f, List<double> srcMean, List<double> srcDev, List<double> dstMean, List<double> dstDev) {
+  for (var i = 0; i < 3; i++) {
+    final a = srcDev[i] < 1e-4 ? 1.0 : (dstDev[i] / srcDev[i]).clamp(0.25, 4.0);
+    final b = dstMean[i] - a * srcMean[i];
+    // out = a x + b = lift + x (gain - lift)
+    f.lift[i] = b;
+    f.gain[i] = a + b - 1;
+    f.gamma[i] = 0;
+  }
 }
 
 /// "Swing": the layer rocks around its rotation, a sine between
@@ -1699,6 +1871,21 @@ class Layer {
   /// only its outline on the stage. What lies under it shows in the
   /// mirror.
   bool mirrorProbe = false;
+
+  /// Dig: the layer's shape cuts a hole through every layer under it
+  /// (down to the background); the layer itself isn't drawn.
+  bool dig = false;
+
+  /// Objects: the layer turned over (flipped about its vertical middle) -
+  /// its back side shows.
+  bool showBack = false;
+
+  /// The back side: another layer's picture, placed within this one's
+  /// bounds (that layer is then only drawn here, never on its own). Null:
+  /// the front seen from behind - or, with `backSame`, the front the right
+  /// way round.
+  String? backSourceId;
+  bool backSame = false;
 
   /// A mirror showing every layer under its copy (not only the layers
   /// below it).
@@ -2079,6 +2266,10 @@ Layer cloneLayer(Layer src) {
     ..parentUntil = src.parentUntil
     ..mirrorSourceId = src.mirrorSourceId
     ..mirrorProbe = src.mirrorProbe
+    ..dig = src.dig
+    ..showBack = src.showBack
+    ..backSourceId = src.backSourceId
+    ..backSame = src.backSame
     ..mirrorAllLayers = src.mirrorAllLayers
     ..locked = src.locked
     ..parentKeepDifference = src.parentKeepDifference

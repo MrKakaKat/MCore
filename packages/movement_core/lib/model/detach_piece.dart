@@ -7,6 +7,8 @@
 /// the shape of another layer, taken once at the current frame.
 library;
 
+import 'dart:math' as math;
+
 import '../core/math.dart';
 import '../core/state_cache.dart';
 import '../core/interpolation.dart';
@@ -158,4 +160,77 @@ class PieceRectDragOp implements DragOp {
     a ??= [...framePoint];
     b = [...framePoint];
   }
+}
+
+// ===== crop lines =====
+
+/// Crop lines (Crop tab): the area a line drawn over `layer` (its points
+/// in content-local space) marks. Closed (3+ points): inside the polygon.
+/// Open: everything on the line's left (as drawn), its ends carried on
+/// straight far past the layer so the line cuts it right through.
+List<List<double>> cutLineRegion(Layer layer, List<List<double>> pts, {required bool closed}) {
+  if (pts.length < 2) return const [];
+  if (closed) return pts.length >= 3 ? [for (final p in pts) [...p]] : const [];
+  final b = shapeBoundingBox(layer.content);
+  final far = 4 * (math.max(b.maxX - b.minX, b.maxY - b.minY) + 1) +
+      [for (final p in pts) math.max((p[0] - (b.minX + b.maxX) / 2).abs(), (p[1] - (b.minY + b.maxY) / 2).abs())]
+          .reduce(math.max);
+  List<double> dir(List<double> a, List<double> c) {
+    final dx = c[0] - a[0], dy = c[1] - a[1];
+    final l = math.sqrt(dx * dx + dy * dy);
+    return l == 0 ? [1.0, 0.0] : [dx / l, dy / l];
+  }
+
+  final d0 = dir(pts[0], pts[1]), d1 = dir(pts[pts.length - 2], pts.last);
+  final start = [pts[0][0] - d0[0] * far, pts[0][1] - d0[1] * far];
+  final end = [pts.last[0] + d1[0] * far, pts.last[1] + d1[1] * far];
+  // left of the way it was drawn (y down: (dy, -dx)).
+  final n0 = [d0[1], -d0[0]], n1 = [d1[1], -d1[0]];
+  return [
+    start,
+    for (final p in pts) [...p],
+    end,
+    [end[0] + n1[0] * far, end[1] + n1[1] * far],
+    [start[0] + n0[0] * far, start[1] + n0[1] * far],
+  ];
+}
+
+/// A tapped crop-line point (frame space) pulled onto what is near: the
+/// layer's corners first, then its edge, the frame's corners, edges and
+/// middle - within `radius` (frame px).
+List<double> snapCropLinePoint(Project project, Layer layer, int globalFrame, List<double> p, double radius) {
+  final m = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
+  final outline = [for (final q in getContentOutline(layer.content, layer, globalFrame, project: project)) applyAffine(m, q)];
+  double d2(List<double> a, List<double> b) => (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]);
+  final w = stageSize.width, h = stageSize.height;
+  final points = [
+    ...outline,
+    [0.0, 0.0], [w, 0.0], [w, h], [0.0, h], [w / 2, h / 2],
+  ];
+  List<double>? best;
+  var bestD = radius * radius;
+  for (final q in points) {
+    final d = d2(q, p);
+    if (d <= bestD) {
+      bestD = d;
+      best = q;
+    }
+  }
+  if (best != null) return [...best];
+  // an edge: the nearest point along it (a bit tighter).
+  bestD = radius * radius * 0.5;
+  for (var i = 0; i < outline.length; i++) {
+    final a = outline[i], c = outline[(i + 1) % outline.length];
+    final dx = c[0] - a[0], dy = c[1] - a[1];
+    final l2 = dx * dx + dy * dy;
+    if (l2 == 0) continue;
+    final t = (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0);
+    final q = [a[0] + dx * t, a[1] + dy * t];
+    final d = d2(q, p);
+    if (d <= bestD) {
+      bestD = d;
+      best = q;
+    }
+  }
+  return best ?? [...p];
 }

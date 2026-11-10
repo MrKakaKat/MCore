@@ -175,6 +175,23 @@ LayerBaseState getLayerBaseStateAt(Project project, String layerId, num globalFr
       scale[1] + linkOffset(project, layer, 'scaleY', globalFrame),
     ];
   }
+  // dependencies on one size handle: that side grows, the one across
+  // stays where it was.
+  if (layer.links.any((k) => k.to.startsWith('scale') && k.to.length > 6)) {
+    final dL = linkOffset(project, layer, 'scaleLeft', globalFrame), dR = linkOffset(project, layer, 'scaleRight', globalFrame);
+    final dT = linkOffset(project, layer, 'scaleTop', globalFrame), dB = linkOffset(project, layer, 'scaleBottom', globalFrame);
+    if (dL != 0 || dR != 0 || dT != 0 || dB != 0) {
+      final c = layer.content;
+      final minX = c.offset[0] - c.size[0] / 2, maxX = c.offset[0] + c.size[0] / 2;
+      final minY = c.offset[1] - c.size[1] / 2, maxY = c.offset[1] + c.size[1] / 2;
+      scale = [scale[0] + dL + dR, scale[1] + dT + dB];
+      // the shift that keeps the far sides in place, turned with the layer.
+      final vx = -(dR * minX + dL * maxX), vy = -(dT * minY + dB * maxY);
+      final a = baseRot * math.pi / 180;
+      final fx = vx * math.cos(a) - vy * math.sin(a), fy = vx * math.sin(a) + vy * math.cos(a);
+      anchor = [anchor[0] + fx / stageSize.width, anchor[1] + fy / stageSize.height];
+    }
+  }
   if (layer.parentKeepDifference && layer.inheritScale && layer.parentId != null) {
     scale = keepDifferenceScale(project, layer, globalFrame, scale);
   }

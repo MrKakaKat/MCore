@@ -49,7 +49,8 @@ void main() {
       expect(rect.getAttribute('fill'), equals('#ff0000'));
       // anchor [0.5,0.5] at a 640x400 stage -> translation (320,200), no
       // rotation/scale -> matrix(1,0,0,1,320,200).
-      expect(rect.getAttribute('transform'), equals('matrix(1,0,0,1,320,200)'));
+      // (on the shape's group: its shadow and glows share it.)
+      expect((rect.parent as XmlElement).getAttribute('transform'), equals('matrix(1,0,0,1,320,200)'));
     });
 
     test('renderMode "outline" exports stroke instead of fill', () {
@@ -104,7 +105,7 @@ void main() {
       layer.transform.opacity = track(0.4);
       project.layers.add(layer);
       final svg = exportProjectToSvg(project, 0, 640, 400);
-      expect(XmlDocument.parse(svg).findAllElements('rect').first.getAttribute('opacity'), equals('0.4'));
+      expect((XmlDocument.parse(svg).findAllElements('rect').first.parent as XmlElement).getAttribute('opacity'), equals('0.4'));
     });
   });
 

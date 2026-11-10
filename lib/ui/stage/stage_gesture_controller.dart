@@ -145,6 +145,28 @@ class StageGestureController {
       onNeedsRepaint();
       return;
     }
+    // Crop lines: a point of the line is dragged (a tap elsewhere adds
+    // one - see _handleTap).
+    if (layer != null && app.cropLine != null) {
+      final fp = camera.screenToFrame(screenPos);
+      final r = camera.radiusInFrameSpace(18);
+      final line = app.cropLine!;
+      var best = -1;
+      var bestD = r * r;
+      for (var i = 0; i < line.length; i++) {
+        final d = math.pow(line[i][0] - fp.dx, 2) + math.pow(line[i][1] - fp.dy, 2);
+        if (d <= bestD) {
+          bestD = d.toDouble();
+          best = i;
+        }
+      }
+      if (best >= 0) {
+        _activeDrag = ActiveDragInfo(
+            family: 'cropLine', activeKey: '$best', op: _CropLinePointOp(app, best, camera.radiusInFrameSpace(12)));
+        onNeedsRepaint();
+      }
+      return;
+    }
     // Crop tab, detach a piece: drag a rectangle, lift to detach.
     if (layer != null && pieceRectTool) {
       final fp = camera.screenToFrame(screenPos);
@@ -708,6 +730,12 @@ class StageGestureController {
 
   void _handleTap(ui.Offset screenPos) {
     final fp = camera.screenToFrame(screenPos);
+    // Crop lines: each tap is one more point.
+    if (app.cropLine != null) {
+      app.cropLineTap([fp.dx, fp.dy], camera.radiusInFrameSpace(12));
+      onNeedsRepaint();
+      return;
+    }
     // Origami, "through two points": the taps are its points.
     if (app.origamiPickTap([fp.dx, fp.dy], camera.radiusInFrameSpace(18))) {
       onNeedsRepaint();
@@ -808,4 +836,20 @@ class StageGestureController {
     snapGridFrameRadius = camera.radiusInFrameSpace(app.snapSensitivityGridPx);
     snapFrameBoundaryFrameRadius = camera.radiusInFrameSpace(app.snapSensitivityFrameBoundaryPx);
   }
+}
+
+
+/// Crop lines: one of the line's points under the finger.
+class _CropLinePointOp implements DragOp {
+  final AppState app;
+  final int index;
+  final double snapRadius;
+  _CropLinePointOp(this.app, this.index, this.snapRadius);
+
+  @override
+  List<SnapGuideLine> get snapGuides => const [];
+
+  @override
+  void apply(Project project, int globalFrame, List<double> framePoint) =>
+      app.moveCropLinePoint(index, framePoint, snapRadius);
 }

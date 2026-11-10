@@ -584,8 +584,13 @@ class ScaleDragOp implements DragOp {
 
   /// Lengthens the rect: its side (or corner) to the finger, the one
   /// across where it was (in the layer's own units, so its scale stays).
+  /// While lengthening: the rect when the drag started (content box:
+  /// minX, minY, maxX, maxY) - the stage shows what grew and what went.
+  List<double>? extendStart;
+
   void _applyExtend(List<double> localPt, List<double> current) {
     final c = layer.content;
+    extendStart ??= [c.offset[0] - c.size[0] / 2, c.offset[1] - c.size[1] / 2, c.offset[0] + c.size[0] / 2, c.offset[1] + c.size[1] / 2];
     final sx = current[0].abs() < 1e-9 ? 1.0 : current[0], sy = current[1].abs() < 1e-9 ? 1.0 : current[1];
     final q = [localPt[0] / sx, localPt[1] / sy];
     var minX = c.offset[0] - c.size[0] / 2, maxX = c.offset[0] + c.size[0] / 2;

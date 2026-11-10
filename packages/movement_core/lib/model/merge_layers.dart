@@ -180,7 +180,9 @@ Layer? mergeLayers(Project project, List<Layer> layers, String newId, int global
       ],
     )
     ..content.contourColors = colors
-    ..content.contourJoin = join.any((j) => j) ? join : null;
+    ..content.contourJoin = join.any((j) => j) ? join : null
+    // turned over (origami flaps too) it shows the same as its front.
+    ..backSame = true;
   merged.transform.anchor.defaultValue = [cx / stageSize.width, cy / stageSize.height];
   // the opacities live in the contour colours now.
   merged.transform.opacity.defaultValue = 1.0;

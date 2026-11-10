@@ -176,7 +176,8 @@ class OrigamiDirectionDragOp implements DragOp {
       _startValue = _valueOf(t, lf);
       // a mirrored drawing (a flap folded over, or a flipped layer) turns
       // the other way.
-      final ax = fr.along[0] - fr.mid[0], ay = fr.along[1] - fr.mid[1];
+      // (`along` points back against the fold's way: u is its opposite.)
+      final ax = fr.mid[0] - fr.along[0], ay = fr.mid[1] - fr.along[1];
       final sx = fr.side[0] - fr.mid[0], sy = fr.side[1] - fr.mid[1];
       _sign = (ax * sy - ay * sx) >= 0 ? 1 : -1;
     }

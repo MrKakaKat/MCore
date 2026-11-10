@@ -44,6 +44,10 @@ List<List<List<double>>>? layerBaseRings(Project project, Layer layer, int globa
     return flattenPath(animatedTextPath(shown, c.offset, c.size, lf) ?? layoutText(shown, c.offset, c.size).path);
   }
   if (c.shape == 'compound') return [for (final r in c.contours ?? const <List<List<double>>>[]) if (r.length >= 3) r];
+  // origami: its folded pieces (a single folded outline can cancel itself).
+  final pieces = origamiRingPieces(layer, layerFlatOutline(layer, globalFrame: globalFrame, project: project), globalFrame,
+      project: project);
+  if (pieces != null) return pieces;
   final ring = getContentOutline(c, layer, globalFrame, project: project);
   return ring.length >= 3 ? [ring] : const [];
 }
