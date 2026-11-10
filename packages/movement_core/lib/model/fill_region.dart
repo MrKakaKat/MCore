@@ -286,3 +286,40 @@ Uint8List floodFillMask(Uint8List rgba, int w, int h, int x0, int y0, int tolera
   }
   return mask;
 }
+
+/// A fill shape (frame px rings) as a new layer of `color` on top of
+/// everything - `dig`: a hole through everything under it instead.
+Layer addFillShape(Project project, List<PolyRing> region, String newId, {String color = '#ff8a65', bool dig = false}) {
+  var minX = double.infinity, minY = double.infinity, maxX = -double.infinity, maxY = -double.infinity;
+  for (final r in region) {
+    for (final q in r) {
+      if (q[0] < minX) minX = q[0];
+      if (q[1] < minY) minY = q[1];
+      if (q[0] > maxX) maxX = q[0];
+      if (q[1] > maxY) maxY = q[1];
+    }
+  }
+  final cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  final layers = project.layers;
+  final layer = createLayer('rect')
+    ..id = newId
+    ..color = dig ? '#000000' : color
+    ..dig = dig
+    ..drawing = true
+    ..startFrame = 0
+    ..durationFrames = layers.fold<int>(1, (m, l) => m > l.startFrame + l.durationFrames ? m : l.startFrame + l.durationFrames)
+    ..content = Content(
+      shape: 'compound',
+      offset: [0, 0],
+      size: [maxX - minX, maxY - minY],
+      contours: [
+        for (final r in region) [for (final q in r) [q[0] - cx, q[1] - cy]]
+      ],
+    );
+  layer.transform.anchor.defaultValue = [cx / stageSize.width, cy / stageSize.height];
+  layer.name = nextFreeLayerName(project, 'Fill');
+  layers.add(layer);
+  normalizeTimelineRows(project);
+  clearStateCaches();
+  return layer;
+}

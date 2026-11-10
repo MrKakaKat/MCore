@@ -2592,11 +2592,9 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setFillOptions(
-      {bool? onlySelected, String? color, bool? dig, String? mode, bool? bleed, bool? over, double? tolerance}) {
+  void setFillOptions({bool? onlySelected, String? color, bool? dig, String? mode, bool? bleed, double? tolerance}) {
     if (mode != null) fillMode = mode;
     if (bleed != null) fillBleed = bleed;
-    if (over != null) fillOverPictures = over;
     if (tolerance != null) fillTolerance = tolerance;
     if (onlySelected != null) fillOnlySelected = onlySelected;
     if (color != null) fillColor = color;
@@ -2604,78 +2602,102 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Fill's way: 'mixed' (vector edges as vectors, pictures by their
-  /// pixels), 'pixel' (everything by the pixels on the stage) or
-  /// 'vectorPixel' (vector, its edges by the pixels of all that has no
-  /// vector look - filters, glass, blur...).
-  String fillMode = 'mixed';
+  /// Fill's result: 'vector' (the region's outline, a shape) or 'pixel'
+  /// (a picture). Either way the region is what the stage shows - the
+  /// pixels as drawn, whatever drew them (crop, masks, effects, filters,
+  /// pictures, the camera).
+  String fillMode = 'vector';
 
-  /// A hair of the fill (1 px) reaches on under the layers bounding it.
+  /// A hair of the fill (1 px) reaches on over the edges round it - no
+  /// thin gaps.
   bool fillBleed = true;
 
-  /// Over the pictures instead of under them: each one takes itself out
-  /// of the fill by its alpha (100 - n).
-  bool fillOverPictures = false;
-
-  /// All pixels: how far a colour may be from the tapped one (0..1).
-  double fillTolerance = 0.12;
+  /// How far a colour may be from the tapped one (0..1).
+  double fillTolerance = 0.04;
 
   bool _filling = false;
 
-  /// Whether a layer looks like more than its vectors (Fill, "vector by
-  /// pixel edges": its pixels bound the fill).
-  static bool _pixelLook(Layer l) =>
-      l.filters.any ||
-      l.effectStack.any((i) => i.enabled && (i.effectId == 'edge_blur' || i.effectId == 'outline')) ||
-      l.motionBlur.enabled;
+  /// The last fill, said for a moment in the stage's corner.
+  final ValueNotifier<String?> fillNotice = ValueNotifier(null);
 
-  /// A fill tap at frame point `p`: a new layer in the region there.
+  /// A fill tap at frame point `p` (as the stage shows it): the region the
+  /// eye sees there - every touching pixel of the tapped colour - as a
+  /// new layer on top of everything.
   Future<Layer?> fillAt(List<double> p) async {
     if (_filling) return null;
     _filling = true;
     try {
-      if (fillMode == 'pixel') return await _fillPixels(p);
-      // raster edges: the opaque core of the pictures (and in "vector by
-      // pixel edges" of whatever has no vector look).
-      final cores = <String, List<List<List<double>>>>{};
-      for (final l in project.layers) {
-        if (l.hidden || !getLayerStateAt(project, l.id, currentFrame).inRange) continue;
-        final raster = isMediaShape(l.content.shape) || (fillMode == 'vectorPixel' && _pixelLook(l));
-        if (!raster) continue;
-        final r = await renderer.fillCoreRings(project, l, currentFrame);
-        if (r != null) cores[l.id] = r;
+      // only the chosen layers (and the fills before) when asked: the
+      // rest are drawn as if not there.
+      final hiddenNow = <Layer>[];
+      if (fillOnlySelected) {
+        final keep = selectedGroup;
+        for (final l in project.layers) {
+          if (!l.hidden && !keep.contains(l.id) && !l.drawing) {
+            l.hidden = true;
+            hiddenNow.add(l);
+          }
+        }
       }
-      undo.pushUndoState(project);
-      final l = addFillLayer(project, currentFrame, p, _newLayerId(),
-          only: fillOnlySelected ? selectedGroup : null,
-          color: fillColor,
-          dig: fillDig,
-          raster: (x) => cores[x.id],
-          bleed: fillBleed ? 1.0 : 0.0,
-          overPictures: fillOverPictures);
-      if (l == null) {
-        undo.discardLastUndoState();
-        return null;
+      final cuts = renderer.stageCuts;
+      renderer.stageCuts = null; // the stage's handle cuts are a view thing
+      final ({Uint8List rgba, int width, int height})? f;
+      try {
+        f = await renderer.frameRgba(project, currentFrame);
+      } finally {
+        for (final l in hiddenNow) {
+          l.hidden = false;
+        }
+        renderer.stageCuts = cuts;
+        clearStateCaches();
+        _render();
       }
+      if (f == null) return null;
+      final w = f.width, h = f.height;
+      final x0 = p[0].floor(), y0 = p[1].floor();
+      if (x0 < 0 || y0 < 0 || x0 >= w || y0 >= h) return null;
+      final mask = floodFillMask(f.rgba, w, h, x0, y0, (fillTolerance * 255).round(), grow: fillBleed ? 1 : 0);
+      final layer = fillMode == 'pixel' ? await _fillPicture(mask, w, h) : _fillShape(mask, w, h);
+      if (layer == null) return null;
+      fillNotice.value = '${layer.name} filled';
+      Future.delayed(const Duration(seconds: 3), () {
+        if (fillNotice.value == '${layer.name} filled') fillNotice.value = null;
+      });
       _fitTimeline();
       _render();
       notifyListeners();
-      return l;
+      return layer;
     } finally {
       _filling = false;
     }
   }
 
-  /// Fill, all pixels: from the tapped pixel, every touching pixel of a
-  /// close enough colour (the stage as drawn) - a picture layer.
-  Future<Layer?> _fillPixels(List<double> p) async {
-    final f = await renderer.frameRgba(project, currentFrame);
-    _render();
-    if (f == null) return null;
-    final w = f.width, h = f.height, px = f.rgba;
-    final x0 = p[0].floor(), y0 = p[1].floor();
-    if (x0 < 0 || y0 < 0 || x0 >= w || y0 >= h) return null;
-    final mask = floodFillMask(px, w, h, x0, y0, (fillTolerance * 255).round(), grow: fillBleed ? 1 : 0);
+  /// The filled pixels' outline as a shape on top.
+  Layer? _fillShape(Uint8List mask, int w, int h) {
+    final alpha = AlphaMask(w, h);
+    for (var i = 0; i < w * h; i++) {
+      alpha.a[i] = mask[i].toDouble();
+    }
+    final c = extractContour(alpha, const ContourParams(threshold: 0.5, simplify: 0.35, minAreaFraction: 0));
+    var rings = [
+      for (final r in c.rings)
+        if (r.points.length >= 3) [for (final q in r.points) q]
+    ];
+    if (rings.isEmpty) return null;
+    // seen through the stage camera: back into the scene.
+    final view = renderer.useStageCamera ? cameraViewMatrix(project, currentFrame, w.toDouble(), h.toDouble()) : null;
+    if (view != null) {
+      final inv = invertAffine(view);
+      rings = [
+        for (final r in rings) [for (final q in r) applyAffine(inv, q)]
+      ];
+    }
+    undo.pushUndoState(project);
+    return addFillShape(project, rings, _newLayerId(), color: fillColor, dig: fillDig);
+  }
+
+  /// The filled pixels as a picture on top.
+  Future<Layer?> _fillPicture(Uint8List mask, int w, int h) async {
     var minX = w, minY = h, maxX = -1, maxY = -1;
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
@@ -2688,7 +2710,8 @@ class AppState extends ChangeNotifier {
     }
     if (maxX < 0) return null;
     final bw = maxX - minX + 1, bh = maxY - minY + 1;
-    final rgb = parseRgbHex(fillDig ? '#000000' : fillColor) ?? const [255, 138, 101];
+    final rgb = parseRgbHex(fillDig ? '#000000' : fillColor.substring(0, math.min(7, fillColor.length))) ??
+        const [255, 138, 101];
     final a = !fillDig && fillColor.length == 9 ? int.parse(fillColor.substring(7), radix: 16) : 255;
     final out = Uint8List(bw * bh * 4);
     for (var y = 0; y < bh; y++) {
@@ -2698,7 +2721,7 @@ class AppState extends ChangeNotifier {
         out[i] = rgb[0];
         out[i + 1] = rgb[1];
         out[i + 2] = rgb[2];
-        out[i + 3] = fillColor == 'transparent' ? 0 : a;
+        out[i + 3] = a;
       }
     }
     final done = Completer<ui.Image>();
@@ -2725,9 +2748,6 @@ class AppState extends ChangeNotifier {
     project.layers.add(layer);
     normalizeTimelineRows(project);
     clearStateCaches();
-    _fitTimeline();
-    _render();
-    notifyListeners();
     return layer;
   }
 

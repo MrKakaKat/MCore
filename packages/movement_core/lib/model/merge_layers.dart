@@ -9,7 +9,7 @@ import 'dart:math' as math;
 import '../core/math.dart';
 import '../core/stage_size.dart';
 import '../core/state_cache.dart';
-import '../geometry/contour_layer.dart' show layerVectorRings;
+import '../geometry/contour_layer.dart' show layerVectorRings, layerDrawnRings;
 import '../geometry/shapes.dart';
 import '../ui_geometry/handles.dart' show toFrameMatrix;
 import '../ui_geometry/keyframe_strip.dart' show visitLayerTracks;
@@ -129,10 +129,13 @@ Layer? mergeLayers(Project project, List<Layer> layers, String newId, int global
         .toDouble()
         .clamp(0.0, 1.0);
     // masks and cuts stay: its outline after them, holes included.
-    final cut = l.masks.any((k) => k.enabled) || l.cuts.any((k) => k.enabled && k.cutterId != null);
-    final ownJoin = c.shape == 'compound' && c.contourJoin != null && c.contourJoin!.length == c.contours?.length;
+    // crop, detached parts and a flip: what it shows, cut as on the stage.
+    final seen = layerHasCrop(l) || l.pieceClips.isNotEmpty || l.mirrorX || l.mirrorY;
+    final cut = seen || l.masks.any((k) => k.enabled) || l.cuts.any((k) => k.enabled && k.cutterId != null);
+    final ownJoin = !seen && c.shape == 'compound' && c.contourJoin != null && c.contourJoin!.length == c.contours?.length;
     final locals = cut
-        ? (layerVectorRings(project, l, globalFrame) ?? const <List<List<double>>>[])
+        ? ((seen ? layerDrawnRings(project, l, globalFrame) : layerVectorRings(project, l, globalFrame)) ??
+            const <List<List<double>>>[])
         : c.shape == 'compound' && c.contours != null
             ? c.contours!
             // a line: its drawn outline (the stroke's edge, or its fill),

@@ -245,13 +245,12 @@ class _StageViewState extends State<StageView> {
       // Drawing, Fill on: its mark in the corner - a tap switches it off.
       if (widget.app.drawTool == 'fill')
         Positioned(
-          left: 8,
-          top: 8,
-          child: ActionChip(
+          right: 8,
+          bottom: 8,
+          child: IconButton.filledTonal(
             key: const ValueKey('stage-fill-mark'),
-            avatar: const Icon(Icons.format_color_fill, size: 16),
-            label: const Text('Fill  ✕'),
-            tooltip: 'switch Fill off',
+            tooltip: 'Fill is on - tap to switch it off',
+            icon: const Icon(Icons.format_color_fill, size: 20),
             onPressed: () => widget.app.setDrawTool('none'),
           ),
         ),
@@ -333,17 +332,38 @@ class _StageViewState extends State<StageView> {
       ),
       // who is selected, in the corner: the shape's name in one block, the
       // picked region (as the list names it) or "mask" in the next.
-      if (selectedLayer != null)
-        Positioned(
-          key: const ValueKey('stage-selected-name'),
-          left: 8,
-          bottom: 6,
-          child: IgnorePointer(child: _cornerBlocks(selectedLayer)),
+      // who is selected, and what the last fill made (for a moment).
+      Positioned(
+        key: const ValueKey('stage-selected-name'),
+        left: 8,
+        bottom: 6,
+        child: IgnorePointer(
+          child: ValueListenableBuilder<String?>(
+            valueListenable: widget.app.fillNotice,
+            builder: (context, notice, _) => Row(mainAxisSize: MainAxisSize.min, children: [
+              if (selectedLayer != null) _cornerBlocks(selectedLayer),
+              if (notice != null) _cornerBlock(notice, edge: const Color(0xFFFF8A65), key: const ValueKey('stage-fill-notice')),
+            ]),
+          ),
         ),
+      ),
       ]),
       );
     });
   }
+
+  /// One block of the corner's line (name, region, notice...).
+  Widget _cornerBlock(String text, {Color? edge, Key? key}) => Container(
+        key: key,
+        margin: const EdgeInsets.only(right: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: const Color(0x99000000),
+          borderRadius: BorderRadius.circular(4),
+          border: edge == null ? null : Border(left: BorderSide(color: edge, width: 3)),
+        ),
+        child: Text(text, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+      );
 
   Widget _cornerBlocks(Layer layer) {
     final app = widget.app;

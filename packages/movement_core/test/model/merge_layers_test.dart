@@ -75,4 +75,28 @@ void main() {
     expect(area(c.contours![0]).sign, -area(c.contours![1]).sign, reason: 'the hole winds the other way');
     expect(layerFromJson(layerToJson(m)).content.contourJoin, [false, true, false]);
   });
+
+  test('a cropped layer merges as it shows: only its kept part', () {
+    final a = createLayer('rect')
+      ..id = 'a'
+      ..content.size = [40, 40]
+      ..transform.anchor.defaultValue = [0.25, 0.5]
+      ..crop = [0.5, 0, 0, 0];
+    final b = createLayer('rect')
+      ..id = 'b'
+      ..content.size = [40, 40]
+      ..transform.anchor.defaultValue = [0.75, 0.5];
+    final p = Project(layers: [a, b]);
+    final m = mergeLayers(p, [a, b], 'm', 0)!;
+    final mm = toFrameMatrix(getLayerStateAt(p, 'm', 0).matrix);
+    var minX = double.infinity;
+    for (final c in m.content.contours!) {
+      for (final q in c) {
+        final f = applyAffine(mm, q);
+        if (f[0] < minX) minX = f[0];
+      }
+    }
+    // a spans 30..70 in x; cropped by half from the left: starts at 50.
+    expect(minX, closeTo(50, 0.5));
+  });
 }
