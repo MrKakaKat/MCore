@@ -1927,6 +1927,10 @@ class Layer {
   /// (down to the background); the layer itself isn't drawn.
   bool dig = false;
 
+  /// Made by the Drawing tab (a fill): its region always bounds the next
+  /// fills, chosen layers or not.
+  bool drawing = false;
+
   /// Objects: the layer turned over (flipped about its vertical middle) -
   /// its back side shows.
   bool showBack = false;
@@ -2322,6 +2326,7 @@ Layer cloneLayer(Layer src) {
     ..mirrorSourceId = src.mirrorSourceId
     ..mirrorProbe = src.mirrorProbe
     ..dig = src.dig
+    ..drawing = src.drawing
     ..showBack = src.showBack
     ..backSourceId = src.backSourceId
     ..backSame = src.backSame

@@ -699,6 +699,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.mirrorSourceId != null) 'mirror': {'source': l.mirrorSourceId, 'axis': l.mirrorAxis},
       if (l.mirrorProbe) 'mirrorProbe': true,
       if (l.dig) 'dig': true,
+      if (l.drawing) 'drawing': true,
       if (l.showBack) 'showBack': true,
       if (l.backSourceId != null) 'backSourceId': l.backSourceId,
       if (l.backSame) 'backSame': true,
@@ -894,6 +895,7 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
       ..parentUntil = (j['parentUntil'] as num?)?.toInt()
       ..mirrorProbe = j['mirrorProbe'] == true
       ..dig = j['dig'] == true
+      ..drawing = j['drawing'] == true
       ..showBack = j['showBack'] == true
       ..backSourceId = j['backSourceId'] as String?
       ..backSame = j['backSame'] == true

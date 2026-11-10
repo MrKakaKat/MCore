@@ -51,4 +51,34 @@ void main() {
     expect(l.content.shape, 'compound');
     expect(l.color, '#00ff00');
   });
+
+  test('a cropped square fills only what is left of it', () {
+    final a = sq('a', 100, 100, 80)..crop = [0.5, 0, 0, 0]; // the left half cut away
+    final p = Project(layers: [a]);
+    expect(area(fillRegionAt(p, 0, [120, 100])), closeTo(3200, 1));
+    // where the crop took it away: the frame less the half that shows.
+    expect(area(fillRegionAt(p, 0, [80, 100])), closeTo(400 * 200 - 3200, 2));
+  });
+
+  test('a circle fills round, not as a polygon', () {
+    final c = createLayer('circle')
+      ..id = 'c'
+      ..content.offset = [0, 0]
+      ..content.size = [160, 160]
+      ..transform.anchor.defaultValue = [200 / 400, 100 / 200];
+    final r = fillRegionAt(Project(layers: [c]), 0, [200, 100]);
+    expect(area(r), closeTo(3.141592653589793 * 80 * 80, 25));
+  });
+
+  test('only the selected: fills drawn before still bound it', () {
+    final a = sq('a', 100, 100, 80);
+    final p = Project(layers: [a]);
+    final first = addFillLayer(p, 0, [100, 100], 'f1')!;
+    expect(first.drawing, isTrue);
+    // a second square, inside the first fill: chosen alone, the fill still counts.
+    final b = sq('b', 300, 100, 60);
+    p.layers.add(b);
+    final r = fillRegionAt(p, 0, [100, 100], only: {'b'});
+    expect(area(r), closeTo(6400, 1));
+  });
 }

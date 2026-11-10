@@ -4,6 +4,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math' as math;
 
 import '../core/interpolation.dart' show evaluateTrack;
 import '../core/math.dart' show applyAffine, invertAffine;
@@ -18,6 +19,8 @@ import '../text/open_type_font.dart' show flattenPath;
 import '../text/text_layout.dart' show layoutText;
 import '../text/text_animators.dart' show animatedTextPath, textPartCmds;
 import 'shapes.dart';
+import '../effects/geometry_effect_registry.dart' show isDeformingEffect;
+import '../ui_geometry/crop.dart' show croppedBox;
 
 /// The layer's vector outline rings (content-local), or null for raster
 /// content (and for content with nothing to outline: null points, sound,
@@ -48,8 +51,73 @@ List<List<List<double>>>? layerBaseRings(Project project, Layer layer, int globa
   final pieces = origamiRingPieces(layer, layerFlatOutline(layer, globalFrame: globalFrame, project: project), globalFrame,
       project: project);
   if (pieces != null) return pieces;
+  // as drawn: a circle round (not 48 sides), rounded / smoothed / grown
+  // shapes with that.
+  if (!layer.effectStack.any(isDeformingEffect)) {
+    if (c.shape == 'rect' || c.shape == 'triangle' || c.shape == 'ngon' || c.shape == 'polygon') {
+      final ring = layerFlatOutline(layer, globalFrame: globalFrame, project: project);
+      if (ring.length >= 3) return [ring];
+    }
+  }
   final ring = getContentOutline(c, layer, globalFrame, project: project);
   return ring.length >= 3 ? [ring] : const [];
+}
+
+/// A circle as a ring fine enough to pass for the drawn one (well under a
+/// pixel off at any usual size).
+List<List<double>> _fineCircle(Content c) {
+  final r = math.min(c.size[0].abs(), c.size[1].abs()) / 2;
+  final n = (r * 2).clamp(96, 720).round();
+  return [
+    for (var i = 0; i < n; i++)
+      [c.offset[0] + math.cos(i / n * math.pi * 2) * r, c.offset[1] + math.sin(i / n * math.pi * 2) * r]
+  ];
+}
+
+/// What the layer shows (content-local, as on the stage): its outline
+/// with masks and cuts (a picture: its box), flipped when it is mirrored,
+/// cut to its crop and to its detached pieces. Null: nothing there.
+List<List<List<double>>>? layerDrawnRings(Project project, Layer layer, int globalFrame) {
+  final c = layer.content;
+  final plainCircle = c.shape == 'circle' &&
+      !layer.effectStack.any(isDeformingEffect) &&
+      !layer.masks.any((m) => m.enabled) &&
+      layer.maskRegions == null &&
+      !layerHasCuts(layer);
+  final List<List<List<double>>>? found = plainCircle ? [_fineCircle(c)] : layerVectorRings(project, layer, globalFrame) ??
+      (isMediaShape(c.shape)
+          ? [
+              [
+                [c.offset[0] - c.size[0] / 2, c.offset[1] - c.size[1] / 2],
+                [c.offset[0] + c.size[0] / 2, c.offset[1] - c.size[1] / 2],
+                [c.offset[0] + c.size[0] / 2, c.offset[1] + c.size[1] / 2],
+                [c.offset[0] - c.size[0] / 2, c.offset[1] + c.size[1] / 2],
+              ]
+            ]
+          : null);
+  if (found == null || found.isEmpty) return null;
+  var rings = found;
+  if (layer.mirrorX || layer.mirrorY) {
+    final b = shapeBoundingBox(c);
+    final cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2;
+    rings = [
+      for (final r in rings)
+        [for (final p in r) [layer.mirrorX ? 2 * cx - p[0] : p[0], layer.mirrorY ? 2 * cy - p[1] : p[1]]]
+    ];
+  }
+  if (layerHasCrop(layer)) {
+    final b = croppedBox(layer);
+    rings = polygonBoolean(rings, [
+      [
+        [b.minX, b.minY], [b.maxX, b.minY], [b.maxX, b.maxY], [b.minX, b.maxY],
+      ]
+    ], BoolOp.intersect);
+  }
+  for (final cut in layer.pieceClips) {
+    if (cut.points.length < 3 || rings.isEmpty) continue;
+    rings = polygonBoolean(rings, [cut.points], cut.inside ? BoolOp.intersect : BoolOp.subtract);
+  }
+  return rings.isEmpty ? null : rings;
 }
 
 /// Whether the layer's contour comes from pixels (the app's job).

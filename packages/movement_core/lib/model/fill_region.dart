@@ -6,9 +6,8 @@ library;
 import '../core/math.dart';
 import '../core/stage_size.dart';
 import '../core/state_cache.dart';
-import '../geometry/contour_layer.dart' show layerVectorRings;
+import '../geometry/contour_layer.dart' show layerDrawnRings;
 import '../geometry/polygon_boolean.dart';
-import '../geometry/shapes.dart';
 import '../ui_geometry/handles.dart' show toFrameMatrix;
 import 'layer_names.dart';
 import 'project.dart';
@@ -21,8 +20,9 @@ List<PolyRing>? _frameRings(Project project, Layer l, int frame) {
   final st = getLayerStateAt(project, l.id, frame);
   if (!st.inRange) return null;
   final m = toFrameMatrix(st.matrix);
-  final local = layerVectorRings(project, l, frame) ??
-      [getContentOutline(l.content, l, frame, project: project)];
+  // what it shows: its exact outline, crop, cuts and flip included.
+  final local = layerDrawnRings(project, l, frame);
+  if (local == null) return null;
   final rings = [
     for (final r in local)
       if (r.length >= 3) [for (final q in r) applyAffine(m, q)]
@@ -41,7 +41,8 @@ List<PolyRing> fillRegionAt(Project project, int frame, List<double> p, {Set<Str
     ]
   ];
   for (final l in project.layers) {
-    if (only != null && !only.contains(l.id)) continue;
+    // only the chosen ones - and the fills drawn so far, always.
+    if (only != null && !only.contains(l.id) && !l.drawing) continue;
     final rings = _frameRings(project, l, frame);
     if (rings == null) continue;
     final inside = windingNumber(rings, p[0], p[1]) != 0;
@@ -97,6 +98,7 @@ Layer? addFillLayer(Project project, int frame, List<double> p, String newId,
     // a hole cuts by the fill's shape: drawn solid (it never shows).
     ..color = dig ? '#000000' : color
     ..dig = dig
+    ..drawing = true
     ..startFrame = 0
     ..durationFrames = project.layers.fold<int>(1, (m, l) => m > l.startFrame + l.durationFrames ? m : l.startFrame + l.durationFrames)
     ..content = Content(

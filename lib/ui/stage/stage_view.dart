@@ -242,6 +242,19 @@ class _StageViewState extends State<StageView> {
             ),
           ),
         ),
+      // Drawing, Fill on: its mark in the corner - a tap switches it off.
+      if (widget.app.drawTool == 'fill')
+        Positioned(
+          left: 8,
+          top: 8,
+          child: ActionChip(
+            key: const ValueKey('stage-fill-mark'),
+            avatar: const Icon(Icons.format_color_fill, size: 16),
+            label: const Text('Fill  ✕'),
+            tooltip: 'switch Fill off',
+            onPressed: () => widget.app.setDrawTool('none'),
+          ),
+        ),
       // a new shape / picture: fill the frame with it in one tap (the
       // Crop tab's Fill) - only until it is let go.
       if (selectedLayer != null && widget.app.freshFillLayerId == selectedLayer.id && pieceInsets == null)
