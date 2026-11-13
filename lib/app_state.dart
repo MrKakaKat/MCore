@@ -745,23 +745,52 @@ class AppState extends ChangeNotifier {
     return trk != null && hasPathIn(trk, s.a, s.b) ? trk : null;
   }
 
-  /// The selected line's path turned round (keys and eases keep their
-  /// times). One undo step.
-  void reverseSelectedPath() {
-    final s = keyDetailSelection, trk = selectedSpanPath;
-    if (s == null || trk == null) return;
-    pushUndo();
-    reversePathKeys(trk, s.a, s.b);
+  /// What the Timeline tab's Path edits: the selected key line's path
+  /// when one of the selected layer's is selected, else its whole
+  /// position path (its own keys, or the key layer being edited). Null:
+  /// no path (fewer than two position keys).
+  ({Layer layer, Track trk, int a, int b, bool line})? get pathTarget {
+    final layer = findLayer(project, selection.selectedLayer);
+    if (layer == null) return null;
+    final s = keyDetailSelection;
+    if (s != null && s.layerId == layer.id) {
+      final trk = spanPositionTrack(layer, s.tab);
+      if (trk != null && hasPathIn(trk, s.a, s.b)) return (layer: layer, trk: trk, a: s.a, b: s.b, line: true);
+    }
+    final trk = editTrackOf(layer.transform.anchor);
+    if (trk.keyframes.length < 2) return null;
+    final fs = trk.keyframes.map((k) => k.frame);
+    return (layer: layer, trk: trk, a: fs.reduce(math.min), b: fs.reduce(math.max), line: false);
+  }
+
+  /// Path: moved as a whole to `to` (px from where it was set out). Live -
+  /// the caller pushed the undo step.
+  void movePathTo(List<double> to) {
+    final t = pathTarget;
+    if (t == null) return;
+    final d = [to[0] - t.layer.pathOffset[0], to[1] - t.layer.pathOffset[1]];
+    shiftPathKeys(t.trk, t.a, t.b, [d[0] / stageSize.width, d[1] / stageSize.height]);
+    t.layer.pathOffset = [...to];
     clearStateCaches();
     commitEdit();
   }
 
-  /// The selected line's path moved by `d` frame px. Live - the caller
-  /// pushed the undo step.
-  void shiftSelectedPath(List<double> d) {
-    final s = keyDetailSelection, trk = selectedSpanPath;
-    if (s == null || trk == null) return;
-    shiftPathKeys(trk, s.a, s.b, [d[0] / stageSize.width, d[1] / stageSize.height]);
+  /// Path: turned as a whole round its middle to `degrees`. Live.
+  void turnPathTo(double degrees) {
+    final t = pathTarget;
+    if (t == null) return;
+    turnPathKeys(t.trk, t.a, t.b, degrees: degrees - t.layer.pathTurn, w: stageSize.width, h: stageSize.height);
+    t.layer.pathTurn = degrees;
+    clearStateCaches();
+    commitEdit();
+  }
+
+  /// Path: sized as a whole round its middle to `k` times. Live.
+  void scalePathTo(double k) {
+    final t = pathTarget;
+    if (t == null || k <= 0 || t.layer.pathScale <= 0) return;
+    turnPathKeys(t.trk, t.a, t.b, k: k / t.layer.pathScale, w: stageSize.width, h: stageSize.height);
+    t.layer.pathScale = k;
     clearStateCaches();
     commitEdit();
   }

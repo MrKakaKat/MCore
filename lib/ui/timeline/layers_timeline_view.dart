@@ -10,7 +10,6 @@ import 'package:flutter/scheduler.dart';
 import 'package:movement_core/movement_core.dart' hide Transform;
 
 import '../../app_state.dart';
-import '../common/param_editor.dart';
 import '../common/tool_guide.dart';
 import 'layer_detail_rows.dart';
 
@@ -2983,45 +2982,6 @@ class _LayerActionRow extends StatelessWidget {
   final Layer layer;
   const _LayerActionRow({required this.app, required this.layer});
 
-  /// The selected line's path moved by an x / y offset (px) - every key
-  /// of it alike.
-  void _movePathDialog(BuildContext context) {
-    var offset = [0.0, 0.0];
-    var pushed = false; // one undo step for the whole dialog
-    void apply(List<double> v) {
-      if (!pushed) {
-        app.pushUndo();
-        pushed = true;
-      }
-      app.shiftSelectedPath([v[0] - offset[0], v[1] - offset[1]]);
-      offset = [...v];
-    }
-
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => AlertDialog(
-          title: const Text('Move the path'),
-          content: SizedBox(
-            width: 320,
-            child: ParamEditor(
-              key: const ValueKey('path-offset'),
-              prefKey: 'timeline.path offset',
-              label: 'offset px',
-              values: offset,
-              componentLabels: const ['x', 'y'],
-              scale: const ParamScale.ruler(unitsPerPixel: 0.5, minorTick: 10, majorTick: 50, decimals: 1),
-              onEditStart: () {},
-              onChanged: (v) => setLocal(() => apply(v)),
-              onCommit: (v) => setLocal(() => apply(v)),
-            ),
-          ),
-          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Done'))],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final f = app.currentFrame;
@@ -3062,11 +3022,10 @@ class _LayerActionRow extends StatelessWidget {
                 f - start != span.a ? () => app.selectedKeySpanToPlayhead() : null),
             button(Icons.settings_ethernet, 'nearest key of the line to playhead',
                 f - start != span.a && f - start != span.b ? () => app.selectedKeySpanToPlayhead(nearest: true) : null),
-            // its path (position keys): turned round, or moved as a whole.
-            button(Icons.swap_horiz, 'turn the path round (keys keep their times and eases)',
-                app.selectedSpanPath != null ? app.reverseSelectedPath : null),
-            button(Icons.open_with, 'move the whole path',
-                app.selectedSpanPath != null ? () => _movePathDialog(context) : null),
+            // its path (position keys): moved, turned, sized in the
+            // Timeline tab's Path.
+            button(Icons.route, 'its path: move, turn, size (Timeline tab)',
+                app.selectedSpanPath != null ? () => app.showTab('Timeline') : null),
           ] else ...[
           // first: delete this layer (one undo step).
           button(Icons.delete_outline, 'delete layer', () => app.deleteLayerById(layer.id), 'a-delete'),

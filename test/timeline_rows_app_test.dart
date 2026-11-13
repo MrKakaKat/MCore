@@ -146,6 +146,9 @@ void main() {
       app.placeLayerInRow('b', 0, join: true);
       app.selectLayer('c');
       await pump(tester);
+      // (the Path section is above it)
+      await tester.scrollUntilVisible(find.text('Fill gaps with this layer'), 100,
+          scrollable: find.descendant(of: find.byType(ListView).first, matching: find.byType(Scrollable)).first);
       expect(find.textContaining('Row 1: a, b'), findsOneWidget);
       await tester.tap(find.text('Fill gaps with this layer'));
       await tester.pump();

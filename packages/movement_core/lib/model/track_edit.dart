@@ -228,20 +228,39 @@ List<Keyframe> _keysIn(Track trk, int a, int b) =>
 /// Whether `trk` has a path between local frames a and b (two keys or more).
 bool hasPathIn(Track trk, int a, int b) => _keysIn(trk, a, b).length >= 2;
 
-/// The path between local frames a and b turned round: the keys keep
-/// their times and eases, their places go the other way (the last key's
-/// place first), curves and all.
-void reversePathKeys(Track trk, int a, int b) {
+/// The middle of the path between local frames a and b: the mean of its
+/// keys' places (turning or sizing it round this keeps it there).
+List<double> pathMiddle(Track trk, int a, int b) {
+  final ks = _keysIn(trk, a, b);
+  var x = 0.0, y = 0.0;
+  for (final k in ks) {
+    final v = k.value as List;
+    x += (v[0] as num).toDouble();
+    y += (v[1] as num).toDouble();
+  }
+  return ks.isEmpty ? [0, 0] : [x / ks.length, y / ks.length];
+}
+
+/// The path between local frames a and b turned by `degrees` and sized
+/// by `k` round its middle, in a `w` x `h` space (the stage: positions are
+/// fractions of it) - its keys' places and their curve handles alike;
+/// times and eases unchanged.
+void turnPathKeys(Track trk, int a, int b, {double degrees = 0, double k = 1, double w = 1, double h = 1}) {
   final ks = _keysIn(trk, a, b);
   if (ks.length < 2) return;
-  final values = [for (final k in ks) k.value is List ? List<double>.from(k.value as List) : k.value];
-  final tans = [for (final k in ks) k.spatialTangent.copy()];
-  final n = ks.length;
-  for (var i = 0; i < n; i++) {
-    final j = n - 1 - i;
-    ks[i].value = values[j];
-    // a curve walked backwards: what came in goes out.
-    ks[i].spatialTangent = SpatialTangent(inTan: [...tans[j].outTan], outTan: [...tans[j].inTan]);
+  final c = pathMiddle(trk, a, b);
+  final r = degrees * math.pi / 180, cs = math.cos(r) * k, sn = math.sin(r) * k;
+  // a vector in stage px, turned and sized, back in fractions.
+  List<double> vec(List v) {
+    final x = (v[0] as num) * w, y = (v[1] as num) * h;
+    return [(x * cs - y * sn) / w, (x * sn + y * cs) / h];
+  }
+
+  for (final key in ks) {
+    final v = key.value as List;
+    final d = vec([(v[0] as num) - c[0], (v[1] as num) - c[1]]);
+    key.value = [c[0] + d[0], c[1] + d[1]];
+    key.spatialTangent = SpatialTangent(inTan: vec(key.spatialTangent.inTan), outTan: vec(key.spatialTangent.outTan));
   }
 }
 

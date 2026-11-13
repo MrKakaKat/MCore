@@ -114,24 +114,32 @@ void main() {
             spatialTangent: SpatialTangent(inTan: [0.2, 0], outTan: [0, 0])),
       ];
 
-    test('turned round: places reversed, times and eases kept, curves walked backwards', () {
+    test('turned and sized round its middle: places and curve handles, times and eases kept', () {
       final t = path();
-      reversePathKeys(t, 0, 20);
+      // in a 100 x 100 space: a quarter turn.
+      final c = pathMiddle(t, 0, 20);
+      turnPathKeys(t, 0, 20, degrees: 90, w: 100, h: 100);
+      expect(pathMiddle(t, 0, 20)[0], closeTo(c[0], 1e-9), reason: 'its middle stays');
+      // (0,0) is (-2/3,-1/3) from the middle (2/3,1/3): turned, (1/3,-2/3).
+      final v = t.keyframes.first.value as List;
+      expect(v[0], closeTo(c[0] + 1 / 3, 1e-9));
+      expect(v[1], closeTo(c[1] - 2 / 3, 1e-9));
       expect(t.keyframes.map((k) => k.frame), [0, 10, 20]);
-      expect(t.keyframes.map((k) => k.value), [
-        [1.0, 1.0],
-        [1.0, 0.0],
-        [0.0, 0.0]
-      ]);
       expect(t.keyframes[1].temporal, easingPresets['easeOut']);
-      expect(t.keyframes.first.spatialTangent.outTan, [0.2, 0], reason: 'what came in goes out');
+      final tan = t.keyframes.last.spatialTangent.inTan;
+      expect(tan[0], closeTo(0, 1e-9));
+      expect(tan[1], closeTo(0.2, 1e-9), reason: 'the handle turns with it');
+      turnPathKeys(t, 0, 20, k: 2, w: 100, h: 100);
+      final v2 = t.keyframes.first.value as List;
+      expect(v2[0], closeTo(c[0] + 2 / 3, 1e-9), reason: 'twice as far from the middle');
     });
 
     test('only the keys of the line; moved as a whole', () {
       final t = path();
-      reversePathKeys(t, 10, 20);
-      expect(t.keyframes.first.value, [0.0, 0.0]);
-      expect(t.keyframes[1].value, [1.0, 1.0]);
+      turnPathKeys(t, 10, 20, degrees: 180, w: 100, h: 100);
+      expect(t.keyframes.first.value, [0.0, 0.0], reason: 'outside the line: untouched');
+      expect(t.keyframes[1].value[0], closeTo(1.0, 1e-9));
+      expect(t.keyframes[1].value[1], closeTo(1.0, 1e-9));
       shiftPathKeys(t, 0, 20, [0.5, -0.5]);
       expect(t.keyframes.first.value, [0.5, -0.5]);
       expect(hasPathIn(t, 0, 5), isFalse);

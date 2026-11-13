@@ -709,6 +709,9 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.dig) 'dig': true,
       if (l.lens.enabled) 'lens': l.lens.toJson(),
       if (l.editAll) 'editAll': true,
+      if (l.pathOffset[0] != 0 || l.pathOffset[1] != 0) 'pathOffset': l.pathOffset,
+      if (l.pathTurn != 0) 'pathTurn': l.pathTurn,
+      if (l.pathScale != 1) 'pathScale': l.pathScale,
       if (l.drawing) 'drawing': true,
       if (l.showBack) 'showBack': true,
       if (l.backSourceId != null) 'backSourceId': l.backSourceId,
@@ -907,6 +910,9 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
       ..dig = j['dig'] == true
       ..lens = j['lens'] is Map ? LensSettings.fromJson(j['lens'] as Map<String, dynamic>) : LensSettings()
       ..editAll = j['editAll'] as bool? ?? false
+      ..pathOffset = (j['pathOffset'] as List?)?.map((v) => (v as num).toDouble()).toList() ?? [0, 0]
+      ..pathTurn = (j['pathTurn'] as num?)?.toDouble() ?? 0
+      ..pathScale = (j['pathScale'] as num?)?.toDouble() ?? 1
       ..drawing = j['drawing'] == true
       ..showBack = j['showBack'] == true
       ..backSourceId = j['backSourceId'] as String?

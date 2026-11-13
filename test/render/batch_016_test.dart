@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:movement_core/movement_core.dart' hide Transform;
 import 'package:movement_mobile/app_state.dart';
 import 'package:movement_mobile/ui/timeline/keyframes_editor_view.dart';
+import 'package:movement_mobile/ui/timeline/timeline_rows_view.dart';
 import 'package:movement_mobile/ui/timeline/timeline_toolbar.dart';
 
 void main() {
@@ -70,20 +71,45 @@ void main() {
     expect(editAllKeys, isFalse);
   });
 
-  test('the selected key line\'s path turned round and moved', () {
+  test('the path: moved, turned and sized as a whole; a selected key line only its stretch', () {
     final app = AppState()..setFrameSize(200, 100);
     final l = findLayer(app.project, app.selection.selectedLayer)!;
     l.transform.anchor.keyframes = [
-      Keyframe(frame: 0, value: [0.1, 0.1]),
-      Keyframe(frame: 10, value: [0.9, 0.1]),
+      Keyframe(frame: 0, value: [0.1, 0.5]),
+      Keyframe(frame: 10, value: [0.9, 0.5]),
+      Keyframe(frame: 20, value: [0.9, 0.9]),
     ];
-    app.selectKeyDetailSpan((layerId: l.id, tab: 'Movement', a: 0, b: 10, track: null));
-    expect(app.selectedSpanPath, same(l.transform.anchor));
-    app.reverseSelectedPath();
-    expect(l.transform.anchor.keyframes.first.value, [0.9, 0.1]);
+    expect(app.pathTarget!.line, isFalse);
+    expect(app.pathTarget!.b, 20);
     app.pushUndo();
-    app.shiftSelectedPath([20, 0]);
-    expect((l.transform.anchor.keyframes.first.value as List)[0], closeTo(1.0, 1e-9));
+    app.movePathTo([20, 0]);
+    expect((l.transform.anchor.keyframes.first.value as List)[0], closeTo(0.2, 1e-9));
+    app.movePathTo([0, 0]);
+    expect((l.transform.anchor.keyframes.first.value as List)[0], closeTo(0.1, 1e-9), reason: 'back');
+    app.selectKeyDetailSpan((layerId: l.id, tab: 'Movement', a: 0, b: 10, track: null));
+    expect(app.pathTarget!.line, isTrue);
+    // a half turn of the first stretch round its middle (0.5, 0.5).
+    app.turnPathTo(180);
+    expect(l.pathTurn, 180);
+    final v = l.transform.anchor.keyframes.first.value as List;
+    expect(v[0], closeTo(0.9, 1e-9));
+    expect(v[1], closeTo(0.5, 1e-9));
+    expect(l.transform.anchor.keyframes.last.value, [0.9, 0.9], reason: 'outside the line');
+    app.scalePathTo(0.5);
+    expect((l.transform.anchor.keyframes.first.value as List)[0], closeTo(0.7, 1e-9));
+  });
+
+  testWidgets('the Timeline tab shows the Path', (tester) async {
+    final app = AppState()..setFrameSize(200, 100);
+    final l = findLayer(app.project, app.selection.selectedLayer)!;
+    l.transform.anchor.keyframes = [
+      Keyframe(frame: 0, value: [0.1, 0.5]),
+      Keyframe(frame: 10, value: [0.9, 0.5]),
+    ];
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: TimelineRowsView(app: app))));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('path-section')), findsOneWidget);
+    expect(find.byKey(const ValueKey('path-turn')), findsOneWidget);
   });
 
   testWidgets('Keyframes tab: the free move field and the shared key\'s ease', (tester) async {

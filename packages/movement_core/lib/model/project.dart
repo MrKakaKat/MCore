@@ -2000,6 +2000,13 @@ class Layer {
   /// changes over its whole animation, the animation itself doesn't.
   bool editAll = false;
 
+  /// Timeline tab, Path: how far its position path has been moved (px),
+  /// turned (degrees) and sized (times) as a whole - shown as the Path's
+  /// parameters (the keys themselves hold the result).
+  List<double> pathOffset = [0, 0];
+  double pathTurn = 0;
+  double pathScale = 1;
+
   /// Made by the Drawing tab (a fill): its region always bounds the next
   /// fills, chosen layers or not.
   bool drawing = false;
@@ -2403,6 +2410,9 @@ Layer cloneLayer(Layer src) {
     ..dig = src.dig
     ..lens = src.lens.copy()
     ..editAll = src.editAll
+    ..pathOffset = [...src.pathOffset]
+    ..pathTurn = src.pathTurn
+    ..pathScale = src.pathScale
     ..drawing = src.drawing
     ..showBack = src.showBack
     ..backSourceId = src.backSourceId

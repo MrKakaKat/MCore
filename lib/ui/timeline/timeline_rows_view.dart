@@ -7,6 +7,8 @@ import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/num_field.dart';
 import '../common/no_layer.dart';
+import '../common/param_editor.dart';
+import '../common/reset_button.dart';
 
 /// Timeline tab: the selected layer's place on the timeline - which row
 /// it's in (several layers can share a row when they don't overlap in
@@ -96,6 +98,67 @@ class _TimelineRowsViewState extends State<TimelineRowsView> {
           ]),
         ],
         const Divider(),
+      ],
+    );
+  }
+
+  /// Path: the selected layer's position path (or the selected key
+  /// line's) as a whole - moved, turned round its middle and sized, by
+  /// parameters of its own; the keys keep their times and eases.
+  Widget _pathSection() {
+    final t = app.pathTarget;
+    final layer = findLayer(app.project, app.selection.selectedLayer)!;
+    Widget param(String key, String label, List<double> values, ParamScale scale, void Function(List<double>) set,
+            List<double> reset) =>
+        ParamEditor(
+          key: ValueKey('path-$key'),
+          prefKey: 'timeline.path $key',
+          label: label,
+          values: values,
+          componentLabels: values.length == 2 ? const ['x', 'y'] : null,
+          scale: scale,
+          onEditStart: app.pushUndo,
+          onChanged: set,
+          onCommit: (v) {
+            app.pushUndo();
+            set(v);
+          },
+          trailing: [
+            ResetIconButton(onPressed: () {
+              app.pushUndo();
+              set(reset);
+            }),
+          ],
+        );
+    return Column(
+      key: const ValueKey('path-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          const Icon(Icons.route, size: 18),
+          const SizedBox(width: 6),
+          const Text('Path', style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              t == null
+                  ? ''
+                  : '${t.line ? 'the selected key line' : 'the whole path'}: frames ${t.a + layer.startFrame} - ${t.b + layer.startFrame}',
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ]),
+        if (t == null)
+          const Hint('Two position keys or more make a path - then it can be moved, turned and sized here as a whole')
+        else ...[
+          param('move', 'move px', [...layer.pathOffset],
+              const ParamScale.ruler(unitsPerPixel: 0.5, minorTick: 10, majorTick: 50, decimals: 1), app.movePathTo, [0, 0]),
+          param('turn', 'turn', [layer.pathTurn], ParamScale.degrees, (v) => app.turnPathTo(v.first), [0]),
+          param('size', 'size ×', [layer.pathScale], const ParamScale.slider(0.1, 4, decimals: 2),
+              (v) => app.scalePathTo(v.first.clamp(0.05, 100).toDouble()), [1]),
+          const Hint('Turn and size go round the path\'s middle. A key line selected in the expanded keys: only its stretch'),
+        ],
       ],
     );
   }
@@ -251,6 +314,7 @@ class _TimelineRowsViewState extends State<TimelineRowsView> {
           children: [
             // range, kept keys, snapping, video loop: always here.
             ..._general(),
+            _pathSection(),
             const Divider(height: 16),
             Text(layer.name, style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
