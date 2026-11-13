@@ -41,7 +41,7 @@ void main() {
     app.confirmFreeMove();
     expect(app.freeMoveRecording, isFalse);
     final al = l.transform.anchor.animLayers.single.track;
-    expect(al.keyframes, hasLength(2));
+    expect(al.keyframes.length, greaterThanOrEqualTo(2));
     expect(al.keyframes.last.frame - al.keyframes.first.frame, (app.freeMoveSeconds * fps).round());
     expect((al.keyframes.last.value as List)[0], closeTo(100 / 200, 1e-6));
     app.performUndo();

@@ -4,6 +4,8 @@ import 'package:movement_core/movement_core.dart' hide Transform;
 import '../../app_state.dart';
 import '../common/no_layer.dart';
 import '../common/num_field.dart';
+import '../common/param_editor.dart';
+import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
 import 'key_mode_panel.dart';
 
@@ -120,6 +122,24 @@ class KeyframesEditorView extends StatelessWidget {
             ),
             const Text(' s', style: TextStyle(fontSize: 12)),
           ]),
+          ParamEditor(
+            key: const ValueKey('free-move-smoothing'),
+            prefKey: 'keys.free move smoothing',
+            label: 'smoothing',
+            values: [app.freeMoveSmoothing],
+            scale: const ParamScale.slider(0, 1, decimals: 2),
+            onEditStart: () {},
+            onChanged: (v) => app.setAppPreference('freeMoveSmoothing', v.first.clamp(0.0, 1.0).toDouble()),
+            onCommit: (v) => app.setAppPreference('freeMoveSmoothing', v.first.clamp(0.0, 1.0).toDouble()),
+            trailing: [ResetIconButton(onPressed: () => app.setAppPreference('freeMoveSmoothing', 0.0))],
+          ),
+          Text(
+              app.freeMoveSmoothing >= 0.999
+                  ? 'One smooth curve: two keys.'
+                  : app.freeMoveSmoothing == 0
+                      ? 'Off: it follows the way as drawn (a key where it takes one, at most one a frame).'
+                      : 'The more, the smoother (fewer keys).',
+              style: const TextStyle(fontSize: 11, color: Colors.grey)),
           const SizedBox(height: 4),
           Text(
               rec

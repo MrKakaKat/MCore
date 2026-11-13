@@ -62,6 +62,41 @@ void main() {
       expect(end[1], closeTo(0.1, 1e-9));
     });
 
+    test('smoothing 0: it follows the way as drawn (a zigzag), one pace along it', () {
+      final l = _rect('A')..durationFrames = 60;
+      final p = Project(layers: [l]);
+      // a zigzag: 4 sharp turns.
+      final path = <List<double>>[];
+      for (var i = 0; i <= 80; i++) {
+        final x = 100.0 + 5 * i;
+        final y = 300 + (i % 40 < 20 ? i % 20 : 20 - i % 20) * 5.0 * (i % 40 < 20 ? 1 : 1);
+        path.add([x, y]);
+      }
+      final n = addFreeMoveLayer(p, l, path, 0, 48, smoothing: 0);
+      final trk = l.transform.anchor.animLayers[n - 1].track;
+      expect(trk.keyframes.length, greaterThan(3));
+      expect(trk.constantSpeed, isTrue);
+      expect(trk.keyframes.first.frame, 0);
+      expect(trk.keyframes.last.frame, 48);
+      // every drawn point is near the path the object takes.
+      final samples = [
+        for (var f = 0.0; f <= 48; f += 0.25) (evaluateTrack(p, l.transform.anchor, f, l) as List<double>)
+      ];
+      final base = l.transform.anchor.defaultValue as List;
+      for (final q in path) {
+        var best = double.infinity;
+        for (final s in samples) {
+          final x = ((s[0] - (base[0] as num)) * 1000) + 100, y = ((s[1] - (base[1] as num)) * 1000) + 300;
+          best = math.min(best, math.sqrt(math.pow(x - q[0], 2) + math.pow(y - q[1], 2)));
+        }
+        expect(best, lessThan(2.5));
+      }
+      // the same with full smoothing: one curve.
+      final l2 = _rect('B')..durationFrames = 60;
+      addFreeMoveLayer(Project(layers: [l2]), l2, path, 0, 48, smoothing: 1);
+      expect(l2.transform.anchor.animLayers.single.track.keyframes, hasLength(2));
+    });
+
     test('no movement: nothing is made', () {
       final l = _rect('A');
       final p = Project(layers: [l]);

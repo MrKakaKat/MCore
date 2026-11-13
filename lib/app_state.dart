@@ -2810,6 +2810,10 @@ class AppState extends ChangeNotifier {
   /// How long the recorded move takes, seconds.
   double freeMoveSeconds = 1.0;
 
+  /// How much the recorded way is smoothed, 0..1: 0 follows it as drawn
+  /// (keys where it takes them), 1 one smooth curve of two keys.
+  double freeMoveSmoothing = 0.0;
+
   // the drag's hold on the object: finger to its middle.
   List<double> _freeMoveGrab = const [0, 0];
 
@@ -2862,7 +2866,8 @@ class AppState extends ChangeNotifier {
     }
     pushUndo();
     final keep = activeAnimLayer;
-    final n = addFreeMoveLayer(project, l, freeMovePath, currentFrame, math.max(1, (freeMoveSeconds * fps).round()));
+    final n = addFreeMoveLayer(project, l, freeMovePath, currentFrame, math.max(1, (freeMoveSeconds * fps).round()),
+        smoothing: freeMoveSmoothing);
     activeAnimLayer = keep;
     freeMoveRecording = false;
     freeMovePath = [];
@@ -4564,6 +4569,7 @@ class AppState extends ChangeNotifier {
     'snapRotationMirror': (() => snapRotationMirrorEnabled, (v) => snapRotationMirrorEnabled = v as bool, true),
     'mirrorMovesLayer': (() => mirrorMovesLayer, (v) => mirrorMovesLayer = v as bool, false),
     'snapEdgeMid': (() => snapEdgeMidpointsEnabled, (v) => snapEdgeMidpointsEnabled = v as bool, true),
+    'freeMoveSmoothing': (() => freeMoveSmoothing, (v) => freeMoveSmoothing = (v as num).toDouble(), 0.0),
     'snapTextCenters': (() => snapTextCentersEnabled, (v) => snapTextCentersEnabled = v as bool, true),
     'snapTextEdges': (() => snapTextEdgesEnabled, (v) => snapTextEdgesEnabled = v as bool, true),
     'snapEqualRounding': (() => snapEqualRoundingEnabled, (v) => snapEqualRoundingEnabled = v as bool, true),
