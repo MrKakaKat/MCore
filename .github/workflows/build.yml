@@ -37,6 +37,8 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          # pinned: 3.50 wants Gradle 9.3 / a newer AGP than the project's.
+          flutter-version: 3.47.9
           channel: stable
           cache: true
 
@@ -64,7 +66,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           # build numbers only grow, past the early test builds (up to 99).
-          flutter build apk --release --target-platform android-arm64 --android-skip-build-dependency-validation \
+          flutter build apk --release --target-platform android-arm64 \
             --split-debug-info=build/symbols --build-number=$(( ${{ github.run_number }} + 100 ))
           cp build/app/outputs/flutter-apk/app-release.apk "MCore-${VERSION//\//-}.apk"
 
