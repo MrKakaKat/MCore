@@ -3047,7 +3047,9 @@ class _LayerActionRow extends StatelessWidget {
             button(Icons.link_off, 'unlink from ${_partnerNames()}', () => app.unlinkLayerInTime(layer.id)),
           // merge still shapes into one contour.
           button(Icons.merge_type, mergeBlocker(layer) == null ? 'merge with other layers' : "can't merge: ${mergeBlocker(layer)}",
-              mergeBlocker(layer) == null && app.project.layers.length > 1 ? () => _pickMerge(context) : null,
+              (mergeBlocker(layer) == null || mergesAsPicture(layer)) && app.project.layers.length > 1
+                  ? () => _pickMerge(context)
+                  : null,
               'a-merge'),
           // the selected layers to the very top / bottom of the stack.
           button(Icons.vertical_align_top, 'to the top', () => app.moveLayersToEdge(app.selectedGroup, top: true), 'a-top'),
@@ -3130,7 +3132,7 @@ class _LayerActionRow extends StatelessWidget {
     // what is selected on the timeline now comes ticked.
     final picked = <String>{
       for (final l in others)
-        if (app.selectedGroup.contains(l.id) && mergeBlocker(l) == null) l.id
+        if (app.selectedGroup.contains(l.id) && _canMerge(l)) l.id
     };
     final folders = {for (final l in app.project.layers) if (l.folder != null) l.folder!}.toList()..sort();
     final ok = await showDialog<bool>(
@@ -3142,7 +3144,7 @@ class _LayerActionRow extends StatelessWidget {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               // a whole folder at once.
               for (final f in folders) () {
-                final members = [for (final l in others) if (l.folder == f && mergeBlocker(l) == null) l.id];
+                final members = [for (final l in others) if (l.folder == f && _canMerge(l)) l.id];
                 final all = members.isNotEmpty && members.every(picked.contains);
                 return CheckboxListTile(
                   key: ValueKey('merge-folder-$f'),
@@ -3161,15 +3163,28 @@ class _LayerActionRow extends StatelessWidget {
                   key: ValueKey('merge-${l.id}'),
                   dense: true,
                   title: Text(l.folder == null ? l.name : '${l.name}  ·  ${l.folder}'),
-                  subtitle: mergeBlocker(l) != null
+                  subtitle: !_canMerge(l)
                       ? Text(mergeBlocker(l)!)
-                      : mergeWarning(l) == null
-                          ? null
-                          : Text(mergeWarning(l)!),
+                      : mergesAsPicture(l)
+                          ? const Text('a picture: the merge becomes one picture')
+                          : mergeWarning(l) == null
+                              ? null
+                              : Text(mergeWarning(l)!),
                   value: picked.contains(l.id),
-                  onChanged: mergeBlocker(l) != null
+                  onChanged: !_canMerge(l)
                       ? null
                       : (v) => setState(() => v == true ? picked.add(l.id) : picked.remove(l.id)),
+                ),
+              // pictures among them: everything becomes pixels.
+              if (mergesAsPicture(layer) ||
+                  others.any((l) => picked.contains(l.id) && mergesAsPicture(l)))
+                const Padding(
+                  key: ValueKey('merge-raster-note'),
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Text(
+                      'With a picture or text among them the result is one picture: vector shapes are turned into '
+                      'pixels (as they look at the playhead).',
+                      style: TextStyle(fontSize: 12, color: Colors.orange)),
                 ),
             ]),
           ),
@@ -3186,6 +3201,9 @@ class _LayerActionRow extends StatelessWidget {
     );
     if (ok == true && picked.isNotEmpty) app.mergeLayersById([layer.id, ...picked]);
   }
+
+  /// Mergeable: as a vector shape, or as a picture.
+  static bool _canMerge(Layer l) => mergeBlocker(l) == null || mergesAsPicture(l);
 
   Future<void> _pickLink(BuildContext context) async {
     final others = [

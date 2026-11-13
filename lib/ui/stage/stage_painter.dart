@@ -522,22 +522,8 @@ void _paintMaskSteps(ui.Canvas canvas, Project project, Layer layer, int globalF
     final st = steps[si];
     final out = level[si] * gap;
     final color = _maskVizColors[st.index % _maskVizColors.length];
-    // a picture source: no outline to show - say so where it is.
-    if (st.raster) {
-      final at = st.at;
-      if (at == null) continue;
-      final text = (ui.ParagraphBuilder(ui.ParagraphStyle(fontSize: 12 * inv))
-            ..pushStyle(ui.TextStyle(color: color))
-            ..addText('image source - not drawn'))
-          .build()
-        ..layout(ui.ParagraphConstraints(width: 200 * inv));
-      // just above the mask, not over it.
-      final y = at[1] - text.height - 8 * inv;
-      canvas.drawRect(ui.Rect.fromLTWH(at[0] - 3 * inv, y - 2 * inv, text.maxIntrinsicWidth + 6 * inv, text.height + 4 * inv),
-          ui.Paint()..color = const ui.Color(0xAA000000));
-      canvas.drawParagraph(text, ui.Offset(at[0], y));
-      continue;
-    }
+    // a picture source: no outline to show (nothing is written there).
+    if (st.raster) continue;
     ui.Paint stroke(double w, ui.Color c) => ui.Paint()
       ..color = c
       ..style = ui.PaintingStyle.stroke

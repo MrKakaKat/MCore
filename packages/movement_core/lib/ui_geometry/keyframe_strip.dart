@@ -69,6 +69,7 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
   if (volume != null) fn('volume', volume);
   fn('negative', layer.filters.negative);
   fn('filter blur', layer.filters.blur);
+  if (layer.lens.enabled) fn('lens angle', layer.lens.fov);
   fn('fractal warp', layer.filters.warp);
   fn('shadow echo fade', layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
@@ -97,6 +98,7 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
     }
   }
   final c = layer.content;
+  if (c.trailOn != null) fn('trail drawing', c.trailOn!);
   if (c.lineTrimStart != null) fn('line start', c.lineTrimStart!);
   if (c.lineTrimEnd != null) fn('line end', c.lineTrimEnd!);
   final nodes = c.lineNodes;
@@ -139,6 +141,7 @@ void visitLayerTracks(Layer layer, void Function(Track track) fn) {
   if (volume != null) fn(volume);
   fn(layer.filters.negative);
   fn(layer.filters.blur);
+  if (layer.lens.enabled) fn(layer.lens.fov);
   fn(layer.filters.warp);
   fn(layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
@@ -163,6 +166,7 @@ void visitLayerTracks(Layer layer, void Function(Track track) fn) {
     }
   }
   final c = layer.content;
+  if (c.trailOn != null) fn(c.trailOn!);
   if (c.lineTrimStart != null) fn(c.lineTrimStart!);
   if (c.lineTrimEnd != null) fn(c.lineTrimEnd!);
   for (final n in c.lineNodes ?? const <LineNode>[]) {

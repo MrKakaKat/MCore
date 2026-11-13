@@ -45,7 +45,7 @@ class EffectsView extends StatelessWidget {
         return 'Time';
     }
     final inst = layer.effectStack.where((e) => e.id == id).firstOrNull;
-    if (inst?.effectId == 'outline' || inst?.effectId == 'edge_blur') return 'Contour';
+    if (inst?.effectId == 'outline' || inst?.effectId == 'edge_blur' || inst?.effectId == 'edge_glow') return 'Contour';
     return 'Shape';
   }
 
@@ -764,10 +764,7 @@ class EffectsView extends StatelessWidget {
               visualDensity: VisualDensity.compact,
               padding: const EdgeInsets.all(4),
               constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-              onPressed: () => showDialog(
-                context: context,
-                builder: (_) => GraphEditorView(app: app, track: trk, componentCount: valueList.length),
-              ),
+              onPressed: () => openEase(context, app: app, track: trk, componentCount: valueList.length),
             ),
           ResetIconButton(onPressed: () {
             app.pushUndo();
@@ -1676,7 +1673,7 @@ class _AddEffectRowState extends State<_AddEffectRow> {
     // by type (a type's name heads its items).
     String typeOfOption(String key) => key.startsWith('motion:')
         ? (key == 'motion:motionBlur' || key == 'motion:timeQuantize' ? 'Time' : 'Motion')
-        : (key == 'outline' || key == 'edge_blur' ? 'Contour' : 'Shape');
+        : (key == 'outline' || key == 'edge_blur' || key == 'edge_glow' ? 'Contour' : 'Shape');
     final all = <String, String>{
       for (final e in effectRegistry.entries) e.key: e.value.name,
       for (final m in motionPanelIds)

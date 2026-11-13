@@ -354,8 +354,53 @@ class CanvasRenderer implements Renderer {
   /// crop, mirror and deformation, so the canvas gets none of them (a crop
   /// clip would cut the stroke off at the cut).
   void _outlinesAround(ui.Canvas canvas, Project project, Layer layer, int globalFrame, {required bool behind}) {
+    if (layer.effectStack.any((i) => i.enabled && i.effectId == 'edge_glow')) {
+      _drawEdgeGlows(canvas, project, layer, globalFrame, behind: behind);
+    }
     if (!layer.effectStack.any((i) => i.enabled && i.effectId == 'outline')) return;
     _drawOutlines(canvas, project, layer, globalFrame, behind: behind);
+  }
+
+  /// Edge glow: the silhouette drawn soft in the glow's colour - behind
+  /// the content (outside) or, kept to the silhouette, over it (inside).
+  void _drawEdgeGlows(ui.Canvas canvas, Project project, Layer layer, int globalFrame, {required bool behind}) {
+    final lf = math.min(layer.durationFrames, math.max(0, layerTimeFrame(layer, globalFrame) - layer.startFrame)).toDouble();
+    for (final inst in layer.effectStack) {
+      if (!inst.enabled || inst.effectId != 'edge_glow' || !effectActiveAt(layer, inst.id, lf)) continue;
+      final prm = resolveEffectParams(inst, lf);
+      final position = prm['position'] as String? ?? 'outside';
+      if (behind ? position == 'inside' : position == 'outside') continue;
+      final r = (prm['radius'] as num?)?.toDouble() ?? 0;
+      final strength = ((prm['strength'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0);
+      if (r <= 0 || strength <= 0) continue;
+      final contour = layerContourDrawn(project, layer, globalFrame, const ContourParams());
+      if (contour == null || contour.rings.isEmpty) continue;
+      final path = ui.Path()..fillType = ui.PathFillType.evenOdd;
+      for (final ring in contour.rings) {
+        if (ring.points.length >= 3) path.addPolygon([for (final q in ring.points) ui.Offset(q[0], q[1])], true);
+      }
+      final color = (_parseColor(prm['color'] as String?) ?? const ui.Color(0xFFFFFFFF)).withOpacity(strength);
+      final blur = ui.MaskFilter.blur(ui.BlurStyle.normal, r / 2);
+      if (behind) {
+        // twice: a glow, not a faint haze.
+        final paint = ui.Paint()
+          ..color = color
+          ..maskFilter = blur;
+        canvas.drawPath(path, paint);
+        canvas.drawPath(path, paint);
+      } else {
+        canvas.save();
+        canvas.clipPath(path);
+        canvas.drawPath(
+            path,
+            ui.Paint()
+              ..style = ui.PaintingStyle.stroke
+              ..strokeWidth = r
+              ..color = color
+              ..maskFilter = blur);
+        canvas.restore();
+      }
+    }
   }
 
   /// Edge blur: the content (and its outlines) kept by its own contour
@@ -501,6 +546,10 @@ class CanvasRenderer implements Renderer {
       canvas.save();
       canvas.transform(_toMatrix4(view));
     }
+    // layers that draw what is under them: every layer's picture is kept
+    // for this frame, so "under" is replayed, never drawn again.
+    final keep = project.layers.any((l) => !l.hidden && _needsBelow(l)) ? <String, ui.Picture>{} : null;
+    _framePictures = keep;
     _hiddenCutters = hiddenCutters(project);
     // layers that are another's back side: drawn only there.
     _hiddenCutters = {
@@ -540,17 +589,25 @@ class CanvasRenderer implements Renderer {
           _drawLayer(ui.Canvas(rec), project, l.id, frame);
           return rec.endRecording();
         }();
+        keep?[l.id] = pic;
         canvas.drawPicture(pic);
         continue;
       }
-      if (perf) {
-        final t = Stopwatch()..start();
-        _drawLayer(canvas, project, l.id, frame);
-        layerCosts!.add(LayerCost(l.name, t.elapsedMicroseconds / 1000));
+      final t = perf ? (Stopwatch()..start()) : null;
+      if (keep != null) {
+        // drawn once into a picture of its own: the layers above that
+        // need what is under them (glass, light wrap, a lens) replay it.
+        final rec = ui.PictureRecorder();
+        _drawLayer(ui.Canvas(rec, cull), project, l.id, frame);
+        final pic = rec.endRecording();
+        keep[l.id] = pic;
+        canvas.drawPicture(pic);
       } else {
         _drawLayer(canvas, project, l.id, frame);
       }
+      if (t != null) layerCosts!.add(LayerCost(l.name, t.elapsedMicroseconds / 1000));
     }
+    _framePictures = null;
 
     if (view != null) canvas.restore();
     if (digs) canvas.restore();
@@ -581,9 +638,21 @@ class CanvasRenderer implements Renderer {
         if (depth + 1 < _maxMirrorDepth) _drawMirror(canvas, project, l, frame, depth + 1);
         continue;
       }
+      // already drawn this frame: its picture again.
+      final kept = _framePictures?[l.id];
+      if (kept != null) {
+        canvas.drawPicture(kept);
+        continue;
+      }
       _drawLayer(canvas, project, l.id, frame);
     }
   }
+
+  /// This frame's layers as pictures (see renderFrame), while it is drawn.
+  Map<String, ui.Picture>? _framePictures;
+
+  static bool _needsBelow(Layer l) =>
+      l.lens.enabled || (l.filters.any && (l.filters.scope == 'glass' || (l.filters.scope == 'self' && l.filters.lightWrap > 0)));
 
   void _drawMirror(ui.Canvas canvas, Project project, Layer mirror, int frame, int depth) {
     final t = mirrorTransform(project, mirror, frame);
@@ -812,6 +881,10 @@ class CanvasRenderer implements Renderer {
   }) {
     if (isAudioShape(layer.content.shape)) return; // heard, not seen
     if (isCameraShape(layer.content.shape)) return; // the stage camera: looks, isn't seen
+    if (isTrailShape(layer.content.shape)) {
+      _drawTrail(destCanvas, project, layer, globalFrame, sampleWeight);
+      return;
+    }
     final isPrecompose = (layer.precompose ?? false) &&
         layer.groupedChildren != null &&
         layer.groupedChildren!.isNotEmpty;
@@ -1268,6 +1341,11 @@ class CanvasRenderer implements Renderer {
       layerPaint.colorFilter =
           ui.ColorFilter.mode(ui.Color.fromARGB(255, g, g, g), ui.BlendMode.modulate);
     }
+    // a lens: what is under it, seen with its angle of view.
+    if (layer.lens.enabled) {
+      _drawLens(destCanvas, project, layer, localFrameOp, globalFrame, mCanvas, opacity.clamp(0.0, 1.0));
+      return;
+    }
     final filters = layer.filters;
     // Filters as glass: what is under the layer, filtered, inside its
     // shape - the layer itself is only the glass.
@@ -1313,6 +1391,83 @@ class CanvasRenderer implements Renderer {
       _filterProgram = p;
       onImageDecoded?.call();
     }, onError: (Object _) {});
+  }
+
+  /// A trail point: the line it has left behind it so far, in the frame
+  /// (not in its own space - the trail stays where it was drawn).
+  void _drawTrail(ui.Canvas canvas, Project project, Layer layer, int globalFrame, double weight) {
+    final lines = trailPolylines(project, layer, globalFrame);
+    if (lines.isEmpty) return;
+    final lf = layerLocalFrame(layer, globalFrame);
+    final opacity =
+        ((evaluateTrack(project, layer.transform.opacity, lf, layer) as num).toDouble().clamp(0.0, 1.0)) * weight;
+    if (opacity <= 0) return;
+    final k = _width / stageSize.width;
+    final w = math.max(0.5, layer.content.lineWidth) * k;
+    final color = (_parseColor(layer.color) ?? const ui.Color(0xFFFFFFFF));
+    final paint = ui.Paint()
+      ..color = color.withOpacity(color.opacity * opacity)
+      ..style = ui.PaintingStyle.stroke
+      ..strokeWidth = w
+      ..strokeCap = ui.StrokeCap.round
+      ..strokeJoin = ui.StrokeJoin.round;
+    final path = ui.Path();
+    for (final l in lines) {
+      path.moveTo(l[0][0] * k, l[0][1] * k);
+      // a point that hasn't moved: a dot.
+      if (l.length == 1) path.lineTo(l[0][0] * k + 0.01, l[0][1] * k);
+      for (var i = 1; i < l.length; i++) {
+        path.lineTo(l[i][0] * k, l[i][1] * k);
+      }
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  static ui.FragmentProgram? _lensProgram;
+  static bool _lensProgramLoading = false;
+
+  /// Lens (Masks tab): the layers under it through the lens shader, in
+  /// the circle inside the layer's box.
+  void _drawLens(ui.Canvas canvas, Project project, Layer layer, num lf, int globalFrame, List<double> mCanvas,
+      double opacity) {
+    final prog = _lensProgram;
+    if (prog == null) {
+      if (!_lensProgramLoading) {
+        _lensProgramLoading = true;
+        ui.FragmentProgram.fromAsset('shaders/lens.frag').then((p) {
+          _lensProgram = p;
+          onImageDecoded?.call();
+        }, onError: (Object _) {});
+      }
+      return;
+    }
+    final rec = ui.PictureRecorder();
+    _drawLayersBelow(ui.Canvas(rec), project, project.layers.indexOf(layer), globalFrame, 0, layer);
+    final w = math.max(1, _width.round()), h = math.max(1, _height.round());
+    final below = rec.endRecording().toImageSync(w, h);
+    final c = layer.content;
+    final centre = applyAffine(mCanvas, c.offset);
+    final k = math.sqrt((mCanvas[0] * mCanvas[3] - mCanvas[1] * mCanvas[2]).abs());
+    final radius = math.min(c.size[0].abs(), c.size[1].abs()) / 2 * k;
+    final lens = layer.lens;
+    final fov = (evaluateTrack(project, lens.fov, lf.toDouble(), layer) as num).toDouble().clamp(1.0, 178.0);
+    final shader = prog.fragmentShader()
+      ..setFloat(0, w.toDouble())
+      ..setFloat(1, h.toDouble())
+      ..setFloat(2, centre[0])
+      ..setFloat(3, centre[1])
+      ..setFloat(4, radius)
+      ..setFloat(5, fov / 2 * math.pi / 180)
+      ..setFloat(6, lens.zoom)
+      ..setFloat(7, lens.vignette.clamp(0.0, 1.0))
+      ..setFloat(8, lens.softness.clamp(0.0, 1.0))
+      ..setImageSampler(0, below);
+    final out = ui.PictureRecorder();
+    ui.Canvas(out).drawRect(ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), ui.Paint()..shader = shader);
+    final img = out.endRecording().toImageSync(w, h);
+    below.dispose();
+    shader.dispose();
+    canvas.drawImage(img, ui.Offset.zero, ui.Paint()..color = ui.Color.fromRGBO(0, 0, 0, opacity));
   }
 
   /// `pic` (canvas-sized, canvas units) through the layer's filters onto
@@ -3224,6 +3379,9 @@ class CanvasRenderer implements Renderer {
   }
 
   /// A mask's shape in the target's space: all its sources together.
+  // a picture source drawn for a mask (it may be masked itself).
+  int _maskSourceDepth = 0;
+
   /// One mask whose sources include pictures: coverage = the vector
   /// sources' union plus each picture's alpha, inverted if asked,
   /// feathered by a blur, then combined with the mode's blend.
@@ -3252,22 +3410,24 @@ class CanvasRenderer implements Renderer {
       if (p != null) canvas.drawPath(p, white);
     }
     canvas.restore();
+    // each picture as it is drawn - its effects' deformation, crop, flip -
+    // turned white by its alpha (any alpha at all: in full, when asked).
     for (final src in pictures) {
-      final img = _layerImage(src, globalFrame);
-      if (img == null) continue;
+      if (_maskSourceDepth > 2) continue;
       final st = getLayerStateAt(project, src.id, globalFrame);
-      canvas.save();
-      canvas.transform(_toMatrix4([
-        st.matrix[0], st.matrix[1], st.matrix[2], st.matrix[3], st.matrix[4] * _width, st.matrix[5] * _height,
-      ]));
-      final c = src.content;
-      canvas.drawImageRect(
-          img,
-          ui.Rect.fromLTWH(0, 0, img.width.toDouble(), img.height.toDouble()),
-          ui.Rect.fromCenter(center: ui.Offset(c.offset[0], c.offset[1]), width: c.size[0], height: c.size[1]),
+      final m = [st.matrix[0], st.matrix[1], st.matrix[2], st.matrix[3], st.matrix[4] * _width, st.matrix[5] * _height];
+      canvas.saveLayer(
+          null,
           ui.Paint()
-            ..filterQuality = ui.FilterQuality.medium
-            ..colorFilter = const ui.ColorFilter.mode(ui.Color(0xFFFFFFFF), ui.BlendMode.srcIn));
+            ..colorFilter = ui.ColorFilter.matrix(mk.coverAlpha
+                ? const [0, 0, 0, 0, 255, 0, 0, 0, 0, 255, 0, 0, 0, 0, 255, 0, 0, 0, 255, 0]
+                : const [0, 0, 0, 0, 255, 0, 0, 0, 0, 255, 0, 0, 0, 0, 255, 0, 0, 0, 1, 0]));
+      _maskSourceDepth++;
+      try {
+        _drawLayerInto(canvas, project, src, globalFrame, m, 1, 1);
+      } finally {
+        _maskSourceDepth--;
+      }
       canvas.restore();
     }
     // intersect cuts away everything outside S (dstOut of not S).

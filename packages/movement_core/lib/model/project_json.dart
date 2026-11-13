@@ -166,6 +166,8 @@ Map<String, dynamic> contentToJson(Content c) => {
       if (c.mediaHash != null) 'mediaHash': c.mediaHash,
       if (c.gridCols != null && c.gridRows != null) 'grid': [c.gridCols, c.gridRows],
       if (c.gridKinds != 3) 'gridKinds': c.gridKinds,
+      if (c.shape == 'trail') 'trailWidth': c.lineWidth,
+      if (c.trailOn != null) 'trailOn': trackToJson(c.trailOn!),
       if (c.lineNodes != null) ...{
         'lineNodes': [for (final n in c.lineNodes!) n.toJson()],
         'lineWidth': c.lineWidth,
@@ -240,7 +242,7 @@ Content contentFromJson(Map<String, dynamic> j) => Content(
       ..gridCols = j['grid'] is List ? ((j['grid'] as List)[0] as num).toInt() : null
       ..gridRows = j['grid'] is List ? ((j['grid'] as List)[1] as num).toInt() : null
       ..lineNodes = (j['lineNodes'] as List?)?.map((n) => LineNode.fromJson(n as Map<String, dynamic>)).toList()
-      ..lineWidth = (j['lineWidth'] as num?)?.toDouble() ?? 4
+      ..lineWidth = ((j['lineWidth'] ?? j['trailWidth']) as num?)?.toDouble() ?? 4
       ..lineClosed = j['lineClosed'] as bool? ?? false
       // files from before loops: closed meant filled.
       ..lineFilled = j['lineFilled'] as bool? ?? (j['lineClosed'] as bool? ?? false)
@@ -248,6 +250,7 @@ Content contentFromJson(Map<String, dynamic> j) => Content(
       ..lineLocked = j['lineLocked'] as bool? ?? false
       ..lineShowBox = j['lineShowBox'] as bool? ?? false
       ..lineTrimStart = j['lineTrimStart'] is Map ? trackFromJson(j['lineTrimStart'] as Map<String, dynamic>) : null
+      ..trailOn = j['trailOn'] is Map ? trackFromJson(j['trailOn'] as Map<String, dynamic>) : null
       ..lineTrimEnd = j['lineTrimEnd'] is Map ? trackFromJson(j['lineTrimEnd'] as Map<String, dynamic>) : null
       ..lineCap = j['lineCap'] as String? ?? 'round'
       // files from before the fill kinds filled through the points.
@@ -393,6 +396,7 @@ Map<String, dynamic> maskToJson(Mask m) => {
       'feather': trackToJson(m.feather),
       if (m.featherOutside != 1) 'featherOutside': m.featherOutside,
       if (m.invert) 'invert': true,
+      if (m.coverAlpha) 'coverAlpha': true,
       if (m.range != null) 'range': m.range,
     };
 Mask maskFromJson(Map<String, dynamic> j) => Mask(
@@ -407,7 +411,7 @@ Mask maskFromJson(Map<String, dynamic> j) => Mask(
       featherOutside: (j['featherOutside'] as num?)?.toDouble() ?? 1,
       invert: j['invert'] == true,
       range: (j['range'] as List?)?.map((v) => (v as num).toInt()).toList(),
-    );
+    )..coverAlpha = j['coverAlpha'] == true;
 
 dynamic _paramValueToJson(dynamic v) => v is Track ? trackToJson(v) : v;
 dynamic _paramValueFromJson(dynamic v) =>
@@ -699,6 +703,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.mirrorSourceId != null) 'mirror': {'source': l.mirrorSourceId, 'axis': l.mirrorAxis},
       if (l.mirrorProbe) 'mirrorProbe': true,
       if (l.dig) 'dig': true,
+      if (l.lens.enabled) 'lens': l.lens.toJson(),
       if (l.drawing) 'drawing': true,
       if (l.showBack) 'showBack': true,
       if (l.backSourceId != null) 'backSourceId': l.backSourceId,
@@ -895,6 +900,7 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
       ..parentUntil = (j['parentUntil'] as num?)?.toInt()
       ..mirrorProbe = j['mirrorProbe'] == true
       ..dig = j['dig'] == true
+      ..lens = j['lens'] is Map ? LensSettings.fromJson(j['lens'] as Map<String, dynamic>) : LensSettings()
       ..drawing = j['drawing'] == true
       ..showBack = j['showBack'] == true
       ..backSourceId = j['backSourceId'] as String?

@@ -76,6 +76,23 @@ class MasksView extends StatelessWidget {
                 app.commitEdit();
               },
             ),
+            // a lens: what is under the layer through an angle of view.
+            SwitchListTile(
+              key: const ValueKey('mask-lens'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.lens_blur),
+              title: const Text('Round lens'),
+              subtitle: hint('The circle inside this layer shows what is under it through a lens - from a fish eye to '
+                  'a telephoto (the layer itself is not drawn)'),
+              value: layer.lens.enabled,
+              onChanged: (v) {
+                app.pushUndo();
+                layer.lens.enabled = v;
+                app.commitEdit();
+              },
+            ),
+            if (layer.lens.enabled) ..._lensRows(context, layer, localFrame),
             // the stack (modes in order) or regions (pick what shows).
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -666,6 +683,74 @@ class MasksView extends StatelessWidget {
 
   static String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 
+  /// The lens's settings: angle of view (keys), zoom, vignette, rim.
+  List<Widget> _lensRows(BuildContext context, Layer layer, double localFrame) {
+    final lens = layer.lens;
+    final frame = localFrame.round();
+    final fov = (evaluateTrack(app.project, lens.fov, localFrame, layer) as num).toDouble();
+    final keyed = lens.fov.keyframes.any((k) => k.frame == frame);
+    Widget number(String key, String label, double v, double min, double max, int decimals, ValueChanged<double> set) =>
+        ParamEditor(
+          key: ValueKey(key),
+          prefKey: 'lens.$key',
+          label: label,
+          values: [v],
+          scale: ParamScale.slider(min, max, decimals: decimals),
+          onEditStart: app.pushUndo,
+          onChanged: (x) {
+            set(x.first.clamp(min, max));
+            app.commitEdit();
+          },
+          onCommit: (x) {
+            app.pushUndo();
+            set(x.first.clamp(min, max));
+            app.commitEdit();
+          },
+        );
+    return [
+      ParamEditor(
+        key: const ValueKey('lens-fov'),
+        prefKey: 'lens.fov',
+        label: 'Angle of view',
+        values: [fov],
+        scale: const ParamScale.slider(5, 175, decimals: 0, suffix: '°', stops: [50]),
+        onEditStart: app.pushUndo,
+        onChanged: (x) {
+          setTrackValueAt(lens.fov, frame, x.first.clamp(5.0, 175.0));
+          app.commitEdit();
+        },
+        onCommit: (x) {
+          app.pushUndo();
+          setTrackValueAt(lens.fov, frame, x.first.clamp(5.0, 175.0));
+          app.commitEdit();
+        },
+        trailing: [
+          IconButton(
+            icon: Icon(keyed ? Icons.diamond : Icons.diamond_outlined, size: 16),
+            tooltip: 'toggle keyframe at current frame',
+            visualDensity: VisualDensity.compact,
+            onPressed: () {
+              app.pushUndo();
+              if (keyed) {
+                lens.fov.keyframes.removeWhere((k) => k.frame == frame);
+              } else {
+                lens.fov.keyframes.add(Keyframe(frame: frame, value: fov, temporal: newKeyEasing()));
+                lens.fov.keyframes.sort((a, b) => a.frame.compareTo(b.frame));
+              }
+              app.commitEdit();
+            },
+          ),
+        ],
+      ),
+      const Hint('Wide (to 175°): a fish eye - much of the scene squeezed in, bent toward the rim. 50°: as it is. '
+          'Narrow (to 5°): a telephoto - a small part, magnified.'),
+      number('lens-zoom', 'Zoom', lens.zoom, 0.2, 8, 2, (v) => lens.zoom = v),
+      number('lens-vignette', 'Dark rim', lens.vignette, 0, 1, 2, (v) => lens.vignette = v),
+      number('lens-soft', 'Soft rim', lens.softness, 0, 0.5, 2, (v) => lens.softness = v),
+      const Divider(),
+    ];
+  }
+
   Widget _maskSection(BuildContext context, Layer layer, Mask mask, int idx, double localFrame) {
     final candidates = app.project.layers.where((l) => l.id != layer.id && !isAudioShape(l.content.shape)).toList();
     final source = findLayer(app.project, mask.sourceLayerId);
@@ -730,7 +815,7 @@ class MasksView extends StatelessWidget {
                           feather: cloneTrack(mask.feather),
                           featherOutside: mask.featherOutside,
                           range: mask.range == null ? null : [...mask.range!],
-                        ));
+                        )..coverAlpha = mask.coverAlpha);
                     app.commitEdit();
                   },
                 ),
@@ -847,6 +932,22 @@ class MasksView extends StatelessWidget {
               app.commitEdit();
             },
           ),
+          // a picture source: its see-through parts mask too.
+          if (source != null && isMediaShape(source.content.shape))
+            CheckboxListTile(
+              key: ValueKey('mask-cover-alpha-$idx'),
+              dense: true,
+              contentPadding: const EdgeInsets.only(left: 12),
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('Cover its see-through parts too', style: TextStyle(fontSize: 13)),
+              subtitle: hint('Anything of the picture that shows at all masks in full. Off: by its alpha, part for part'),
+              value: mask.coverAlpha,
+              onChanged: (v) {
+                app.pushUndo();
+                mask.coverAlpha = v ?? false;
+                app.commitEdit();
+              },
+            ),
           // the shape lending its outline is usually not meant to be
           // seen itself (e.g. a text whose letters cut out a photo).
           if (source != null)
@@ -964,10 +1065,7 @@ class MasksView extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.show_chart, size: 16),
             tooltip: 'edit easing curve',
-            onPressed: () => showDialog(
-              context: context,
-              builder: (_) => GraphEditorView(app: app, track: trk, componentCount: 1),
-            ),
+            onPressed: () => openEase(context, app: app, track: trk, componentCount: 1),
           ),
         ResetIconButton(onPressed: () {
           app.pushUndo();

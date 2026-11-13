@@ -794,6 +794,9 @@ class StageGestureController {
         return;
       }
     }
+    // everything under the finger, top first: a tap takes the top one; a
+    // tap again the next one under it, and after the lowest the top again.
+    final hits = <String>[];
     for (final layer in app.project.layers.reversed) {
       if (layer.hidden || layer.locked || isCameraShape(layer.content.shape)) continue; // the camera: from the Stage tab; locked: not here
       if (layer.content.size[0] <= 0 && layer.content.size[1] <= 0) continue;
@@ -803,8 +806,8 @@ class StageGestureController {
       if (isNodeLine(layer.content)) {
         final pts = lineFramePoints(app.project, layer, app.currentFrame);
         if (distToPolyline([fp.dx, fp.dy], pts) <= math.max(camera.radiusInFrameSpace(14), layer.content.lineWidth)) {
-          _pick(layer.id);
-          return;
+          hits.add(layer.id);
+          continue;
         }
         if (!isFilledLine(layer.content)) continue;
       }
@@ -820,9 +823,14 @@ class StageGestureController {
           localPt[1] <= bbox.maxY &&
           insidePieceClips(layer, localPt) &&
           _refOpaqueAt(layer, localPt)) {
-        _pick(layer.id);
-        return;
+        hits.add(layer.id);
       }
+    }
+    if (hits.isNotEmpty) {
+      final at = hits.indexOf(app.selection.selectedLayer ?? '');
+      final cycle = at >= 0 && !app.stageMultiSelect && app.parentPickFor == null;
+      _pick(hits[cycle ? (at + 1) % hits.length : 0]);
+      return;
     }
     // picking several (or children): a tap on nothing keeps what is picked.
     if (!app.stageMultiSelect && app.parentPickFor == null) app.selectLayer(null);

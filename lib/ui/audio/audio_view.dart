@@ -141,10 +141,7 @@ class AudioView extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.show_chart, size: 16),
             tooltip: 'edit easing curve',
-            onPressed: () => showDialog(
-              context: context,
-              builder: (_) => GraphEditorView(app: app, track: trk, componentCount: 1),
-            ),
+            onPressed: () => openEase(context, app: app, track: trk, componentCount: 1),
           ),
         ResetIconButton(onPressed: () {
           app.pushUndo();

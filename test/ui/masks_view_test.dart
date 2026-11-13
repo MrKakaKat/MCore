@@ -101,9 +101,17 @@ void main() {
     await pump(tester);
 
     final featherRow = find.ancestor(of: find.text('Feather'), matching: find.byType(ParamEditor)).first;
-    await tester.tap(find.descendant(of: featherRow, matching: find.byTooltip('show number fields')));
+    final numbers = find.descendant(of: featherRow, matching: find.byTooltip('show number fields'));
+    await tester.ensureVisible(numbers);
     await tester.pump();
-    await tester.enterText(find.descendant(of: featherRow, matching: find.byType(TextField)), '5');
+    await tester.tap(numbers);
+    await tester.pump();
+    // the number field (not the stops field under it).
+    final field = find.descendant(
+        of: featherRow, matching: find.byWidgetPredicate((w) => w is TextField && w.key != const ValueKey('station-field-mask.feather')));
+    await tester.ensureVisible(field);
+    await tester.pump();
+    await tester.enterText(field, '5');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
     expect(layer.masks.first.feather.defaultValue, equals(5.0));

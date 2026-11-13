@@ -778,6 +778,10 @@ class Content {
   /// Reveal: where the drawn part starts / ends, fractions of the length.
   Track? lineTrimStart, lineTrimEnd;
 
+  /// A trail point (shape 'trail', Drawing tab): whether it is drawing
+  /// its trail (1) or not (0) - stepped at its keys, never eased.
+  Track? trailOn;
+
   /// A rect's own grid (an editor guide, never drawn into the picture):
   /// columns and rows, or null for none. Centre to centre snaps onto its
   /// crossings.
@@ -920,6 +924,10 @@ class Mask {
   /// When it works: local frames [start, end] of its layer, or null for
   /// the whole layer.
   List<int>? range;
+
+  /// A picture source: its see-through parts count too - anything of it
+  /// that shows at all masks in full (off: by its alpha, part for part).
+  bool coverAlpha = false;
   Mask(
       {this.enabled = true,
       this.mode = 'add',
@@ -1600,6 +1608,55 @@ class CutByLayer {
       onlyWhenTouching: onlyWhenTouching);
 }
 
+/// Lens (Masks tab): the layer is a round lens - what is under it shows
+/// through it as through glass with an angle of view, from a fish eye
+/// (wide: much of the scene squeezed in, bent toward the rim) to a
+/// telephoto (narrow: a small part of it, magnified). The layer itself is
+/// not drawn; the lens is the circle inside its box.
+class LensSettings {
+  bool enabled;
+
+  /// Angle of view, degrees (keyable): ~50 looks as it is, up to 175 a
+  /// fish eye, down to 5 a telephoto.
+  Track fov;
+
+  /// Extra magnification on top (1: none).
+  double zoom;
+
+  /// Darkening toward the rim, 0..1.
+  double vignette;
+
+  /// How soft the rim is, 0..1 of the radius.
+  double softness;
+  LensSettings({this.enabled = false, Track? fov, this.zoom = 1, this.vignette = 0, this.softness = 0.02})
+      : fov = fov ?? Track(50.0, false);
+  LensSettings copy() =>
+      LensSettings(enabled: enabled, fov: cloneTrack(fov), zoom: zoom, vignette: vignette, softness: softness);
+  Map<String, dynamic> toJson() => {
+        'fov': trackToJson(fov),
+        if (zoom != 1) 'zoom': zoom,
+        if (vignette != 0) 'vignette': vignette,
+        if (softness != 0.02) 'softness': softness,
+      };
+  static LensSettings fromJson(Map<String, dynamic> j) => LensSettings(
+        enabled: true,
+        fov: j['fov'] is Map ? trackFromJson(j['fov'] as Map<String, dynamic>) : null,
+        zoom: (j['zoom'] as num?)?.toDouble() ?? 1,
+        vignette: (j['vignette'] as num?)?.toDouble() ?? 0,
+        softness: (j['softness'] as num?)?.toDouble() ?? 0.02,
+      );
+}
+
+/// Where a lens with angle of view `fovDeg` looks for the point at
+/// `rn` (0 the middle .. 1 the rim) of its radius: the distance from its
+/// middle in the scene, in radii. 50 degrees: (nearly) where it is.
+double lensSourceRadius(double rn, double fovDeg, double zoom) {
+  final half = (fovDeg.clamp(1.0, 178.0) / 2) * math.pi / 180;
+  const ref = 25 * math.pi / 180;
+  final theta = math.min(rn * half, 88 * math.pi / 180);
+  return math.tan(theta) / math.tan(ref) / math.max(zoom, 0.01);
+}
+
 /// Colour filters on a layer.
 ///
 /// `scope`: what they act on - 'self' (the layer's own picture), 'scene'
@@ -1927,6 +1984,9 @@ class Layer {
   /// (down to the background); the layer itself isn't drawn.
   bool dig = false;
 
+  /// Masks tab: the layer as a lens over what is under it.
+  LensSettings lens = LensSettings();
+
   /// Made by the Drawing tab (a fill): its region always bounds the next
   /// fills, chosen layers or not.
   bool drawing = false;
@@ -2243,6 +2303,7 @@ Layer cloneLayer(Layer src) {
       ..lineSmooth = src.content.lineSmooth
       ..lineMirrorLength = src.content.lineMirrorLength
       ..lineTrimStart = src.content.lineTrimStart == null ? null : cloneTrack(src.content.lineTrimStart!)
+      ..trailOn = src.content.trailOn == null ? null : cloneTrack(src.content.trailOn!)
       ..lineTrimEnd = src.content.lineTrimEnd == null ? null : cloneTrack(src.content.lineTrimEnd!)
       ..mediaHash = src.content.mediaHash
       ..refProjectId = src.content.refProjectId
@@ -2264,7 +2325,8 @@ Layer cloneLayer(Layer src) {
             range: m.range == null ? null : [...m.range!],
             feather: cloneTrack(m.feather),
             featherOutside: m.featherOutside,
-            invert: m.invert),
+            invert: m.invert)
+          ..coverAlpha = m.coverAlpha,
     ],
     effectStack: [
       for (final i in src.effectStack)
@@ -2326,6 +2388,7 @@ Layer cloneLayer(Layer src) {
     ..mirrorSourceId = src.mirrorSourceId
     ..mirrorProbe = src.mirrorProbe
     ..dig = src.dig
+    ..lens = src.lens.copy()
     ..drawing = src.drawing
     ..showBack = src.showBack
     ..backSourceId = src.backSourceId

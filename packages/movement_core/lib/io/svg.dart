@@ -35,6 +35,7 @@ import '../effects/geometry_effect_registry.dart' show isDeformingEffect, deform
 import '../geometry/contour_layer.dart' show layerVectorRings, layerMaskClipLocal;
 import '../model/shape_fill.dart' show evaluateGlows, glowFalloff, GlowSample;
 import '../model/stage_camera.dart' show cameraViewMatrix;
+import '../model/trail.dart' show trailPolylines;
 import '../geometry/shapes.dart';
 import '../model/project.dart';
 import '../text/text_animators.dart' show animatedTextUnits;
@@ -75,6 +76,19 @@ String exportProjectToSvg(Project project, int globalFrame, double frameWidth, d
     if (layer.hidden || !_exportable(layer, mediaHref)) continue;
     final state = getLayerStateAt(project, layer.id, globalFrame);
     if (!state.inRange) continue;
+    // a trail point: the line it has left so far, in the frame.
+    if (layer.content.shape == 'trail') {
+      final d = [
+        for (final l in trailPolylines(project, layer, globalFrame))
+          'M${l.map((p) => '${_fmt(p[0])} ${_fmt(p[1])}').join('L')}${l.length == 1 ? 'h0.01' : ''}'
+      ].join();
+      final op = evaluateTrack(project, layer.transform.opacity, layerLocalFrame(layer, globalFrame), layer) as double;
+      if (d.isNotEmpty) {
+        buf.writeln('  <path d="$d" fill="none" stroke="${layer.color ?? '#ffffff'}" stroke-width="${_fmt(layer.content.lineWidth)}" '
+            'stroke-linecap="round" stroke-linejoin="round"${op < 1 ? ' opacity="${_fmt(op)}"' : ''}/>');
+      }
+      continue;
+    }
     final m = _withLayerMirror(layer, toFrameMatrix(state.matrix));
     final localFrame = layerLocalFrame(layer, globalFrame);
     final opacity = evaluateTrack(project, layer.transform.opacity, localFrame, layer) as double;
@@ -169,7 +183,7 @@ String exportProjectToAnimatedSvg(Project project, int startFrame, int endFrame,
   }
 
   for (final layer in project.layers) {
-    if (layer.hidden || !_exportable(layer, mediaHref)) continue;
+    if (layer.hidden || !_exportable(layer, mediaHref) || layer.content.shape == 'trail') continue;
     // the shape itself, per frame: deforming effects, masks, text keys and
     // animators, text parts, line points and reveal change it over time.
     final media = isMediaShape(layer.content.shape) ? _mediaElement(layer, mediaHref!(layer)!) : null;

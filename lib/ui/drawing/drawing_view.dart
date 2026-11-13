@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Transform;
+import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 import '../common/color_row.dart';
@@ -57,9 +58,112 @@ class DrawingView extends StatelessWidget {
               value: app.fillDig,
               onChanged: (v) => app.setFillOptions(dig: v),
             ),
+            const Divider(height: 24),
+            // a point that leaves a trail behind it as it moves.
+            Row(children: [
+              const Expanded(child: Text('Trail point', style: TextStyle(fontWeight: FontWeight.bold))),
+              OutlinedButton.icon(
+                key: const ValueKey('draw-add-trail'),
+                onPressed: app.addTrailPoint,
+                icon: const Icon(Icons.gesture, size: 18),
+                label: const Text('Add'),
+              ),
+            ]),
+            const Hint('A point that draws a line behind it wherever it goes - by its own keys (Movement), or '
+                'carried by a parent it is attached to.'),
+            if (findLayer(app.project, app.selection.selectedLayer) case final t? when isTrailShape(t.content.shape))
+              ..._trailRows(context, t),
           ],
         );
       },
     );
+  }
+
+  /// The selected trail point: drawing now (a keyed switch), colour,
+  /// width, opacity.
+  List<Widget> _trailRows(BuildContext context, Layer t) {
+    final c = t.content;
+    final track = c.trailOn ??= Track(1.0, false);
+    final lf = layerLocalFrame(t, app.currentFrame);
+    final frame = lf.round();
+    final on = trailDrawingAt(c, lf);
+    final keyed = track.keyframes.any((k) => k.frame == frame);
+    void edit(VoidCallback change) {
+      app.pushUndo();
+      change();
+      app.commitEdit();
+    }
+
+    void setOn(bool v) => edit(() {
+          // with keys: a key here (the switch is stepped); without: the
+          // whole trail.
+          if (track.keyframes.isEmpty) {
+            track.defaultValue = v ? 1.0 : 0.0;
+          } else {
+            track.keyframes.removeWhere((k) => k.frame == frame);
+            track.keyframes.add(Keyframe(frame: frame, value: v ? 1.0 : 0.0));
+            track.keyframes.sort((a, b) => a.frame.compareTo(b.frame));
+          }
+        });
+    final opacity = (evaluateTrack(app.project, t.transform.opacity, lf, t) as num).toDouble();
+    return [
+      Row(children: [
+        Expanded(
+          child: SwitchListTile(
+            key: const ValueKey('trail-on'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(on ? 'Drawing now' : 'Not drawing now'),
+            subtitle: hint('Key it to stop and start the trail in time - what is drawn stays'),
+            value: on,
+            onChanged: setOn,
+          ),
+        ),
+        IconButton(
+          key: const ValueKey('trail-on-key'),
+          icon: Icon(keyed ? Icons.diamond : Icons.diamond_outlined, size: 16),
+          tooltip: 'key the switch at this frame',
+          onPressed: () => edit(() {
+            if (keyed) {
+              track.keyframes.removeWhere((k) => k.frame == frame);
+            } else {
+              track.keyframes.add(Keyframe(frame: frame, value: on ? 1.0 : 0.0));
+              track.keyframes.sort((a, b) => a.frame.compareTo(b.frame));
+            }
+          }),
+        ),
+      ]),
+      ColorRow(label: 'Colour', hex: t.color ?? '#ffffff', onPick: (v) => edit(() => t.color = v)),
+      Row(children: [
+        SizedBox(width: 110, child: Text('Width ${c.lineWidth.toStringAsFixed(1)}')),
+        Expanded(
+          child: Slider(
+            key: const ValueKey('trail-width'),
+            value: c.lineWidth.clamp(0.5, 200),
+            min: 0.5,
+            max: 200,
+            onChangeStart: (_) => app.pushUndo(),
+            onChanged: (v) {
+              c.lineWidth = v;
+              app.commitEdit();
+            },
+          ),
+        ),
+      ]),
+      Row(children: [
+        SizedBox(width: 110, child: Text('Opacity ${(opacity * 100).round()}%')),
+        Expanded(
+          child: Slider(
+            key: const ValueKey('trail-opacity'),
+            value: opacity.clamp(0.0, 1.0),
+            onChangeStart: (_) => app.pushUndo(),
+            onChanged: (v) {
+              setTrackValueAt(t.transform.opacity, frame, v);
+              app.commitEdit();
+            },
+          ),
+        ),
+      ]),
+    ];
   }
 }

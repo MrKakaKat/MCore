@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:convert' show jsonDecode, jsonEncode;
+import 'dart:convert' show base64Encode, jsonDecode, jsonEncode;
 import 'dart:isolate';
 import 'dart:typed_data' show ByteData, Float64List, Int16List, Uint8List;
 import 'dart:math' as math;
@@ -1062,6 +1062,52 @@ class AppState extends ChangeNotifier {
 
   ByteData? _stagePickAlpha;
 
+  /// Movement, "Fit to the contour": the layer's box (its handles) drawn
+  /// in to what shows of it - for a picture the edge of its pixels (the
+  /// empty margins around them go), found from its contour's outermost
+  /// points. It is a crop: Reset crop brings the margins back. False:
+  /// nothing to fit to (yet).
+  Future<bool> fitBoxToContour(String layerId) async {
+    final layer = findLayer(project, layerId);
+    if (layer == null) return false;
+    final old = [...layer.crop];
+    layer.crop = [0, 0, 0, 0];
+    Contour? c;
+    try {
+      // a picture's contour is read off its pixels: wait for it.
+      final sw = Stopwatch()..start();
+      while ((c = renderer.layerContour(project, layer, currentFrame, const ContourParams(simplify: 0.2, minAreaFraction: 0))) ==
+              null &&
+          sw.elapsed < const Duration(seconds: 4)) {
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+      }
+    } finally {
+      layer.crop = old;
+    }
+    if (c == null || c.rings.isEmpty) return false;
+    var minX = double.infinity, minY = double.infinity, maxX = -double.infinity, maxY = -double.infinity;
+    for (final r in c.rings) {
+      for (final q in r.points) {
+        minX = math.min(minX, q[0]);
+        minY = math.min(minY, q[1]);
+        maxX = math.max(maxX, q[0]);
+        maxY = math.max(maxY, q[1]);
+      }
+    }
+    final b = shapeBoundingBox(layer.content);
+    final w = b.maxX - b.minX, h = b.maxY - b.minY;
+    if (w <= 0 || h <= 0 || maxX <= minX || maxY <= minY) return false;
+    undo.pushUndoState(project);
+    layer.crop = [
+      ((minX - b.minX) / w).clamp(0.0, 0.95),
+      ((minY - b.minY) / h).clamp(0.0, 0.95),
+      ((b.maxX - maxX) / w).clamp(0.0, 0.95),
+      ((b.maxY - maxY) / h).clamp(0.0, 0.95),
+    ];
+    commitEdit();
+    return true;
+  }
+
   /// Export: the folder files are saved to (null: the save window asks).
   String? exportDir;
 
@@ -1225,7 +1271,10 @@ class AppState extends ChangeNotifier {
     pushUndo();
     for (final l in [...project.layers]) {
       final want = parentPicked.contains(l.id);
-      if (want && l.parentId != p) reparentPreservingWorldPosition(project, l, p, currentFrame);
+      if (want && l.parentId != p) {
+        newParentLinkDefaults(l);
+        reparentPreservingWorldPosition(project, l, p, currentFrame);
+      }
       if (!want && l.parentId == p) reparentPreservingWorldPosition(project, l, null, currentFrame);
     }
     parentPicked = {};
@@ -1848,8 +1897,119 @@ class AppState extends ChangeNotifier {
 
   /// Merges the layers `ids` into one contour layer (see mergeLayers),
   /// selected afterwards; one undo step. False when they can't be merged.
+  /// Merge with pictures among the layers: all of them as one picture -
+  /// what they show together at the playhead (vector shapes turned into
+  /// pixels), a new picture layer in their place. One undo step.
+  Future<bool> mergeLayersAsPicture(List<String> ids) async {
+    final layers = [for (final id in ids) findLayer(project, id)].whereType<Layer>().toList();
+    if (layers.length < 2) return false;
+    final keep = {for (final l in layers) l.id};
+    // drawn alone: the others hidden, no background, no stage camera, at
+    // twice the frame's size (it may be scaled up later).
+    final hiddenNow = [for (final l in project.layers) if (!l.hidden && !keep.contains(l.id)) l];
+    for (final l in hiddenNow) {
+      l.hidden = true;
+    }
+    final bg = renderer.backgroundColor, cam = renderer.useStageCamera, scale = renderer.outputScale;
+    final cuts = renderer.stageCuts;
+    ui.Image image;
+    try {
+      renderer
+        ..backgroundColor = null
+        ..useStageCamera = false
+        ..stageCuts = null
+        ..outputScale = 2;
+      clearStateCaches();
+      await renderer.prepareFrame(project, currentFrame);
+      renderer.renderFrame(project, currentFrame, clipToFrame: false);
+      image = await renderer.captureFrame();
+    } finally {
+      for (final l in hiddenNow) {
+        l.hidden = false;
+      }
+      renderer
+        ..backgroundColor = bg
+        ..useStageCamera = cam
+        ..stageCuts = cuts
+        ..outputScale = scale;
+      clearStateCaches();
+      _render();
+    }
+    final w = image.width, h = image.height;
+    final px = await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
+    image.dispose();
+    if (px == null) return false;
+    // what shows: its box.
+    var minX = w, minY = h, maxX = -1, maxY = -1;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (px.getUint8((y * w + x) * 4 + 3) == 0) continue;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (maxX < 0) return false;
+    final bw = maxX - minX + 1, bh = maxY - minY + 1;
+    final out = Uint8List(bw * bh * 4);
+    final src = px.buffer.asUint8List();
+    for (var y = 0; y < bh; y++) {
+      out.setRange(y * bw * 4, (y + 1) * bw * 4, src, ((y + minY) * w + minX) * 4);
+    }
+    final done = Completer<ui.Image>();
+    ui.decodeImageFromPixels(out, bw, bh, ui.PixelFormat.rgba8888, done.complete);
+    final cropped = await done.future;
+    final png = await cropped.toByteData(format: ui.ImageByteFormat.png);
+    cropped.dispose();
+    if (png == null) return false;
+    pushUndo();
+    final k = w / frameWidth; // picture px per frame px
+    final ordered = [...layers]..sort((a, b) => project.layers.indexOf(a).compareTo(project.layers.indexOf(b)));
+    final top = ordered.last;
+    final start = layers.map((l) => l.startFrame).reduce(math.min);
+    final end = layers.map((l) => l.startFrame + l.durationFrames).reduce(math.max);
+    final merged = createImageLayer(
+        imageSourceType: 'embedded',
+        imageData: base64Encode(png.buffer.asUint8List()),
+        naturalWidth: bw,
+        naturalHeight: bh,
+        maxDimension: math.max(bw, bh) / k)
+      ..id = _newLayerId()
+      ..name = nextFreeLayerName(project, '${top.name} merged')
+      ..folder = top.folder
+      ..startFrame = start
+      ..durationFrames = end - start;
+    merged.content.size = [bw / k, bh / k];
+    merged.transform.anchor.defaultValue = [
+      (minX + bw / 2) / k / stageSize.width,
+      (minY + bh / 2) / k / stageSize.height,
+    ];
+    project.layers.insert(project.layers.indexOf(top) + 1, merged);
+    // children of a merged layer keep their place, under no parent.
+    for (final l in project.layers) {
+      if (l.parentId != null && keep.contains(l.parentId) && !keep.contains(l.id)) {
+        reparentPreservingWorldPosition(project, l, null, currentFrame);
+      }
+    }
+    project.layers.removeWhere((l) => keep.contains(l.id));
+    normalizeTimelineRows(project);
+    clearStateCaches();
+    selection.selectedLayer = merged.id;
+    multiSelection = {};
+    commitEdit();
+    return true;
+  }
+
   bool mergeLayersById(List<String> ids) {
     final layers = [for (final id in ids) findLayer(project, id)].whereType<Layer>().toList();
+    // pictures among them: one picture of them all.
+    if (layers.length >= 2 &&
+        layers.any(mergesAsPicture) &&
+        layers.every((l) => mergeBlocker(l) == null || mergesAsPicture(l))) {
+      unawaited(mergeLayersAsPicture(ids));
+      return true;
+    }
     if (layers.length < 2 || layers.any((l) => mergeBlocker(l) != null)) return false;
     pushUndo();
     final merged = mergeLayers(project, layers, _newLayerId(), currentFrame);
@@ -2579,6 +2739,20 @@ class AppState extends ChangeNotifier {
 
   /// The stage tool of the Drawing tab: 'none' | 'fill'.
   String drawTool = 'none';
+
+  /// Drawing: a new trail point in the middle of the stage, selected.
+  void addTrailPoint() {
+    undo.pushUndoState(project);
+    final layer = createTrailLayer(width: 6 * _resolutionScale, color: fillColor.length >= 7 ? fillColor.substring(0, 7) : '#ffffff');
+    nameNewLayer(project, layer);
+    _fitNewLayerToLength(layer);
+    project.layers.add(layer);
+    selection.groupSelection.clear();
+    selectLayer(layer.id);
+    _fitTimeline();
+    _render();
+    notifyListeners();
+  }
 
   /// Fill: what bounds it - only the selected layers (else all of them),
   /// its colour, and a hole through everything under it instead.

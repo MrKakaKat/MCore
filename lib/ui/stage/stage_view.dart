@@ -259,7 +259,7 @@ class _StageViewState extends State<StageView> {
       if (selectedLayer != null && widget.app.freshFillLayerId == selectedLayer.id && pieceInsets == null)
         Positioned(
           right: 8,
-          top: 8,
+          bottom: widget.app.drawTool == 'fill' ? 56 : 8,
           child: FilledButton.tonalIcon(
             key: const ValueKey('stage-fresh-fill'),
             onPressed: () => widget.app.fitSelectedToStage('fill'),

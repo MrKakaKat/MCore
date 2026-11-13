@@ -68,7 +68,7 @@ void copyLayerParams(Layer source, Layer target) {
   );
   target.content.offset = [...source.content.offset];
   target.masks = [
-    for (final m in source.masks) Mask(enabled: m.enabled, mode: m.mode, sourceLayerId: m.sourceLayerId, feather: cloneTrack(m.feather), featherOutside: m.featherOutside, invert: m.invert, range: m.range == null ? null : [...m.range!], moreSources: [...m.moreSources], sourcePart: m.sourcePart),
+    for (final m in source.masks) Mask(enabled: m.enabled, mode: m.mode, sourceLayerId: m.sourceLayerId, feather: cloneTrack(m.feather), featherOutside: m.featherOutside, invert: m.invert, range: m.range == null ? null : [...m.range!], moreSources: [...m.moreSources], sourcePart: m.sourcePart)..coverAlpha = m.coverAlpha,
   ];
   target.effectStack = [
     for (final i in source.effectStack)
@@ -425,6 +425,15 @@ void deleteLayer(Project project, Selection selection, String layerId, int globa
 }
 
 /// Frame rates the project can run at (Settings).
+/// A layer getting a parent: it follows the parent's position only - its
+/// turn and size are switched on by hand (Movement tab).
+void newParentLinkDefaults(Layer layer) {
+  layer
+    ..inheritPosition = true
+    ..inheritRotation = false
+    ..inheritScale = false;
+}
+
 const projectFpsOptions = [12, 15, 24, 25, 30, 48, 50, 60];
 
 /// Changes the project's frame rate, keeping every animation's real

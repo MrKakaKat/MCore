@@ -20,6 +20,7 @@ import 'ui/perf/perf_hud.dart';
 import 'ui/fill/fill_view.dart';
 import 'ui/ai/ai_dialogs.dart';
 import 'ui/filters/filters_view.dart';
+import 'ui/graph_editor/graph_editor_view.dart';
 import 'ui/objects/objects_view.dart';
 import 'ui/drawing/drawing_view.dart';
 import 'ui/links/links_view.dart';
@@ -648,6 +649,26 @@ class _MobileParamsSheetState extends State<_MobileParamsSheet> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _publishDock());
     xyPadHosts++;
     xyPad.addListener(_onXyPad);
+    easePanelHosts++;
+    easePanel.addListener(_onEasePanel);
+  }
+
+  // the ease editor takes the tab's place, over the whole head; closing it
+  // puts the sheet back.
+  int? _modeBeforeEase;
+  void _onEasePanel() {
+    if (!mounted) return;
+    if (easePanel.value != null) {
+      _modeBeforeEase ??= _mode;
+      if (_mode != 2) _setMode(2);
+      if (_tab == null) _onTabChanged(_lastTab);
+    } else if (_modeBeforeEase != null) {
+      final m = _modeBeforeEase!;
+      _modeBeforeEase = null;
+      _setMode(m);
+    } else {
+      setState(() {});
+    }
   }
 
   // the XY pad opens the sheet over the whole head; closing it puts the
@@ -685,6 +706,8 @@ class _MobileParamsSheetState extends State<_MobileParamsSheet> {
     widget.app.tabRequests.removeListener(_onTabRequest);
     xyPad.removeListener(_onXyPad);
     xyPadHosts--;
+    easePanel.removeListener(_onEasePanel);
+    easePanelHosts--;
     super.dispose();
   }
 
@@ -848,6 +871,25 @@ class _ParamsTabsState extends State<_ParamsTabs> {
   Widget build(BuildContext context) {
     final onChanged = widget.onChanged;
     final int? tab = onChanged == null ? _tab : widget.selected;
+    // the ease editor: in place of the tabs and their page (its own exit
+    // in the corner).
+    return ValueListenableBuilder<EaseTarget?>(
+      valueListenable: easePanel,
+      builder: (context, ease, tabs) => ease != null && onChanged != null
+          ? GraphEditorView(
+              key: ObjectKey(ease.track),
+              app: ease.app,
+              track: ease.track,
+              componentCount: ease.componentCount,
+              wholePath: ease.wholePath,
+              onClose: () => easePanel.value = null,
+            )
+          : tabs!,
+      child: _tabsAndPage(tab, onChanged),
+    );
+  }
+
+  Widget _tabsAndPage(int? tab, ValueChanged<int?>? onChanged) {
     return Column(
       children: [
         SizedBox(

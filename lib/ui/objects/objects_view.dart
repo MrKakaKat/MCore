@@ -40,6 +40,7 @@ class ObjectsView extends StatelessWidget {
                 ? 'same'
                 : 'through';
         final outline = layer.effectStack.where((i) => i.effectId == 'outline').firstOrNull;
+        final glow = layer.effectStack.where((i) => i.effectId == 'edge_glow').firstOrNull;
         return ListView(
           padding: const EdgeInsets.all(8),
           children: [
@@ -112,6 +113,30 @@ class ObjectsView extends StatelessWidget {
                 const Expanded(child: Text('It has a contour - its settings are in Effects')),
                 TextButton(
                   key: const ValueKey('objects-contour-open'),
+                  onPressed: () => app.showTab('Effects'),
+                  child: const Text('Open'),
+                ),
+              ],
+            ]),
+            const SizedBox(height: 8),
+            // a glow along its edge (shapes and pictures alike).
+            Row(children: [
+              if (glow == null)
+                FilledButton.tonalIcon(
+                  key: const ValueKey('objects-add-glow'),
+                  onPressed: () => edit(() {
+                    layer.effectStack.add(createEffectInstance(
+                        'edge_glow', 'fx_${DateTime.now().microsecondsSinceEpoch}', layer));
+                  }),
+                  icon: const Icon(Icons.flare, size: 18),
+                  label: const Text('Add edge glow'),
+                )
+              else ...[
+                const Icon(Icons.check, size: 18),
+                const SizedBox(width: 6),
+                const Expanded(child: Text('Its edge glows - the settings are in Effects')),
+                TextButton(
+                  key: const ValueKey('objects-glow-open'),
                   onPressed: () => app.showTab('Effects'),
                   child: const Text('Open'),
                 ),

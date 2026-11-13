@@ -4,7 +4,7 @@ description: >
   packages/movement_core (pure Dart, tested with dart test); this package
   is the Flutter app (render/, ui/, services/, io/) on top of it.
 publish_to: none
-version: 0.1.4+12
+version: 0.1.5+13
 
 environment:
   sdk: ^3.4.0
@@ -39,3 +39,4 @@ flutter:
     - assets/fonts/Roboto-Regular.ttf
   shaders:
     - shaders/filter.frag
+    - shaders/lens.frag

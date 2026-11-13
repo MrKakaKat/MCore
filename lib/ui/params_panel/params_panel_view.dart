@@ -68,6 +68,22 @@ class ParamsPanelView extends StatelessWidget {
           padding: const EdgeInsets.all(8),
           children: [
             _pickSeveral(context),
+            // the box drawn in to what shows (a picture's empty margins go).
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                key: const ValueKey('fit-contour'),
+                onPressed: () async {
+                  final ok = await app.fitBoxToContour(layer.id);
+                  if (!ok && context.mounted) {
+                    ScaffoldMessenger.of(context)
+                        .showSnackBar(const SnackBar(content: Text('No contour to fit to yet')));
+                  }
+                },
+                icon: const Icon(Icons.fit_screen_outlined, size: 18),
+                label: const Text('Fit to the contour'),
+              ),
+            ),
             _parentSelector(context, layer),
             _vecParam(context, 'anchor', layer.transform.anchor, localFrame, [0.5, 0.5],
                 const ParamScale.ruler(unitsPerPixel: 0.0005, minorTick: 0.01, majorTick: 0.1, decimals: 4)),
@@ -211,6 +227,7 @@ class ParamsPanelView extends StatelessWidget {
                 // layerSection.js): a raw parentId assignment would leave
                 // the anchor's existing numbers meaning something
                 // completely different once relative to a new parent.
+                if (newParentId != null && layer.parentId == null) newParentLinkDefaults(layer);
                 reparentPreservingWorldPosition(app.project, layer, newParentId, app.currentFrame);
                 app.commitEdit();
               },
@@ -472,10 +489,7 @@ class ParamsPanelView extends StatelessWidget {
       visualDensity: VisualDensity.compact,
       padding: const EdgeInsets.all(4),
       constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-      onPressed: () => showDialog(
-        context: context,
-        builder: (_) => GraphEditorView(app: app, track: trk, componentCount: componentCount),
-      ),
+      onPressed: () => openEase(context, app: app, track: trk, componentCount: componentCount),
     );
   }
 
@@ -531,10 +545,7 @@ class ParamsPanelView extends StatelessWidget {
                 IconButton(
                   icon: const Icon(Icons.show_chart, size: 18),
                   tooltip: 'edit whole-path easing curve',
-                  onPressed: () => showDialog(
-                    context: context,
-                    builder: (_) => GraphEditorView(app: app, track: anchor, componentCount: 2, wholePath: true),
-                  ),
+                  onPressed: () => openEase(context, app: app, track: anchor, componentCount: 2, wholePath: true),
                 ),
             ],
           ),

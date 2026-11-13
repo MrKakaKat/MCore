@@ -62,6 +62,7 @@ export 'model/layer_detail.dart';
 export 'model/reverse.dart';
 export 'model/merge_layers.dart';
 export 'model/fill_region.dart';
+export 'model/trail.dart';
 export 'model/time_range.dart';
 export 'model/stage_camera.dart';
 export 'model/layer_edit.dart';

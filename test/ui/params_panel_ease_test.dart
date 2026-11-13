@@ -41,6 +41,8 @@ void main() {
     await pump(tester);
 
     expect(easeButtonFinder, findsOneWidget);
+    await tester.ensureVisible(easeButtonFinder);
+    await tester.pump();
     await tester.tap(easeButtonFinder);
     await tester.pumpAndSettle();
 

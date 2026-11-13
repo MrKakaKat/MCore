@@ -18,5 +18,6 @@ void registerBuiltinEffects() {
   registerRotate3d();
   registerOutline();
   registerEdgeBlur();
+  registerEdgeGlow();
   registerOrigamiFold();
 }

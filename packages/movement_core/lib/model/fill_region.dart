@@ -18,7 +18,7 @@ import 'timeline_rows.dart' show normalizeTimelineRows;
 /// Whether the layer can bound a fill at `frame` at all.
 bool _bounds(Project project, Layer l, int frame) {
   final s = l.content.shape;
-  if (l.hidden || s == 'audio' || s == 'camera' || s == 'null' || l.mirrorProbe) return false;
+  if (l.hidden || s == 'audio' || s == 'camera' || s == 'null' || s == 'trail' || l.mirrorProbe) return false;
   if (!getLayerStateAt(project, l.id, frame).inRange) return false;
   // nothing to see: fully see-through.
   final op = (evaluateTrack(project, l.transform.opacity, layerLocalFrame(l, frame), l) as num).toDouble();

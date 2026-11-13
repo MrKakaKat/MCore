@@ -10,6 +10,29 @@ import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 
+/// What the ease editor is open on.
+typedef EaseTarget = ({AppState app, Track track, int componentCount, bool wholePath});
+
+/// The ease editor open in place of the tabs' page (null: closed) - the
+/// params sheet shows it instead of the open tab, without the tab list.
+final ValueNotifier<EaseTarget?> easePanel = ValueNotifier(null);
+
+/// Whether a sheet shows the ease editor (else it opens as a dialog).
+int easePanelHosts = 0;
+
+/// Opens the ease editor on `track`.
+void openEase(BuildContext context,
+    {required AppState app, required Track track, required int componentCount, bool wholePath = false}) {
+  if (easePanelHosts > 0) {
+    easePanel.value = (app: app, track: track, componentCount: componentCount, wholePath: wholePath);
+    return;
+  }
+  showDialog<void>(
+    context: context,
+    builder: (_) => GraphEditorView(app: app, track: track, componentCount: componentCount, wholePath: wholePath),
+  );
+}
+
 /// Ported from movement-core/src/ui/graphEditor.js - a dialog editing the
 /// temporal easing {x1,y1,x2,y2} on either one keyframe transition
 /// (per-segment mode) or a spatial track's whole-path `globalEasing`
@@ -39,12 +62,17 @@ class GraphEditorView extends StatefulWidget {
   final Track track;
   final int componentCount;
   final bool wholePath;
+
+  /// Shown in place of the open tab (no dialog around it): its exit
+  /// button calls this.
+  final VoidCallback? onClose;
   const GraphEditorView({
     super.key,
     required this.app,
     required this.track,
     required this.componentCount,
     this.wholePath = false,
+    this.onClose,
   });
 
   @override
@@ -98,9 +126,12 @@ class _GraphEditorViewState extends State<GraphEditorView> {
           onPressed: onPressed,
         );
     const small = TextStyle(fontSize: 11, color: Colors.grey);
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
-      child: SizedBox(
+    final embedded = widget.onClose != null;
+    Widget frame(Widget body) => embedded
+        ? Align(alignment: Alignment.topCenter, child: SingleChildScrollView(child: body))
+        : Dialog(insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24), child: body);
+    return frame(
+      SizedBox(
         width: 340,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
@@ -120,7 +151,7 @@ class _GraphEditorViewState extends State<GraphEditorView> {
                 toolIcon('ease-paste', Icons.paste, 'paste the copied curve',
                     widget.app.copiedEasing == null ? null : () => _updateEasing(widget.app.copiedEasing!)),
                 toolIcon('ease-reset', Icons.restart_alt, 'back to the default curve', _reset),
-                toolIcon('ease-close', Icons.close, 'close', () => Navigator.pop(context)),
+                toolIcon('ease-close', Icons.close, 'close', widget.onClose ?? () => Navigator.pop(context)),
               ]),
               // which transition (one line, sideways) and X / Y.
               if (!_state.wholePath || _state.componentCount > 1)
@@ -530,8 +561,10 @@ class _EasingSquarePainter extends CustomPainter {
 /// JS's drawCurvePreview(): the real value-vs-time curve, samples
 /// already computed by GraphEditorState.sampleCurve (auto-scaled to the
 /// observed min/max, same as JS).
-/// The ease as speed over time: drag left / right to move where it is
-/// fastest, up / down for a sharper or smoother peak; presets below.
+/// The ease as a speed graph, the way After Effects draws it: speed
+/// over time between the two keys, with a handle at each key. A handle's
+/// height is the speed there (up: faster), its reach sideways the
+/// influence - how long that speed holds before the curve bends away.
 class _SpeedGraph extends StatefulWidget {
   final Easing easing;
   final ValueChanged<Easing> onChanged;
@@ -541,11 +574,44 @@ class _SpeedGraph extends StatefulWidget {
   State<_SpeedGraph> createState() => _SpeedGraphState();
 }
 
+/// The top of the speed graph (1 = the plain, even speed).
+const double _speedTop = 4;
+
 class _SpeedGraphState extends State<_SpeedGraph> {
-  double _peak = 0.5, _smooth = 0.6;
+  // which handle the finger holds: 0 the start's, 1 the end's.
+  int? _held;
+
+  static (double, double) _startHandle(Easing e) => (e.x1.clamp(0.02, 1.0), (e.y1 / e.x1.clamp(0.02, 1.0)).clamp(0.0, _speedTop));
+  static (double, double) _endHandle(Easing e) =>
+      (e.x2.clamp(0.0, 0.98), ((1 - e.y2) / (1 - e.x2.clamp(0.0, 0.98))).clamp(0.0, _speedTop));
+
+  static Offset _at(double t, double speed, Size size) => Offset(t * size.width, size.height - speed / _speedTop * size.height);
+
+  void _down(Offset p, Size size) {
+    final a = _startHandle(widget.easing), b = _endHandle(widget.easing);
+    _held = (p - _at(a.$1, a.$2, size)).distance <= (p - _at(b.$1, b.$2, size)).distance ? 0 : 1;
+    _move(p, size);
+  }
+
+  void _move(Offset p, Size size) {
+    final held = _held;
+    if (held == null) return;
+    final t = (p.dx / size.width).clamp(0.0, 1.0);
+    final speed = ((size.height - p.dy) / size.height * _speedTop).clamp(0.0, _speedTop);
+    final e = widget.easing;
+    if (held == 0) {
+      // the start: influence = how far in, the speed there = its slope.
+      final x1 = t.clamp(0.02, 1.0);
+      widget.onChanged(e.withBezier(x1, GraphEditorState.clampY(speed * x1), e.x2, e.y2));
+    } else {
+      final x2 = t.clamp(0.0, 0.98);
+      widget.onChanged(e.withBezier(e.x1, e.y1, x2, GraphEditorState.clampY(1 - speed * (1 - x2))));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final a = _startHandle(widget.easing), b = _endHandle(widget.easing);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -555,14 +621,22 @@ class _SpeedGraphState extends State<_SpeedGraph> {
             builder: (context, c) => _claimFinger(Listener(
               key: const ValueKey('speed-graph'),
               behavior: HitTestBehavior.opaque,
-              onPointerDown: (d) => _drag(d.localPosition, c.biggest),
-              onPointerMove: (d) => _drag(d.localPosition, c.biggest),
+              onPointerDown: (d) => _down(d.localPosition, c.biggest),
+              onPointerMove: (d) => _move(d.localPosition, c.biggest),
+              onPointerUp: (_) => _held = null,
+              onPointerCancel: (_) => _held = null,
               child: CustomPaint(
                 size: c.biggest,
-                painter: _SpeedPainter(easeSpeedSamples(widget.easing), Theme.of(context).colorScheme.primary),
+                painter: _SpeedPainter(easeSpeedSamples(widget.easing), Theme.of(context).colorScheme.primary,
+                    start: a, end: b, held: _held),
               ),
             )),
           ),
+        ),
+        const Padding(
+          padding: EdgeInsets.only(top: 2),
+          child: Text('Each key\'s handle: up - faster there, sideways - how long it holds',
+              style: TextStyle(fontSize: 11, color: Colors.grey)),
         ),
         Wrap(spacing: 4, children: [
           for (final e in speedPresets.entries)
@@ -576,44 +650,67 @@ class _SpeedGraphState extends State<_SpeedGraph> {
       ],
     );
   }
-
-  void _drag(Offset p, Size size) {
-    _peak = (p.dx / size.width).clamp(0.0, 1.0);
-    // higher on the graph: a taller, sharper peak.
-    _smooth = (p.dy / size.height).clamp(0.0, 1.0);
-    final e = speedPeakEasing(_peak, _smooth);
-    widget.onChanged(widget.easing.withBezier(e.x1, e.y1, e.x2, e.y2));
-  }
 }
 
 class _SpeedPainter extends CustomPainter {
   final List<double> speeds;
   final Color color;
-  _SpeedPainter(this.speeds, this.color);
+  final (double, double) start, end;
+  final int? held;
+  _SpeedPainter(this.speeds, this.color, {required this.start, required this.end, this.held});
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawRect(Offset.zero & size, Paint()
-      ..color = color.withOpacity(0.08));
-    final top = math.max(1.0, speeds.reduce(math.max)) * 1.1;
-    final path = Path();
-    for (var i = 0; i < speeds.length; i++) {
-      final x = i / (speeds.length - 1) * size.width, y = size.height - speeds[i] / top * size.height;
-      i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+    canvas.drawRect(Offset.zero & size, Paint()..color = color.withOpacity(0.08));
+    Offset at(double t, double v) => _SpeedGraphState._at(t, v.clamp(0.0, _speedTop), size);
+    // the even speed (1) as a faint line, quarters of the time.
+    final grid = Paint()
+      ..color = color.withOpacity(0.18)
+      ..strokeWidth = 1;
+    canvas.drawLine(at(0, 1), at(1, 1), grid);
+    for (var q = 1; q < 4; q++) {
+      canvas.drawLine(Offset(size.width * q / 4, 0), Offset(size.width * q / 4, size.height), grid);
     }
-    // the even speed (linear) for reference.
-    final evenY = size.height - 1 / top * size.height;
-    canvas.drawLine(Offset(0, evenY), Offset(size.width, evenY), Paint()
-      ..color = Colors.grey.withOpacity(0.5)
-      ..strokeWidth = 1);
-    canvas.drawPath(path, Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2);
+    final path = Path()..moveTo(0, size.height);
+    for (var i = 0; i < speeds.length; i++) {
+      final p = at(i / (speeds.length - 1), speeds[i]);
+      path.lineTo(p.dx, p.dy);
+    }
+    path
+      ..lineTo(size.width, size.height)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color.withOpacity(0.25));
+    final line = Path();
+    for (var i = 0; i < speeds.length; i++) {
+      final p = at(i / (speeds.length - 1), speeds[i]);
+      i == 0 ? line.moveTo(p.dx, p.dy) : line.lineTo(p.dx, p.dy);
+    }
+    canvas.drawPath(
+        line,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2);
+    // the handles: from each key, level with its speed, as far as its
+    // influence reaches.
+    final arm = Paint()
+      ..color = const Color(0xFFFFD54F)
+      ..strokeWidth = 1.5;
+    final keyDot = Paint()..color = const Color(0xFFFFD54F);
+    for (final (i, h, keyT) in [(0, start, 0.0), (1, end, 1.0)]) {
+      final k = at(keyT, h.$2), p = at(h.$1, h.$2);
+      canvas.drawLine(k, p, arm);
+      canvas.drawRect(Rect.fromCenter(center: k, width: 7, height: 7), keyDot);
+      canvas.drawCircle(p, held == i ? 8 : 6, keyDot);
+      canvas.drawCircle(p, held == i ? 8 : 6, Paint()
+        ..style = PaintingStyle.stroke
+        ..color = Colors.black
+        ..strokeWidth = 1);
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _SpeedPainter old) => true;
+  bool shouldRepaint(_SpeedPainter old) => true;
 }
 
 class _CurvePainter extends CustomPainter {

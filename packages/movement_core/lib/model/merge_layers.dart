@@ -22,11 +22,19 @@ import 'line_path.dart' show isNodeLine, lineOutlineRings;
 /// Why `layer` can't be merged, or null if it can.
 String? mergeBlocker(Layer layer) {
   final shape = layer.content.shape;
-  if (isMediaShape(shape) || shape == 'audio' || shape == 'text' || shape == 'null' || shape == 'camera') {
+  if (isMediaShape(shape) || shape == 'audio' || shape == 'text' || shape == 'null' || shape == 'camera' || shape == 'trail') {
     return 'not a vector shape';
   }
   if (layer.mirrorSourceId != null || layer.mirrorProbe) return 'is a mirror';
   return null;
+}
+
+/// Whether `layer` can only be merged as pixels (a picture, a video
+/// frame, text): merging it with anything gives one picture - the
+/// vector shapes merged with it are turned into pixels too.
+bool mergesAsPicture(Layer layer) {
+  final s = layer.content.shape;
+  return isMediaShape(s) || s == 'text' || s == 'textGroup';
 }
 
 /// What merging `layer` gives up (it merges as it looks at the playhead):

@@ -445,10 +445,7 @@ class _FillViewState extends State<FillView> {
           IconButton(
             icon: const Icon(Icons.show_chart, size: 16),
             tooltip: 'edit easing curve',
-            onPressed: () => showDialog(
-              context: context,
-              builder: (_) => GraphEditorView(app: app, track: trk, componentCount: values.length),
-            ),
+            onPressed: () => openEase(context, app: app, track: trk, componentCount: values.length),
           ),
         ResetIconButton(onPressed: () {
           app.pushUndo();

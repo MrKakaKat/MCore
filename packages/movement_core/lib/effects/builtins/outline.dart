@@ -45,6 +45,26 @@ void registerEdgeBlur() {
   ));
 }
 
+/// Edge glow (next to Outline): light along the layer's silhouette -
+/// outside it (behind the layer), inside it (over it) or both. Moves no
+/// points; the renderer draws it from the contour.
+void registerEdgeGlow() {
+  registerEffect(EffectDef(
+    id: 'edge_glow',
+    name: 'Edge glow',
+    category: 'style',
+    type: 'stroke',
+    deforms: false,
+    params: const [
+      ParamDef(key: 'radius', type: 'float', defaultValue: 16.0, range: [0, 200]),
+      ParamDef(key: 'strength', type: 'float', defaultValue: 0.8, range: [0, 1]),
+      ParamDef(key: 'color', type: 'color', defaultValue: '#ffffff', animatable: false),
+      ParamDef(key: 'position', type: 'enum', defaultValue: 'outside', animatable: false, options: ['outside', 'inside', 'both']),
+    ],
+    apply: (grid, params, localFrame) => grid,
+  ));
+}
+
 /// The Outline's smoothness (0..4) as contour settings: simplify
 /// tolerance in working pixels plus Chaikin passes.
 ({double simplify, int smooth}) outlineSmoothness(double s) =>
