@@ -348,20 +348,10 @@ class _ParamEditorState extends State<ParamEditor> {
               Expanded(child: _dragControl(context, i)),
               if (widget.scale.isRuler) _stepButton(i, 1),
             ]),
-          // how big a - / + step is: that many of the smallest units.
-          if (widget.scale.isRuler)
-            Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-              Text('Step  ${_unitLabel()} ×', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-              const SizedBox(width: 4),
-              SizedBox(
-                width: 48,
-                child: NumField(
-                  key: ValueKey('ruler-step-${widget.prefKey}'),
-                  value: ParamEditor.steps[widget.prefKey] ?? 1,
-                  onCommit: (v) => setState(() => ParamEditor.steps[widget.prefKey] = v <= 0 ? 1 : v),
-                ),
-              ),
-            ]),
+          // the step on its own row only when there is no stops row to
+          // share (x / y pairs).
+          if (widget.scale.isRuler && widget.values.length != 1)
+            Row(children: [_stepField()]),
         ],
       );
     }
@@ -419,6 +409,8 @@ class _ParamEditorState extends State<ParamEditor> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
       child: Row(children: [
+        // the - / + step at the left edge, the stops after it.
+        if (widget.scale.isRuler) _stepField(),
         const Spacer(),
         IconButton(
           key: ValueKey('station-remove-${widget.prefKey}'),
@@ -464,6 +456,19 @@ class _ParamEditorState extends State<ParamEditor> {
       ]),
     );
   }
+
+  /// How big a - / + step is: that many of the smallest units.
+  Widget _stepField() => Tooltip(
+        message: 'step of - / +: that many of ${_unitLabel()}',
+        child: SizedBox(
+          width: 48,
+          child: NumField(
+            key: ValueKey('ruler-step-${widget.prefKey}'),
+            value: ParamEditor.steps[widget.prefKey] ?? 1,
+            onCommit: (v) => setState(() => ParamEditor.steps[widget.prefKey] = v <= 0 ? 1 : v),
+          ),
+        ),
+      );
 
   /// The smallest unit of this value (its last shown decimal).
   double get _unit => math.pow(10, -widget.scale.decimals).toDouble();

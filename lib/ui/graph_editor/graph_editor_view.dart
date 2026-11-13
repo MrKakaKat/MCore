@@ -11,7 +11,7 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 
 /// What the ease editor is open on.
-typedef EaseTarget = ({AppState app, Track track, int componentCount, bool wholePath});
+typedef EaseTarget = ({AppState app, Track track, int componentCount, bool wholePath, int? segment, bool shared});
 
 /// The ease editor open in place of the tabs' page (null: closed) - the
 /// params sheet shows it instead of the open tab, without the tab list.
@@ -22,14 +22,15 @@ int easePanelHosts = 0;
 
 /// Opens the ease editor on `track`.
 void openEase(BuildContext context,
-    {required AppState app, required Track track, required int componentCount, bool wholePath = false}) {
+    {required AppState app, required Track track, required int componentCount, bool wholePath = false, int? segment, bool shared = false}) {
   if (easePanelHosts > 0) {
-    easePanel.value = (app: app, track: track, componentCount: componentCount, wholePath: wholePath);
+    easePanel.value = (app: app, track: track, componentCount: componentCount, wholePath: wholePath, segment: segment, shared: shared);
     return;
   }
   showDialog<void>(
     context: context,
-    builder: (_) => GraphEditorView(app: app, track: track, componentCount: componentCount, wholePath: wholePath),
+    builder: (_) =>
+        GraphEditorView(app: app, track: track, componentCount: componentCount, wholePath: wholePath, segment: segment, shared: shared),
   );
 }
 
@@ -63,6 +64,13 @@ class GraphEditorView extends StatefulWidget {
   final int componentCount;
   final bool wholePath;
 
+  /// The transition it opens on (null: the last).
+  final int? segment;
+
+  /// Opened on a shared key: its ease goes to every parameter's key
+  /// there, whatever the Settings switch.
+  final bool shared;
+
   /// Shown in place of the open tab (no dialog around it): its exit
   /// button calls this.
   final VoidCallback? onClose;
@@ -72,6 +80,8 @@ class GraphEditorView extends StatefulWidget {
     required this.track,
     required this.componentCount,
     this.wholePath = false,
+    this.segment,
+    this.shared = false,
     this.onClose,
   });
 
@@ -88,13 +98,14 @@ class _GraphEditorViewState extends State<GraphEditorView> {
   @override
   void initState() {
     super.initState();
-    _state = GraphEditorState(track: widget.track, componentCount: widget.componentCount, wholePath: widget.wholePath);
+    _state = GraphEditorState(
+        track: widget.track, componentCount: widget.componentCount, wholePath: widget.wholePath, segmentIndex: widget.segment);
   }
 
   void _updateEasing(Easing next) {
     setState(() => _state.setEditingTemporal(next));
     // a master key (every parameter keyed at that frame) keeps one ease.
-    if (!_state.wholePath && masterKeysShareEase) {
+    if (!_state.wholePath && (masterKeysShareEase || widget.shared)) {
       final layer = findLayer(widget.app.project, widget.app.selection.selectedLayer);
       final (_, k1) = _state.currentSegmentKeyframes();
       if (layer != null && allTracksKeyedAt(layer, k1.frame)) shareEaseAtFrame(layer, k1.frame, next);

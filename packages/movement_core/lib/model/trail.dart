@@ -4,6 +4,8 @@
 /// start again without hiding what is already drawn.
 library;
 
+import 'dart:math' as math;
+
 import '../core/state_cache.dart';
 import '../core/stage_size.dart';
 import 'project.dart';
@@ -11,8 +13,11 @@ import 'project.dart';
 bool isTrailShape(String shape) => shape == 'trail';
 
 /// A new trail point in the middle of the frame.
+/// Its box: a fifth of the stage's short side - big enough to grab and
+/// move right away.
 Layer createTrailLayer({double width = 6, String color = '#ffffff'}) {
-  final l = createLayer('rect', size: 18)
+  final side = math.max(24.0, math.min(stageSize.width, stageSize.height) * 0.2);
+  final l = createLayer('rect', size: side)
     ..color = color
     ..name = niceLayerName('trail', layerCounter);
   l.content

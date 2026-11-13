@@ -9,7 +9,7 @@ import 'dart:convert';
 import 'project.dart';
 import 'project_json.dart';
 
-const motionPanelIds = ['motionBlur', 'wiggle', 'pendulum', 'swing', 'timeQuantize'];
+const motionPanelIds = ['motionBlur', 'wiggle', 'pendulum', 'swing', 'path', 'timeQuantize'];
 
 bool _motionOn(Layer layer, String id) => switch (id) {
       'motionBlur' => layer.motionBlur.enabled,
@@ -17,6 +17,7 @@ bool _motionOn(Layer layer, String id) => switch (id) {
       'pendulum' => layer.pendulum.enabled,
       'swing' => layer.swing.enabled,
       'timeQuantize' => layer.timeQuantize.enabled,
+      'path' => layer.transform.pathFollow.enabled,
       _ => false,
     };
 
@@ -63,6 +64,14 @@ void addMotionPanelEntry(Layer layer, String id) {
       layer.swing = Swing(enabled: true);
     case 'timeQuantize':
       layer.timeQuantize = TimeQuantize(enabled: true);
+    case 'path':
+      // along its whole length over the layer's time (keys to change).
+      final t = Track(0.0)
+        ..keyframes = [
+          Keyframe(frame: 0, value: 0.0, temporal: newKeyEasing()),
+          Keyframe(frame: layer.durationFrames, value: 1.0, temporal: newKeyEasing()),
+        ];
+      layer.transform.pathFollow = PathFollow(enabled: true, t: t);
     default:
       return;
   }
@@ -82,6 +91,8 @@ void removeMotionPanelEntry(Layer layer, String id) {
       layer.swing = Swing();
     case 'timeQuantize':
       layer.timeQuantize = TimeQuantize();
+    case 'path':
+      layer.transform.pathFollow = PathFollow();
     default:
       return;
   }

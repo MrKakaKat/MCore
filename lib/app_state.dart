@@ -253,7 +253,7 @@ class AppState extends ChangeNotifier {
         }
       }
       undo.pushUndoState(project);
-      layer.startFrame = 0;
+      layer.startFrame = currentFrame;
       nameNewLayer(project, layer); // first free number of its type
       project.layers.add(layer);
       if (sound != null) {
@@ -381,7 +381,7 @@ class AppState extends ChangeNotifier {
       final layer = createAudioLayer(path: copy.path, assetId: id, durationSeconds: seconds);
       unawaited(_hashMedia(layer.content, copy));
       undo.pushUndoState(project);
-      layer.startFrame = 0;
+      layer.startFrame = currentFrame;
       nameNewLayer(project, layer);
       project.layers.add(layer);
       selection.selectedLayer = layer.id;
@@ -732,6 +732,37 @@ class AppState extends ChangeNotifier {
             return (layerId: x.layerId, tab: x.tab, a: xa, b: xb, track: x.track);
           }()
     ];
+    commitEdit();
+  }
+
+  /// The selected key line's path (its position keys, two or more), if it
+  /// has one.
+  Track? get selectedSpanPath {
+    final s = keyDetailSelection;
+    final layer = s == null ? null : findLayer(project, s.layerId);
+    if (s == null || layer == null) return null;
+    final trk = spanPositionTrack(layer, s.tab);
+    return trk != null && hasPathIn(trk, s.a, s.b) ? trk : null;
+  }
+
+  /// The selected line's path turned round (keys and eases keep their
+  /// times). One undo step.
+  void reverseSelectedPath() {
+    final s = keyDetailSelection, trk = selectedSpanPath;
+    if (s == null || trk == null) return;
+    pushUndo();
+    reversePathKeys(trk, s.a, s.b);
+    clearStateCaches();
+    commitEdit();
+  }
+
+  /// The selected line's path moved by `d` frame px. Live - the caller
+  /// pushed the undo step.
+  void shiftSelectedPath(List<double> d) {
+    final s = keyDetailSelection, trk = selectedSpanPath;
+    if (s == null || trk == null) return;
+    shiftPathKeys(trk, s.a, s.b, [d[0] / stageSize.width, d[1] / stageSize.height]);
+    clearStateCaches();
     commitEdit();
   }
 
@@ -2740,6 +2771,82 @@ class AppState extends ChangeNotifier {
   /// The stage tool of the Drawing tab: 'none' | 'fill'.
   String drawTool = 'none';
 
+  // ===== free move (Keyframes tab) =====
+
+  /// Free move: the stage records where the selected object is dragged
+  /// (its middle, frame px); confirming makes it a key layer.
+  bool freeMoveRecording = false;
+  List<List<double>> freeMovePath = [];
+
+  /// How long the recorded move takes, seconds.
+  double freeMoveSeconds = 1.0;
+
+  // the drag's hold on the object: finger to its middle.
+  List<double> _freeMoveGrab = const [0, 0];
+
+  void startFreeMove() {
+    if (findLayer(project, selection.selectedLayer) == null) return;
+    freeMoveRecording = true;
+    freeMovePath = [];
+    stageNotice.value = 'Drag the object along its way, then Confirm';
+    notifyListeners();
+  }
+
+  void cancelFreeMove() {
+    freeMoveRecording = false;
+    freeMovePath = [];
+    notifyListeners();
+  }
+
+  void setFreeMoveSeconds(double s) {
+    freeMoveSeconds = s.clamp(0.05, 600.0).toDouble();
+    notifyListeners();
+  }
+
+  /// A new drag: it starts from where the object stands (a drag again
+  /// draws the path anew).
+  void beginFreeMoveStroke(List<double> p) {
+    final l = findLayer(project, selection.selectedLayer);
+    if (l == null) return;
+    final c = computeLayerFrameGeometry(project, l, currentFrame, includeVertices: false).center;
+    _freeMoveGrab = [c[0] - p[0], c[1] - p[1]];
+    freeMovePath = [c];
+    notifyListeners();
+  }
+
+  void addFreeMovePoint(List<double> p) {
+    if (freeMovePath.isEmpty) return;
+    final q = [p[0] + _freeMoveGrab[0], p[1] + _freeMoveGrab[1]];
+    final last = freeMovePath.last;
+    if ((q[0] - last[0]).abs() < 0.5 && (q[1] - last[1]).abs() < 0.5) return;
+    freeMovePath = [...freeMovePath, q];
+    notifyListeners();
+  }
+
+  /// The recorded path as a key layer: two keys, `freeMoveSeconds` apart
+  /// from the playhead, the curve in their handles.
+  void confirmFreeMove() {
+    final l = findLayer(project, selection.selectedLayer);
+    if (l == null || freeMovePath.length < 2) {
+      cancelFreeMove();
+      return;
+    }
+    pushUndo();
+    final keep = activeAnimLayer;
+    final n = addFreeMoveLayer(project, l, freeMovePath, currentFrame, math.max(1, (freeMoveSeconds * fps).round()));
+    activeAnimLayer = keep;
+    freeMoveRecording = false;
+    freeMovePath = [];
+    if (n == 0) {
+      undo.discardLastUndoState();
+      notifyListeners();
+      return;
+    }
+    _notice('Key layer $n: the free move');
+    _fitTimeline();
+    commitEdit();
+  }
+
   /// Drawing: a new trail point in the middle of the stage, selected.
   void addTrailPoint() {
     undo.pushUndoState(project);
@@ -2875,9 +2982,13 @@ class AppState extends ChangeNotifier {
 
   /// A new shape/text/image layer is no longer than a timeline length the
   /// user set: adding one doesn't silently grow a timeline they shortened.
+  /// It starts where the playhead is.
   void _fitNewLayerToLength(Layer layer) {
+    layer.startFrame = currentFrame;
     final length = _explicitTimelineLength;
-    if (length != null && layer.durationFrames > length) layer.durationFrames = math.max(1, length);
+    if (length != null && layer.startFrame + layer.durationFrames > length) {
+      layer.durationFrames = math.max(1, length - layer.startFrame);
+    }
   }
 
   void addLayer(String presetShape) {
@@ -3133,6 +3244,25 @@ class AppState extends ChangeNotifier {
     commitEdit();
   }
 
+  /// Text: the text becomes a layer per word / letter (`by`: 'word' |
+  /// 'char'), each where its letters were; the first is selected.
+  void separateTextLayers(String layerId, String by) {
+    final l = findLayer(project, layerId);
+    if (l == null) return;
+    pushUndo();
+    final made = splitTextIntoLayers(project, l, by, currentFrame);
+    if (made.isEmpty) {
+      undo.discardLastUndoState();
+      _notice('Nothing to separate: one ${by == 'char' ? 'letter' : 'word'}');
+      return;
+    }
+    selection.groupSelection
+      ..clear()
+      ..addAll(made.map((m) => m.id));
+    selectLayer(made.first.id);
+    commitEdit();
+  }
+
   // auto box: the box follows the text.
   void _autoBox(String layerId) {
     final l = findLayer(project, layerId);
@@ -3248,6 +3378,7 @@ class AppState extends ChangeNotifier {
     undo.pushUndoState(project);
     for (final l in layers) {
       nameNewLayer(project, l);
+      l.startFrame = currentFrame;
       project.layers.add(l);
     }
     focusNewLayer(layers.last.id);
@@ -4404,6 +4535,8 @@ class AppState extends ChangeNotifier {
     'snapRotationMirror': (() => snapRotationMirrorEnabled, (v) => snapRotationMirrorEnabled = v as bool, true),
     'mirrorMovesLayer': (() => mirrorMovesLayer, (v) => mirrorMovesLayer = v as bool, false),
     'snapEdgeMid': (() => snapEdgeMidpointsEnabled, (v) => snapEdgeMidpointsEnabled = v as bool, true),
+    'snapTextCenters': (() => snapTextCentersEnabled, (v) => snapTextCentersEnabled = v as bool, true),
+    'snapTextEdges': (() => snapTextEdgesEnabled, (v) => snapTextEdgesEnabled = v as bool, true),
     'snapEqualRounding': (() => snapEqualRoundingEnabled, (v) => snapEqualRoundingEnabled = v as bool, true),
     'snapReach': (() => snapReachBySize, (v) => snapReachBySize = (v as num).toDouble(), 1.5),
     'snapRectGrid': (() => snapRectGridEnabled, (v) => snapRectGridEnabled = v as bool, true),
@@ -5129,6 +5262,8 @@ class AppState extends ChangeNotifier {
     }
     frameNotifier.value = currentFrame;
     _frameUnannounced = false;
+    // the selected layer's "Edit the whole object".
+    editAllKeys = findLayer(project, selection.selectedLayer)?.editAll ?? false;
     _revalidateKeySelection();
     _persistAppUi();
     super.notifyListeners();

@@ -39,7 +39,7 @@ class EffectsView extends StatelessWidget {
   /// The types the Effects tab sorts its effects into.
   static String typeOf(Layer layer, String id) {
     switch (id) {
-      case 'wiggle' || 'pendulum' || 'swing':
+      case 'wiggle' || 'pendulum' || 'swing' || 'path':
         return 'Motion';
       case 'motionBlur' || 'timeQuantize':
         return 'Time';
@@ -242,6 +242,7 @@ class EffectsView extends StatelessWidget {
                             'wiggle' => _wiggleBody(layer),
                             'timeQuantize' => _timeQuantizeBody(layer),
                             'swing' => _swingBody(layer),
+                            'path' => _pathBody(context, layer, localFrame),
                             _ => _pendulumBody(context, layer),
                           },
                   ),
@@ -1577,6 +1578,111 @@ class EffectsView extends StatelessWidget {
 
   /// Swing: rocks the layer's rotation in a sine between two angles;
   /// damping makes it die down toward the middle.
+  /// Along a path: the object's middle travels along a line (from its
+  /// start to its end) or round another shape's outline; where along it
+  /// is the keyable progress (0..1).
+  Widget _pathBody(BuildContext context, Layer layer, double localFrame) {
+    final pf = layer.transform.pathFollow;
+    final sources = [
+      for (final l in app.project.layers)
+        if (l.id != layer.id &&
+            l.parentId != layer.id &&
+            !const {'audio', 'camera', 'null', 'trail', 'text', 'textGroup'}.contains(l.content.shape) &&
+            !isMediaShape(l.content.shape))
+          l
+    ];
+    final value = (evaluateTrack(app.project, pf.t, localFrame) as num).toDouble();
+    final frame = localFrame.round();
+    final keyed = pf.t.keyframes.any((k) => k.frame == frame);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          const Text('Path', style: TextStyle(fontSize: 12)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: DropdownButton<String?>(
+              key: const ValueKey('path-source'),
+              isExpanded: true,
+              value: sources.any((l) => l.id == pf.sourceLayerId) ? pf.sourceLayerId : null,
+              hint: const Text('pick a line or a shape', style: TextStyle(fontSize: 12)),
+              items: [
+                for (final l in sources)
+                  DropdownMenuItem(
+                    value: l.id,
+                    child: Text('${l.name}${l.content.shape == 'line' ? '  (along the line)' : '  (round its outline)'}',
+                        overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+                  ),
+              ],
+              onChanged: (v) {
+                app.pushUndo();
+                pf.sourceLayerId = v;
+                app.commitEdit();
+              },
+            ),
+          ),
+        ]),
+        ParamEditor(
+          prefKey: 'effect.path.t',
+          label: 'progress',
+          values: [value],
+          scale: const ParamScale.slider(0, 1, decimals: 3),
+          onEditStart: app.pushUndo,
+          onChanged: (v) {
+            setTrackValueAt(pf.t, frame, v.first);
+            app.commitEdit();
+          },
+          onCommit: (v) {
+            app.pushUndo();
+            setTrackValueAt(pf.t, frame, v.first);
+            app.commitEdit();
+          },
+          trailing: [
+            if (pf.t.keyframes.length >= 2)
+              IconButton(
+                icon: const Icon(Icons.show_chart, size: 16),
+                tooltip: 'edit easing curve',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => openEase(context, app: app, track: pf.t, componentCount: 1),
+              ),
+            IconButton(
+              key: const ValueKey('path-t-key'),
+              icon: Icon(keyed ? Icons.diamond : Icons.diamond_outlined, size: 16),
+              tooltip: 'toggle keyframe at current frame',
+              visualDensity: VisualDensity.compact,
+              onPressed: () {
+                app.pushUndo();
+                if (keyed) {
+                  pf.t.keyframes.removeWhere((k) => k.frame == frame);
+                } else {
+                  pf.t.keyframes
+                    ..add(Keyframe(frame: frame, value: value, temporal: newKeyEasing()))
+                    ..sort((a, b) => a.frame.compareTo(b.frame));
+                }
+                app.commitEdit();
+              },
+            ),
+          ],
+        ),
+        SwitchListTile(
+          key: const ValueKey('path-even'),
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          contentPadding: const EdgeInsets.only(left: 4),
+          title: const Text('Even speed along it', style: TextStyle(fontSize: 12)),
+          subtitle: const Text('off: the same time from point to point, however far apart', style: TextStyle(fontSize: 11)),
+          value: pf.parametrization != 'vertex',
+          onChanged: (v) {
+            app.pushUndo();
+            pf.parametrization = v ? 'arcLength' : 'vertex';
+            app.commitEdit();
+          },
+        ),
+        const Hint('Its middle goes along the line from its start (0) to its end (1), or once round the shape\'s outline.'),
+      ],
+    );
+  }
+
   Widget _swingBody(Layer layer) {
     final w = layer.swing;
     final d = Swing();
@@ -1646,6 +1752,7 @@ const motionPanelNames = {
   'wiggle': 'Wiggle',
   'pendulum': 'Pendulum',
   'swing': 'Swing',
+  'path': 'Along a path',
   'timeQuantize': 'Time quantize',
 };
 

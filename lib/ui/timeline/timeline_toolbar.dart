@@ -189,3 +189,39 @@ class _BackToPlayheadButtonState extends State<BackToPlayheadButton> {
     );
   }
 }
+
+/// While the tab sheet lies over the whole head: undo, play and redo on the
+/// stage's bottom edge (play in the middle) - to watch and take back what
+/// was just done without closing the sheet.
+class StageTransportRow extends StatelessWidget {
+  final AppState app;
+  const StageTransportRow({super.key, required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget button(String key, IconData icon, String tip, VoidCallback? onPressed) => Material(
+          color: Colors.black54,
+          shape: const CircleBorder(),
+          child: IconButton(
+            key: ValueKey(key),
+            icon: Icon(icon, color: Colors.white),
+            tooltip: tip,
+            onPressed: onPressed,
+          ),
+        );
+    return AnimatedBuilder(
+      animation: app,
+      builder: (context, _) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Row(children: [
+          button('stage-undo', Icons.undo, 'undo', () => _toast(context, app..performUndo())),
+          const Spacer(),
+          button('stage-play', app.playing ? Icons.pause : Icons.play_arrow, 'play / pause',
+              app.canPlay || app.playing ? app.togglePlay : null),
+          const Spacer(),
+          button('stage-redo', Icons.redo, 'redo', () => _toast(context, app..performRedo())),
+        ]),
+      ),
+    );
+  }
+}

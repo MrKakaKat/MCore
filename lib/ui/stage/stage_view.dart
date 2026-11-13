@@ -267,6 +267,38 @@ class _StageViewState extends State<StageView> {
             label: const Text('Fill'),
           ),
         ),
+      // free move: the recorded way, and confirm / cancel.
+      if (widget.app.freeMoveRecording) ...[
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              key: const ValueKey('free-move-path'),
+              painter: _FreeMovePathPainter(
+                  [for (final p in widget.app.freeMovePath) _camera.frameToScreen(Offset(p[0], p[1]))]),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 8,
+          bottom: 8,
+          child: TextButton.icon(
+            key: const ValueKey('free-move-cancel'),
+            onPressed: widget.app.cancelFreeMove,
+            icon: const Icon(Icons.close, size: 18),
+            label: const Text('Cancel'),
+          ),
+        ),
+        Positioned(
+          right: 8,
+          bottom: 8,
+          child: FilledButton.icon(
+            key: const ValueKey('free-move-confirm'),
+            onPressed: widget.app.freeMovePath.length >= 2 ? widget.app.confirmFreeMove : null,
+            icon: const Icon(Icons.check, size: 18),
+            label: const Text('Confirm the move'),
+          ),
+        ),
+      ],
       // a new shape waiting for its box: cancel.
       if (widget.app.pendingPlaceShape != null)
         Positioned(
@@ -684,4 +716,38 @@ class _StageCustomPainter extends CustomPainter {
   // this without profiling on a real device, which isn't possible here.
   @override
   bool shouldRepaint(covariant _StageCustomPainter oldDelegate) => true;
+}
+
+/// Free move: the way recorded so far, its start and its end.
+class _FreeMovePathPainter extends CustomPainter {
+  final List<Offset> points;
+  _FreeMovePathPainter(this.points);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) return;
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final p in points.skip(1)) {
+      path.lineTo(p.dx, p.dy);
+    }
+    canvas.drawPath(
+        path,
+        Paint()
+          ..color = const Color(0xFFFFB74D)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5
+          ..strokeJoin = StrokeJoin.round
+          ..strokeCap = StrokeCap.round);
+    canvas.drawCircle(points.first, 5, Paint()..color = const Color(0xFFFFB74D));
+    canvas.drawCircle(
+        points.last,
+        8,
+        Paint()
+          ..color = const Color(0xFFFFB74D)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2);
+  }
+
+  @override
+  bool shouldRepaint(_FreeMovePathPainter old) => old.points != points;
 }

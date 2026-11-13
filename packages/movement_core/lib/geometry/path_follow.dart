@@ -6,12 +6,12 @@ import 'dart:math' as math;
 //   the path is even regardless of vertex spacing.
 // - vertex (legacy/alternate): equal t covers equal VERTEX COUNT,
 //   ignoring actual edge length.
-List<double> pointOnOutlineByVertex(List<List<double>> canvasSpacePoints, double t) {
+List<double> pointOnOutlineByVertex(List<List<double>> canvasSpacePoints, double t, {bool isClosed = true}) {
   if (canvasSpacePoints.isEmpty) return [0, 0];
-  final closed = [...canvasSpacePoints, canvasSpacePoints[0]];
+  final closed = isClosed ? [...canvasSpacePoints, canvasSpacePoints[0]] : canvasSpacePoints;
   final n = closed.length - 1;
   if (n <= 0) return closed[0];
-  final tt = ((t % 1) + 1) % 1; // wrap negative/over-1 values
+  final tt = isClosed ? ((t % 1) + 1) % 1 : t.clamp(0.0, 1.0); // wrap negative/over-1 values
   final idxF = tt * n;
   final i = math.min(n - 1, idxF.floor());
   final frac = idxF - i;
@@ -19,9 +19,9 @@ List<double> pointOnOutlineByVertex(List<List<double>> canvasSpacePoints, double
   return [a[0] + (b[0] - a[0]) * frac, a[1] + (b[1] - a[1]) * frac];
 }
 
-List<double> pointOnOutlineArcLength(List<List<double>> canvasSpacePoints, double t) {
+List<double> pointOnOutlineArcLength(List<List<double>> canvasSpacePoints, double t, {bool isClosed = true}) {
   if (canvasSpacePoints.isEmpty) return [0, 0];
-  final closed = [...canvasSpacePoints, canvasSpacePoints[0]];
+  final closed = isClosed ? [...canvasSpacePoints, canvasSpacePoints[0]] : canvasSpacePoints;
   final n = closed.length - 1;
   if (n <= 0) return closed[0];
   final lengths = <double>[];
@@ -32,7 +32,8 @@ List<double> pointOnOutlineArcLength(List<List<double>> canvasSpacePoints, doubl
     total += d;
   }
   if (total == 0) return closed[0];
-  final tt = ((t % 1) + 1) % 1;
+  // an open path: from its start (0) to its end (1), held past them.
+  final tt = isClosed ? ((t % 1) + 1) % 1 : t.clamp(0.0, 1.0);
   final targetDist = tt * total;
   var acc = 0.0;
   for (var i = 0; i < n; i++) {
@@ -46,8 +47,10 @@ List<double> pointOnOutlineArcLength(List<List<double>> canvasSpacePoints, doubl
   return closed[n];
 }
 
-List<double> pointOnOutline(List<List<double>> canvasSpacePoints, double t, String? mode) {
+/// `closed`: an outline (t wraps round it); else an open line from its
+/// start (t = 0) to its end (t = 1).
+List<double> pointOnOutline(List<List<double>> canvasSpacePoints, double t, String? mode, {bool closed = true}) {
   return mode == 'vertex'
-      ? pointOnOutlineByVertex(canvasSpacePoints, t)
-      : pointOnOutlineArcLength(canvasSpacePoints, t);
+      ? pointOnOutlineByVertex(canvasSpacePoints, t, isClosed: closed)
+      : pointOnOutlineArcLength(canvasSpacePoints, t, isClosed: closed);
 }

@@ -32,6 +32,10 @@ bool isTimedMedia(String shape) => shape == 'video' || shape == 'audio';
 
 /// Text and compound shapes are placed by their box the same way.
 /// A vector line is a long, thin rectangle (its thickness is its height).
+/// A null and a trail point: a box to move and size only (no rotate or
+/// side handles).
+bool isNullLikeShape(String s) => s == 'null' || s == 'trail';
+
 bool isRectLikeShape(String shape) =>
     shape == 'rect' || shape == 'line' || shape == 'image' || shape == 'video' || shape == 'text' || shape == 'textGroup' || shape == 'compound' || shape == 'camera' || shape == 'projectRef' || shape == 'trail';
 

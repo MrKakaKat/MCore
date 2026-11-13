@@ -359,6 +359,24 @@ class _SnappingSettingsViewState extends State<SnappingSettingsView> {
                     value: snapEdgeMidpointsEnabled,
                     onChanged: (v) => widget.app.setAppPreference('snapEdgeMid', v)),
               ]),
+              // texts: letter onto letter, by their real outlines.
+              Row(children: [
+                const Expanded(
+                    child: Text('Text: a letter\'s middle onto another text\'s letter', style: TextStyle(fontSize: 12))),
+                Switch(
+                    key: const ValueKey('snap-text-centers'),
+                    value: snapTextCentersEnabled,
+                    onChanged: (v) => widget.app.setAppPreference('snapTextCenters', v)),
+              ]),
+              Row(children: [
+                const Expanded(
+                    child: Text('Text: a letter\'s edge touching another text\'s letter (top, bottom, sides)',
+                        style: TextStyle(fontSize: 12))),
+                Switch(
+                    key: const ValueKey('snap-text-edges'),
+                    value: snapTextEdgesEnabled,
+                    onChanged: (v) => widget.app.setAppPreference('snapTextEdges', v)),
+              ]),
               Row(children: [
                 const Expanded(child: Text('Roundings take each other\'s size', style: TextStyle(fontSize: 12))),
                 Switch(

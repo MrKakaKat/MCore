@@ -434,6 +434,12 @@ class TextStyleSpan {
 
   /// When it acts, local frames (null: from the start / to the end).
   int? from, to;
+
+  /// Its size: the other letters keep their places (it grows round its
+  /// own middle, over them), and it grows from its middle height instead
+  /// of standing on the line.
+  bool sizeKeepsOthers = false;
+  bool sizeFromMiddle = false;
   TextStyleSpan(this.start, this.end,
       {this.size, this.color, this.rise, this.fontId, this.name = '', this.move, this.turn, this.scale, this.opacity, this.from, this.to,
       this.blur, this.spacing, this.shake, this.wobble, this.tint, this.tintColor});
@@ -454,7 +460,9 @@ class TextStyleSpan {
       shake: shake == null ? null : cloneTrack(shake!),
       wobble: wobble == null ? null : cloneTrack(wobble!),
       tint: tint == null ? null : cloneTrack(tint!),
-      tintColor: tintColor);
+      tintColor: tintColor)
+    ..sizeKeepsOthers = sizeKeepsOthers
+    ..sizeFromMiddle = sizeFromMiddle;
   bool covers(int i) => i >= start && i < end;
 
   /// It moves the letters (needs the per-letter pass).
@@ -1987,6 +1995,11 @@ class Layer {
   /// Masks tab: the layer as a lens over what is under it.
   LensSettings lens = LensSettings();
 
+  /// Keyframes tab, "Edit the whole object": while it is selected, an edit
+  /// moves every key of the parameter by the same amount - the object
+  /// changes over its whole animation, the animation itself doesn't.
+  bool editAll = false;
+
   /// Made by the Drawing tab (a fill): its region always bounds the next
   /// fills, chosen layers or not.
   bool drawing = false;
@@ -2389,6 +2402,7 @@ Layer cloneLayer(Layer src) {
     ..mirrorProbe = src.mirrorProbe
     ..dig = src.dig
     ..lens = src.lens.copy()
+    ..editAll = src.editAll
     ..drawing = src.drawing
     ..showBack = src.showBack
     ..backSourceId = src.backSourceId

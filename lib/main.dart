@@ -350,6 +350,19 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                 ),
                 if (narrow)
                   _MobileParamsSheet(app: widget.appState, dock: _sheetDock, fullHeight: constraints.maxHeight),
+                // the sheet over the whole head: undo / play / redo on the
+                // stage's bottom edge.
+                if (narrow)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: constraints.maxHeight / 2 + 8,
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: sheetCoversHead,
+                      builder: (context, covered, _) =>
+                          covered ? StageTransportRow(app: widget.appState) : const SizedBox.shrink(),
+                    ),
+                  ),
               ],
             );
               },
@@ -611,6 +624,9 @@ Widget _stageOverlayIconButton(
 /// (16:9), and near the top (comfortable parameter editing). Tapping the
 /// selected tab chip again deselects it and drops the sheet to the
 /// bottom; picking a tab while collapsed raises it back.
+/// The tab sheet lies over the whole head (full open).
+final ValueNotifier<bool> sheetCoversHead = ValueNotifier(false);
+
 class _MobileParamsSheet extends StatefulWidget {
   final AppState app;
   final ValueNotifier<double> dock;
@@ -766,6 +782,10 @@ class _MobileParamsSheetState extends State<_MobileParamsSheet> {
     _spaceChanged = _lastFullHeight != null && _lastFullHeight != widget.fullHeight;
     _lastFullHeight = widget.fullHeight;
     final h = _dragHeight ?? _heightOf(_mode);
+    final covers = h >= _fullPx - 1;
+    if (sheetCoversHead.value != covers) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => sheetCoversHead.value = covers);
+    }
     return Positioned(
       left: 0,
       right: 0,
@@ -882,6 +902,8 @@ class _ParamsTabsState extends State<_ParamsTabs> {
               track: ease.track,
               componentCount: ease.componentCount,
               wholePath: ease.wholePath,
+              segment: ease.segment,
+              shared: ease.shared,
               onClose: () => easePanel.value = null,
             )
           : tabs!,

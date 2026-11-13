@@ -129,7 +129,14 @@ class _G {
   final String? color;
   final double rise;
   final int index;
-  _G(this.font, this.gid, this.rune, this.fs, this.color, this.rise, this.index);
+
+  /// The size it is drawn at (`fs`: the size it takes in the line - the
+  /// text's own when its part keeps the others in place), and whether it
+  /// grows from its middle height.
+  final double drawFs;
+  final bool fromMiddle;
+  _G(this.font, this.gid, this.rune, this.fs, this.color, this.rise, this.index, {double? drawFs, this.fromMiddle = false})
+      : drawFs = drawFs ?? fs;
 }
 
 /// Lays `spec` out in a box of `size` centred on `offset`.
@@ -151,21 +158,23 @@ TextLayout _layout(TextSpec spec, List<double> offset, List<double> size) {
   double gScale(_G g) => g.fs / g.font.unitsPerEm;
 
   _G glyphFor(int rune, int index) {
-    var size = fs, rise = 0.0;
+    var size = fs, rise = 0.0, keep = false, middle = false;
     String? color;
     var font = main;
     for (final sp in spec.spans) {
       if (!sp.covers(index)) continue;
-      if (sp.size != null) size = fs * sp.size!.clamp(0.01, 100);
+      if (sp.size != null) {
+        size = fs * sp.size!.clamp(0.01, 100);
+        keep = sp.sizeKeepsOthers;
+        middle = sp.sizeFromMiddle;
+      }
       if (sp.color != null) color = sp.color;
       if (sp.rise != null) rise = sp.rise!;
       // a part's own font.
       if (sp.fontId != null) font = fontById(sp.fontId!) ?? font;
     }
-    if (font.hasGlyph(rune) || fallback == null || !fallback.hasGlyph(rune)) {
-      return _G(font, font.glyphIndex(rune), rune, size, color, rise, index);
-    }
-    return _G(fallback, fallback.glyphIndex(rune), rune, size, color, rise, index);
+    final f = font.hasGlyph(rune) || fallback == null || !fallback.hasGlyph(rune) ? font : fallback;
+    return _G(f, f.glyphIndex(rune), rune, keep ? fs : size, color, rise, index, drawFs: size, fromMiddle: middle);
   }
 
   double advanceOf(_G g) => g.font.advance(g.gid) * gScale(g) + spec.letterSpacing;
@@ -257,11 +266,18 @@ TextLayout _layout(TextSpec spec, List<double> offset, List<double> size) {
     for (var i = 0; i < line.length; i++) {
       final g = line[i];
       if (i > 0) x += kern(line[i - 1], g);
-      final gs = gScale(g);
+      final gs = g.drawFs / g.font.unitsPerEm;
+      // drawn bigger than its place in the line: round its own middle.
+      final gx = x + (g.font.advance(g.gid) * (gScale(g) - gs)) / 2;
+      // from its middle height: the middle of its em box stays where the
+      // text's own size would put it.
+      final gy = baseline +
+          g.rise +
+          (g.fromMiddle ? (g.font.ascender + g.font.descender) / 2 / g.font.unitsPerEm * (g.drawFs - fs) : 0.0);
       final into = g.color == null ? plain : colored.putIfAbsent(g.color!, () => []);
       final from = path.length;
       for (final c in spec.hidden.contains(g.index) ? const <PathCmd>[] : g.font.glyphPath(g.gid)) {
-        final t = c.transformed(gs, 0, 0, -gs, x, baseline + g.rise);
+        final t = c.transformed(gs, 0, 0, -gs, gx, gy);
         path.add(t);
         into.add(t);
       }
@@ -269,12 +285,12 @@ TextLayout _layout(TextSpec spec, List<double> offset, List<double> size) {
         index: g.index,
         rune: g.rune,
         line: li,
-        x: x,
+        x: gx,
         advance: g.font.advance(g.gid) * gs,
-        baseline: baseline + g.rise,
+        baseline: gy,
         ascent: g.font.ascender * gs,
         descent: -g.font.descender * gs,
-        fontSize: g.fs,
+        fontSize: g.drawFs,
         color: g.color,
         cmdStart: from,
         cmdEnd: path.length,

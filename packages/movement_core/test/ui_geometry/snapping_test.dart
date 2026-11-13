@@ -262,6 +262,7 @@ void main() {
 
   test('reach by size: only objects near the dragged one pull it', () {
     snapReachBySize = 1.5;
+    snapGridEnabled = false; // its middle sits on a grid line (it pulls middles too)
     final m = rect([0.5, 0.501]);
     final far = rect([0.95, 0.503]); // far away: out of reach
     project.layers.addAll([m, far]);
@@ -298,6 +299,7 @@ void main() {
   });
 
   test('center horizontal/vertical: axis-only, no cross-axis side effect', () {
+    snapGridEnabled = false; // its middle sits on a grid line (it pulls middles too)
     final m = rect([0.5, 0.501]); // center frame y = 200.4, x=320
     final other = rect(
         [0.9, 0.503]); // same-ish Y (horizontal alignment), very different X

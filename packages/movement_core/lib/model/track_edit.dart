@@ -15,6 +15,12 @@ import 'dart:math' as math;
 import '../core/interpolation.dart';
 import 'project.dart';
 
+/// Edits move all of a parameter's keys at once (the selected layer's
+/// "Edit the whole object", see Layer.editAll - kept in step by the app).
+bool editAllKeys = false;
+
+bool _isNumeric(dynamic v) => v is num || (v is List && v.isNotEmpty && v.every((e) => e is num));
+
 /// The animation layer edits of `trk` go to now (activeAnimLayer), or
 /// null for the track's own keys.
 AnimLayer? activeAnimLayerOf(Track trk) =>
@@ -171,6 +177,21 @@ dynamic trackValueToEdit(Track trk, int localFrame) => activeAnimLayerOf(trk) !=
 /// Writes `value` into whatever `keyframeToEdit` picks (or the static
 /// default), re-deriving spatial tangents afterwards.
 void setTrackValueAt(Track trk, int localFrame, dynamic value) {
+  // the whole object: every key (and the plain value) moves by what this
+  // edit changes here - the animation keeps its shape.
+  if (editAllKeys && trk.keyframes.isNotEmpty && _isNumeric(value)) {
+    final f = localFrame.toDouble();
+    final now = evaluateTrack(null, trk, f);
+    if (_isNumeric(now) && (value is List) == (now is List)) {
+      final d = residualValue(value, now, false);
+      dynamic shift(dynamic v) => combineValues(v is List ? List<double>.from(v.map((e) => (e as num).toDouble())) : v, d, false);
+      for (final k in trk.keyframes) {
+        k.value = shift(k.value);
+      }
+      trk.defaultValue = shift(trk.defaultValue);
+      return;
+    }
+  }
   // an animation layer active: it takes what is needed for the total to
   // be `value`, the track's own keys and the other layers unchanged.
   final al = activeAnimLayerOf(trk);
@@ -187,4 +208,47 @@ void setTrackValueAt(Track trk, int localFrame, dynamic value) {
     trk.defaultValue = value;
   }
   if (trk.spatial) autoComputeTangents(trk);
+}
+
+/// The position track a key line of tab `tab` stands for: Movement's own
+/// position, or animation layer n's ('Layer n'); null: none.
+Track? spanPositionTrack(Layer layer, String tab) {
+  if (tab == 'Movement') return layer.transform.anchor;
+  if (tab.startsWith('Layer ')) {
+    final n = int.tryParse(tab.substring(6)) ?? 0;
+    final al = layer.transform.anchor.animLayers;
+    return n >= 1 && n <= al.length ? al[n - 1].track : null;
+  }
+  return null;
+}
+
+List<Keyframe> _keysIn(Track trk, int a, int b) =>
+    [for (final k in trk.keyframes) if (k.frame >= a && k.frame <= b) k]..sort((x, y) => x.frame.compareTo(y.frame));
+
+/// Whether `trk` has a path between local frames a and b (two keys or more).
+bool hasPathIn(Track trk, int a, int b) => _keysIn(trk, a, b).length >= 2;
+
+/// The path between local frames a and b turned round: the keys keep
+/// their times and eases, their places go the other way (the last key's
+/// place first), curves and all.
+void reversePathKeys(Track trk, int a, int b) {
+  final ks = _keysIn(trk, a, b);
+  if (ks.length < 2) return;
+  final values = [for (final k in ks) k.value is List ? List<double>.from(k.value as List) : k.value];
+  final tans = [for (final k in ks) k.spatialTangent.copy()];
+  final n = ks.length;
+  for (var i = 0; i < n; i++) {
+    final j = n - 1 - i;
+    ks[i].value = values[j];
+    // a curve walked backwards: what came in goes out.
+    ks[i].spatialTangent = SpatialTangent(inTan: [...tans[j].outTan], outTan: [...tans[j].inTan]);
+  }
+}
+
+/// The path between local frames a and b moved by `d` (each key alike).
+void shiftPathKeys(Track trk, int a, int b, List<double> d) {
+  for (final k in _keysIn(trk, a, b)) {
+    final v = k.value as List;
+    k.value = [(v[0] as num) + d[0], (v[1] as num) + d[1]];
+  }
 }

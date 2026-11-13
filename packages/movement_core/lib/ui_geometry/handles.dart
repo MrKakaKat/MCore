@@ -246,7 +246,7 @@ TransformBoxHandles getTransformBoxHandles(Project project, Layer layer, int glo
   // right-handed: the move handle bottom right (a null's sits opposite
   // its size corner).
   final nearX = handlesRightHanded ? bbox.maxX : bbox.minX, farX = handlesRightHanded ? bbox.minX : bbox.maxX;
-  var moveLocal = layer.content.shape == 'null' ? [farX, bbox.maxY] : [nearX, bbox.maxY];
+  var moveLocal = isNullLikeShape(layer.content.shape) ? [farX, bbox.maxY] : [nearX, bbox.maxY];
   if (activeDeform != null) {
     final deformed = getContentOutline(layer.content, layer, globalFrame, project: project);
     if (deformed.isNotEmpty) {

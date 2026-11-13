@@ -26,6 +26,7 @@ import '../effects/motion/wiggle.dart';
 import '../geometry/path_follow.dart';
 import '../geometry/shapes.dart';
 import '../model/project.dart';
+import '../model/line_path.dart' show sampleLine;
 import '../model/prop_links.dart';
 import 'interpolation.dart';
 import 'math.dart' as mm;
@@ -137,13 +138,20 @@ LayerBaseState getLayerBaseStateAt(Project project, String layerId, num globalFr
       sourceState.matrix[0], sourceState.matrix[1], sourceState.matrix[2], sourceState.matrix[3],
       sourceState.matrix[4] * stageSize.width, sourceState.matrix[5] * stageSize.height,
     ];
+    // a line: along the line itself (open unless it is closed); any
+    // other shape: round its outline.
+    final sc = pfSource.content;
+    final isLine = sc.shape == 'line' && sc.lineNodes != null && sc.lineNodes!.length >= 2;
     final outlineCanvas = [
       // path-follow's own outline sampling isn't designed for
       // sub-frame precision (getContentOutline takes an int) - rounds
       // here, same deliberate scope-limit as pendulum/wiggle below.
-      for (final p in getContentOutline(pfSource.content, pfSource, globalFrame.round(), project: project)) mm.applyAffine(sourceMCanvas, p),
+      for (final p in isLine
+          ? sampleLine(sc.lineNodes!, closed: sc.lineClosed, perCurve: 16, frame: globalFrame.round() - pfSource.startFrame)
+          : getContentOutline(sc, pfSource, globalFrame.round(), project: project))
+        mm.applyAffine(sourceMCanvas, p),
     ];
-    final canvasPoint = pointOnOutline(outlineCanvas, t, pf.parametrization);
+    final canvasPoint = pointOnOutline(outlineCanvas, t, pf.parametrization, closed: !isLine || sc.lineClosed);
     final parentMatrix = layer.parentId != null
         ? parentMatrixFor(project, layer, globalFrame)
         : <double>[1, 0, 0, 1, 0, 0];

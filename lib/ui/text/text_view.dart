@@ -221,6 +221,16 @@ class _TextEditorState extends State<_TextEditor> {
           label: const Text('Part from selection'),
         ),
         TextButton(
+          key: const ValueKey('text-separate-words'),
+          onPressed: () => app.separateTextLayers(id, 'word'),
+          child: const Text('Layers: words'),
+        ),
+        TextButton(
+          key: const ValueKey('text-separate-letters'),
+          onPressed: () => app.separateTextLayers(id, 'char'),
+          child: const Text('Layers: letters'),
+        ),
+        TextButton(
           key: const ValueKey('text-split-letters'),
           onPressed: () => split('char'),
           child: const Text('Split: letters'),
@@ -281,9 +291,10 @@ class _TextEditorState extends State<_TextEditor> {
         scale: scale,
         componentLabels: vals.length > 1 ? const ['x', 'y'] : null,
         onEditStart: app.pushUndo,
-        onChanged: (x) => app.editTextLive(id, (t) => put(t.spans[i], x)),
-        onCommit: (x) => app.editTextLive(id, (t) => put(t.spans[i], x)),
+        onChanged: (x) => app.editTextLive(id, (t) => put(t.spans[i], key == 'scale' ? _linkedScale(vals, x) : x)),
+        onCommit: (x) => app.editTextLive(id, (t) => put(t.spans[i], key == 'scale' ? _linkedScale(vals, x) : x)),
         trailing: [
+          if (key == 'scale') _scaleLinkButton(),
           IconButton(
             icon: Icon(keyed ? Icons.diamond : Icons.diamond_outlined, size: 16),
             tooltip: 'toggle keyframe at current frame',
@@ -353,6 +364,26 @@ class _TextEditorState extends State<_TextEditor> {
             ),
           ]),
           value('size', 'size ×', sp.size ?? 1, 1, const ParamScale.slider(0.1, 5, decimals: 2), (s, v) => s.size = v),
+          SwitchListTile(
+            key: ValueKey('text-part-$i-keep-others'),
+            dense: true,
+            visualDensity: VisualDensity.compact,
+            contentPadding: const EdgeInsets.only(left: 4),
+            title: const Text('Size: the other letters stay in place', style: TextStyle(fontSize: 12)),
+            subtitle: const Text('it grows round its own middle, over its neighbours', style: TextStyle(fontSize: 11)),
+            value: sp.sizeKeepsOthers,
+            onChanged: (v) => edit((s) => s.sizeKeepsOthers = v),
+          ),
+          SwitchListTile(
+            key: ValueKey('text-part-$i-from-middle'),
+            dense: true,
+            visualDensity: VisualDensity.compact,
+            contentPadding: const EdgeInsets.only(left: 4),
+            title: const Text('Size: from its middle, not from the line', style: TextStyle(fontSize: 12)),
+            subtitle: const Text('it keeps its height on the line instead of standing on it', style: TextStyle(fontSize: 11)),
+            value: sp.sizeFromMiddle,
+            onChanged: (v) => edit((s) => s.sizeFromMiddle = v),
+          ),
           value('rise', 'rise', sp.rise ?? 0, 0, const ParamScale.ruler(unitsPerPixel: 0.25, minorTick: 5, majorTick: 25),
               (s, v) => s.rise = v),
           ColorRow(label: 'Colour', hex: sp.color ?? t.color, onPick: (c) => edit((s) => s.color = c)),
@@ -1022,6 +1053,29 @@ class _TextEditorState extends State<_TextEditor> {
     ];
   }
 
+  /// x and y of a scale together (the same switch as Movement's).
+  Widget _scaleLinkButton() => OpenOnly(
+          child: IconButton(
+        icon: Icon(app.scaleLinked ? Icons.link : Icons.link_off, size: 16),
+        tooltip: app.scaleLinked ? 'x and y change together' : 'x and y change apart',
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.all(4),
+        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+        onPressed: () => app.setAppPreference('scaleLinked', !app.scaleLinked),
+      ));
+
+  /// Linked: whichever of x / y changed, the other follows by its factor.
+  List<double> _linkedScale(List<double> before, List<double> next) {
+    if (!app.scaleLinked || next.length < 2 || before.length < 2) return next;
+    final dx = (next[0] - before[0]).abs(), dy = (next[1] - before[1]).abs();
+    if (dx >= dy) {
+      final k = before[0] == 0 ? 1.0 : next[0] / before[0];
+      return [next[0], before[1] * k];
+    }
+    final k = before[1] == 0 ? 1.0 : next[1] / before[1];
+    return [before[0] * k, next[1]];
+  }
+
   Widget _animValue(String label, double value, ParamScale scale, void Function(double) set) => ParamEditor(
         prefKey: 'text.anim.$label',
         label: label,
@@ -1050,11 +1104,12 @@ class _TextEditorState extends State<_TextEditor> {
       componentLabels: values.length == 2 ? const ['x', 'y'] : null,
       onEditStart: app.pushUndo,
       onChanged: (v) {
-        setTrackValueAt(trk, frame, out(v));
+        setTrackValueAt(trk, frame, out(label == 'scale' ? _linkedScale(values, v) : v));
         app.commitEdit();
       },
-      onCommit: (v) => _editAnim(() => setTrackValueAt(trk, frame, out(v))),
+      onCommit: (v) => _editAnim(() => setTrackValueAt(trk, frame, out(label == 'scale' ? _linkedScale(values, v) : v))),
       trailing: [
+        if (label == 'scale' && values.length == 2) _scaleLinkButton(),
         IconButton(
           key: ValueKey('text-anim-key-$label'),
           icon: Icon(keyed ? Icons.diamond : Icons.diamond_outlined, size: 16),

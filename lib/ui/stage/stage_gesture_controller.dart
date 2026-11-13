@@ -62,6 +62,9 @@ class StageGestureController {
 
   /// The selection rectangle being dragged (screen corners), or null.
   ui.Offset? marqueeA, marqueeB;
+
+  // free move: a drag is recording the way.
+  bool _freeMoveDrag = false;
   bool get marqueeActive => marqueeA != null;
   bool get anyDragActive => _activeDrag != null;
 
@@ -95,6 +98,13 @@ class StageGestureController {
       _primaryDownScreen = event.localPosition;
       _primaryDownTime = event.timeStamp;
       _primaryMovedPastTapThreshold = false;
+      // free move: the drag records the object's way.
+      if (app.freeMoveRecording) {
+        final fp = camera.screenToFrame(event.localPosition);
+        _freeMoveDrag = true;
+        app.beginFreeMoveStroke([fp.dx, fp.dy]);
+        return;
+      }
       // a new shape waits for its box: the drag draws it.
       if (app.pendingPlaceShape != null) {
         marqueeA = marqueeB = event.localPosition;
@@ -445,7 +455,7 @@ class StageGestureController {
       final crowded = crowdedTransformHandles(tb, camera.radiusInFrameSpace(1));
       final tKeys = [
         for (final k in const ['top', 'bottom', 'left', 'right', 'scaleCorner', 'rotateCorner'])
-          if (!crowded.contains(k) && (layer.content.shape != 'null' || k == 'scaleCorner')) k
+          if (!crowded.contains(k) && (!isNullLikeShape(layer.content.shape) || k == 'scaleCorner')) k
       ];
       String? bestKey;
       var bestTDist = handleRadius;
@@ -462,7 +472,7 @@ class StageGestureController {
         // text: the side handles resize the text box (reflow) instead of
         // scaling; the corner handle still scales.
         final textBox = layer.content.shape == 'text' && bestKey != 'scaleCorner';
-        if (layer.content.shape == 'null') {
+        if (isNullLikeShape(layer.content.shape)) {
           return ActiveDragInfo(family: 'transformBox', activeKey: bestKey, op: NullSizeDragOp(layer: layer));
         }
         return ActiveDragInfo(
@@ -538,6 +548,13 @@ class StageGestureController {
       return;
     }
 
+    if (_freeMoveDrag && event.pointer == _primaryPointerId) {
+      final fp = camera.screenToFrame(event.localPosition);
+      app.addFreeMovePoint([fp.dx, fp.dy]);
+      onNeedsRepaint();
+      return;
+    }
+
     if (marqueeA != null && event.pointer == _primaryPointerId) {
       marqueeB = event.localPosition;
       // a new shape kept square: the box's longer side both ways.
@@ -604,6 +621,15 @@ class StageGestureController {
       _pinchB = null;
       _pinchLastA = null;
       _pinchLastB = null;
+      return;
+    }
+
+    if (_freeMoveDrag && event.pointer == _primaryPointerId) {
+      _freeMoveDrag = false;
+      _primaryPointerId = null;
+      _primaryDownScreen = null;
+      _primaryMovedPastTapThreshold = false;
+      onNeedsRepaint();
       return;
     }
 

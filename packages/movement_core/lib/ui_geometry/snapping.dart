@@ -31,6 +31,7 @@ import '../geometry/piece_outline.dart';
 import '../geometry/shapes.dart';
 import '../model/project.dart';
 import 'handles.dart';
+import 'text_snap.dart';
 
 enum SnapCategory {
   edgeToEdge,
@@ -45,6 +46,7 @@ enum SnapCategory {
   centerLine, // any-angle P-Q line (axis form for aligned pairs, joint form otherwise)
   rotationAngle, // rotation snapped to a fixed H/V/diagonal angle
   rotationMatch, // rotation snapped to another layer's own current rotation
+  textLetter, // a text's letter onto another text's letter (middle or edge)
 }
 
 class SnapGuideLine {
@@ -393,6 +395,39 @@ void _addPairAxisCandidates(List<_AxisCandidate> xs, List<_AxisCandidate> ys,
   }
 }
 
+/// Texts: letter onto letter by their outlines (text_snap.dart) - middles
+/// as a 2-D match, edges per axis.
+void _addTextLetters(List<_AxisCandidate> xs, List<_AxisCandidate> ys, List<_PointCandidate> points, Project project,
+    Layer layer, int globalFrame, LayerFrameGeometry own, List<Layer> candidates) {
+  if (!snapTextCentersEnabled && !snapTextEdgesEnabled) return;
+  final mine = textLetterFrameBoxes(project, layer, globalFrame);
+  if (mine == null || mine.isEmpty) return;
+  final others = [
+    for (final c in candidates)
+      if (c.content.shape == 'text') textLetterFrameBoxes(project, c, globalFrame) ?? const <BoundingBox>[]
+  ];
+  if (others.every((o) => o.isEmpty)) return;
+  // where the drag puts them: moved like the whole text.
+  final now = computeLayerFrameGeometry(project, layer, globalFrame, includeVertices: false).center;
+  final dx = own.center[0] - now[0], dy = own.center[1] - now[1];
+  final moved = [
+    for (final b in mine) BoundingBox(minX: b.minX + dx, maxX: b.maxX + dx, minY: b.minY + dy, maxY: b.maxY + dy)
+  ];
+  final r = snapCenterToCenterFrameRadius;
+  for (final s in textLetterSnaps(moved, others, r)) {
+    if (s.middle) {
+      points.add(_PointCandidate(SnapCategory.textLetter, s.own, s.target, r));
+    } else {
+      (s.axis == 0 ? xs : ys).add(_AxisCandidate(
+          category: SnapCategory.textLetter,
+          ownValue: s.own[s.axis],
+          targetValue: s.target[s.axis],
+          radius: r,
+          otherPoint: s.target));
+    }
+  }
+}
+
 void _addGrid(
     List<_AxisCandidate> xs, List<_AxisCandidate> ys, LayerFrameGeometry own) {
   if (!snapGridEnabled) return;
@@ -420,7 +455,8 @@ void _addGrid(
     final isHorizontal = line.a[1] == line.b[1];
     if (!isVertical && !isHorizontal) continue; // a diagonal: above
     if (isVertical) {
-      for (final ov in [own.bbox.minX, own.bbox.maxX]) {
+      // its edges and its middle.
+      for (final ov in [own.bbox.minX, own.bbox.maxX, own.center[0]]) {
         xs.add(_AxisCandidate(
             category: SnapCategory.grid,
             ownValue: ov,
@@ -428,7 +464,7 @@ void _addGrid(
             radius: snapGridFrameRadius));
       }
     } else {
-      for (final ov in [own.bbox.minY, own.bbox.maxY]) {
+      for (final ov in [own.bbox.minY, own.bbox.maxY, own.center[1]]) {
         ys.add(_AxisCandidate(
             category: SnapCategory.grid,
             ownValue: ov,
@@ -719,6 +755,7 @@ AnchorSnapResult computeAnchorSnap({
     _addEdgeMidpoints(points, own, geom);
   }
   _addPairAxisCandidates(xOrdinary, yOrdinary, own, otherGeoms);
+  _addTextLetters(xOrdinary, yOrdinary, points, project, layer, globalFrame, own, candidates);
   _addGrid(xOrdinary, yOrdinary, own);
   // the frame's edges compete like the rest (they used to win outright
   // whenever in reach, blocking a closer snap to an object).
@@ -735,11 +772,14 @@ AnchorSnapResult computeAnchorSnap({
     if (p.inRange && (pWin == null || p.distance < pWin.distance)) pWin = p;
   }
   if (pWin != null) {
-    if (xWin == null || pWin.dx.abs() < xWin.distance) {
+    // a letter's middle onto a letter beats the letters' edges (a letter
+    // set into the same letter would otherwise catch on its neighbour).
+    final letter = pWin.category == SnapCategory.textLetter;
+    if (xWin == null || pWin.dx.abs() < xWin.distance || (letter && xWin.category == SnapCategory.textLetter)) {
       xWin = _AxisCandidate(
           category: pWin.category, ownValue: pWin.own[0], targetValue: pWin.target[0], radius: pWin.radius, otherPoint: pWin.target);
     }
-    if (yWin == null || pWin.dy.abs() < yWin.distance) {
+    if (yWin == null || pWin.dy.abs() < yWin.distance || (letter && yWin.category == SnapCategory.textLetter)) {
       yWin = _AxisCandidate(
           category: pWin.category, ownValue: pWin.own[1], targetValue: pWin.target[1], radius: pWin.radius, otherPoint: pWin.target);
     }

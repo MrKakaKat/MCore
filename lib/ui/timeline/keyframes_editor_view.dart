@@ -3,6 +3,8 @@ import 'package:movement_core/movement_core.dart' hide Transform;
 
 import '../../app_state.dart';
 import '../common/no_layer.dart';
+import '../common/num_field.dart';
+import '../graph_editor/graph_editor_view.dart';
 import 'key_mode_panel.dart';
 
 /// A dedicated "Keyframes" tab - asked for a separate place to edit keyframe
@@ -55,6 +57,23 @@ class KeyframesEditorView extends StatelessWidget {
           children: [
             _keyframeActionsRow(context, layer),
             if (kfSelectedFrames.isNotEmpty) _selectedKeysRow(context, layer),
+            SwitchListTile(
+              key: const ValueKey('key-edit-all'),
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              contentPadding: const EdgeInsets.only(left: 4),
+              title: const Text('Edit the whole object', style: TextStyle(fontSize: 13)),
+              subtitle: const Text(
+                  'any change (scale, place, an effect...) goes to all its keys alike - the animation stays as it is',
+                  style: TextStyle(fontSize: 11)),
+              value: layer.editAll,
+              onChanged: (v) {
+                app.pushUndo();
+                layer.editAll = v;
+                app.commitEdit();
+              },
+            ),
+            _freeMoveField(context),
             const Divider(height: 16),
             KeyModePanel(app: app, layer: layer),
             const Divider(height: 16),
@@ -73,6 +92,78 @@ class KeyframesEditorView extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// Free move: drag the object along its way on the stage; confirmed, it
+  /// becomes a key layer of two keys (the curve in their handles).
+  Widget _freeMoveField(BuildContext context) {
+    final rec = app.freeMoveRecording;
+    return Card(
+      key: const ValueKey('free-move-field'),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.gesture, size: 18),
+            const SizedBox(width: 6),
+            const Expanded(child: Text('Free move', style: TextStyle(fontWeight: FontWeight.w600))),
+            const Text('takes', style: TextStyle(fontSize: 12)),
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 56,
+              child: NumField(
+                key: const ValueKey('free-move-seconds'),
+                value: app.freeMoveSeconds,
+                onCommit: app.setFreeMoveSeconds,
+              ),
+            ),
+            const Text(' s', style: TextStyle(fontSize: 12)),
+          ]),
+          const SizedBox(height: 4),
+          Text(
+              rec
+                  ? (app.freeMovePath.length < 2
+                      ? 'Drag the object on the stage along its way.'
+                      : 'Drag again to draw it anew, or confirm.')
+                  : 'Move the object by hand along any curve: it becomes a key layer of two keys, from the playhead.',
+              style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          const SizedBox(height: 4),
+          Row(children: [
+            if (!rec)
+              OutlinedButton.icon(
+                key: const ValueKey('free-move-start'),
+                onPressed: app.startFreeMove,
+                icon: const Icon(Icons.gesture, size: 16),
+                label: const Text('Draw the move'),
+              )
+            else ...[
+              FilledButton.icon(
+                key: const ValueKey('free-move-confirm-tab'),
+                onPressed: app.freeMovePath.length >= 2 ? app.confirmFreeMove : null,
+                icon: const Icon(Icons.check, size: 16),
+                label: const Text('Confirm'),
+              ),
+              const SizedBox(width: 8),
+              TextButton(onPressed: app.cancelFreeMove, child: const Text('Cancel')),
+            ],
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  /// A parameter whose key at `localFrame` ends a transition (one before
+  /// it), and that transition's number - the shared key's ease is edited
+  /// on it (and goes to every parameter's key there).
+  (Track, int)? _masterEaseTrack(Layer layer, int localFrame) {
+    (Track, int)? found;
+    visitActiveLayerTracks(layer, (trk) {
+      if (found != null) return;
+      final i = trk.keyframes.indexWhere((k) => k.frame == localFrame);
+      if (i >= 1) found = (trk, i - 1);
+    });
+    return found;
   }
 
   /// copy/paste/multiselect - moved here from timeline_toolbar.dart (see
@@ -104,6 +195,18 @@ class KeyframesEditorView extends StatelessWidget {
           },
           visualDensity: VisualDensity.compact,
         ),
+        // the master key's one ease: every parameter's transition into it.
+        if (allKeyed && _masterEaseTrack(layer, localFrame) != null)
+          IconButton(
+            key: const ValueKey('master-key-ease'),
+            icon: const Icon(Icons.show_chart, size: 18),
+            tooltip: 'ease of the shared key (all parameters)',
+            onPressed: () {
+              final (trk, seg) = _masterEaseTrack(layer, localFrame)!;
+              openEase(context, app: app, track: trk, componentCount: trk.defaultValue is List ? 2 : 1, segment: seg, shared: true);
+            },
+            visualDensity: VisualDensity.compact,
+          ),
         IconButton(
           icon: const Icon(Icons.copy, size: 18),
           tooltip: 'copy selected keyframes',

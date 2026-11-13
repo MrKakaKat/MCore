@@ -306,6 +306,8 @@ Map<String, dynamic> textSpecToJson(TextSpec t) => {
               if (s.size != null) 'size': s.size,
               if (s.color != null) 'color': s.color,
               if (s.rise != null) 'rise': s.rise,
+              if (s.sizeKeepsOthers) 'sizeKeepsOthers': true,
+              if (s.sizeFromMiddle) 'sizeFromMiddle': true,
               if (s.fontId != null) 'font': s.fontId,
               if (s.name.isNotEmpty) 'name': s.name,
               if (s.move != null) 'move': trackToJson(s.move!),
@@ -373,6 +375,8 @@ TextSpec textSpecFromJson(Map<String, dynamic> j) {
             wobble: s['wobble'] is Map ? trackFromJson(Map<String, dynamic>.from(s['wobble'] as Map)) : null,
             tint: s['tint'] is Map ? trackFromJson(Map<String, dynamic>.from(s['tint'] as Map)) : null,
             tintColor: s['tintColor'] as String?)
+          ..sizeKeepsOthers = s['sizeKeepsOthers'] as bool? ?? false
+          ..sizeFromMiddle = s['sizeFromMiddle'] as bool? ?? false
     ],
     background: TextBackgroundSpec(
       enabled: bg?['enabled'] as bool? ?? false,
@@ -704,6 +708,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.mirrorProbe) 'mirrorProbe': true,
       if (l.dig) 'dig': true,
       if (l.lens.enabled) 'lens': l.lens.toJson(),
+      if (l.editAll) 'editAll': true,
       if (l.drawing) 'drawing': true,
       if (l.showBack) 'showBack': true,
       if (l.backSourceId != null) 'backSourceId': l.backSourceId,
@@ -901,6 +906,7 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
       ..mirrorProbe = j['mirrorProbe'] == true
       ..dig = j['dig'] == true
       ..lens = j['lens'] is Map ? LensSettings.fromJson(j['lens'] as Map<String, dynamic>) : LensSettings()
+      ..editAll = j['editAll'] as bool? ?? false
       ..drawing = j['drawing'] == true
       ..showBack = j['showBack'] == true
       ..backSourceId = j['backSourceId'] as String?

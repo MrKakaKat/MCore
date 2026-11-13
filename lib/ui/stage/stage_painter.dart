@@ -1543,7 +1543,7 @@ void _paintTransformBox(
   bool outlineOnly = false,
 }) {
   final tb = getTransformBoxHandles(project, layer, globalFrame);
-  final isNull = layer.content.shape == 'null';
+  final isNull = isNullLikeShape(layer.content.shape);
 
   if (!hasDeform) {
     final boxPath = ui.Path();
