@@ -74,18 +74,22 @@ List<List<double>> _fitPiece(List<List<double>> pts) => [pts.first, ...fitCubicI
 
 /// The stroke as cubic pieces (each [p0, p1, p2, p3]) none of which
 /// strays more than `tolerance` from it - split where it strays most.
-List<List<List<double>>> fitCubicPieces(List<List<double>> pts, double tolerance) {
-  final out = <List<List<double>>>[];
+List<List<List<double>>> fitCubicPieces(List<List<double>> pts, double tolerance) =>
+    [for (final p in _fitIndexed(pts, tolerance)) p.curve];
+
+/// The pieces with the stroke points they run between.
+List<({List<List<double>> curve, int from, int to})> _fitIndexed(List<List<double>> pts, double tolerance) {
+  final out = <({List<List<double>> curve, int from, int to})>[];
   void fit(int i, int j) {
     final part = pts.sublist(i, j + 1);
     final c = _fitPiece(part);
     if (j - i < 3) {
-      out.add(c);
+      out.add((curve: c, from: i, to: j));
       return;
     }
     final (err, at) = _stray(part, c);
     if (err <= tolerance) {
-      out.add(c);
+      out.add((curve: c, from: i, to: j));
       return;
     }
     final k = i + at.clamp(1, j - i - 1);
@@ -98,21 +102,28 @@ List<List<List<double>>> fitCubicPieces(List<List<double>> pts, double tolerance
 }
 
 /// A new animation layer on `layer` moving it along `framePath` (frame
-/// px, its first point where it stands) from `globalFrame` for `frames`
-/// frames. `smoothing` 0..1: 0 follows the way as drawn (as many keys as
-/// it takes), more lets the curve stray further (fewer keys), 1 is one
-/// smooth curve - two keys, the curve in their handles. Several keys: it
-/// goes along the whole way at one pace (shaped by one ease). Returns the
-/// layer's number (0: nothing to make).
+/// px, its first point where it stands) from `globalFrame`. `smoothing`
+/// 0..1: 0 follows the way as drawn (as many keys as it takes), more lets
+/// the curve stray further (fewer keys), 1 is one smooth curve - two keys,
+/// the curve in their handles.
+///
+/// Timing: by default it takes `frames` frames at one pace along the
+/// whole way, shaped by one ease from its first key to its last (`ease`).
+/// With `times` (seconds from the first point, one per point of the way)
+/// it keeps the pace it was drawn with - as long and as quick as the hand
+/// was. Returns the layer's number (0: nothing to make).
 int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath, int globalFrame, int frames,
-    {double smoothing = 1}) {
-  if (framePath.length < 2 || frames < 1) return 0;
+    {double smoothing = 1, List<double>? times, Easing? ease}) {
+  if (framePath.length < 2) return 0;
   final first = framePath.first;
   if (framePath.every((p) => (p[0] - first[0]).abs() < 1e-9 && (p[1] - first[1]).abs() < 1e-9)) return 0;
+  final timed = times != null && times.length == framePath.length && times.last > 0;
+  if (timed) frames = math.max(1, (times.last * fps).round());
+  if (frames < 1) return 0;
   // the pieces, in frame px; at most one per frame.
-  List<List<List<double>>> pieces;
+  List<({List<List<double>> curve, int from, int to})> pieces;
   if (smoothing >= 0.999) {
-    pieces = [_fitPiece(framePath)];
+    pieces = [(curve: _fitPiece(framePath), from: 0, to: framePath.length - 1)];
   } else {
     var x0 = double.infinity, y0 = double.infinity, x1 = -double.infinity, y1 = -double.infinity;
     for (final p in framePath) {
@@ -123,10 +134,10 @@ int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath,
     }
     final size = math.max(1.0, math.sqrt(math.pow(x1 - x0, 2) + math.pow(y1 - y0, 2)));
     var tol = 0.75 + smoothing * smoothing * 0.15 * size;
-    pieces = fitCubicPieces(framePath, tol);
+    pieces = _fitIndexed(framePath, tol);
     while (pieces.length > frames) {
       tol *= 2;
-      pieces = fitCubicPieces(framePath, tol);
+      pieces = _fitIndexed(framePath, tol);
     }
   }
   // in the position's own space (a parent's too), from the start.
@@ -136,24 +147,30 @@ int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath,
     return [q[0] - o[0], q[1] - o[1]];
   }
 
-  final local = [for (final c in pieces) [for (final p in c) loc(p)]];
-  // key times by length along the way.
+  final local = [for (final c in pieces) [for (final p in c.curve) loc(p)]];
+  // key times: by when the hand was there, or by length along the way.
   double len(List<List<double>> c) => math.sqrt(math.pow(c[3][0] - c[0][0], 2) + math.pow(c[3][1] - c[0][1], 2));
-  final total = pieces.fold(0.0, (a, c) => a + len(c));
+  final total = pieces.fold(0.0, (a, c) => a + len(c.curve));
   final f0 = layerLocalFrame(layer, globalFrame).round();
-  final times = <int>[f0];
+  final keyTimes = <int>[f0];
   var acc = 0.0;
   for (var i = 0; i < pieces.length; i++) {
-    acc += len(pieces[i]);
+    acc += len(pieces[i].curve);
     final left = pieces.length - 1 - i; // keys still to come after this one
-    var f = i == pieces.length - 1 ? f0 + frames : f0 + (total == 0 ? i + 1 : (frames * acc / total).round());
-    f = f.clamp(times.last + 1, f0 + frames - left);
-    times.add(f);
+    var f = i == pieces.length - 1
+        ? f0 + frames
+        : timed
+            ? f0 + (times[pieces[i].to] * fps).round()
+            : f0 + (total == 0 ? i + 1 : (frames * acc / total).round());
+    f = f.clamp(keyTimes.last + 1, f0 + frames - left);
+    keyTimes.add(f);
   }
-  final many = pieces.length > 1;
   final n = addTransformAnimLayer(layer);
-  final trk = layer.transform.anchor.animLayers[n - 1].track..spatial = true;
-  final ease = many ? easingPresets['linear']! : newKeyEasing();
+  final trk = layer.transform.anchor.animLayers[n - 1].track
+    ..spatial = true
+    ..freeMove = true
+    ..freeMoveSpan = [f0, f0 + frames];
+  final linear = easingPresets['linear']!;
   trk.keyframes = [
     for (var i = 0; i <= pieces.length; i++)
       () {
@@ -161,21 +178,71 @@ int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath,
         final inTan = i == 0 ? [0.0, 0.0] : [local[i - 1][2][0] - p[0], local[i - 1][2][1] - p[1]];
         final outTan = i == pieces.length ? [0.0, 0.0] : [local[i][1][0] - p[0], local[i][1][1] - p[1]];
         return Keyframe(
-            frame: times[i],
+            frame: keyTimes[i],
             value: <double>[p[0], p[1]],
-            temporal: ease,
+            temporal: linear,
             spatialTangent: SpatialTangent(inTan: inTan, outTan: outTan),
             // the way's own points: no keys to pick.
             passive: i > 0 && i < pieces.length);
       }()
   ];
-  if (many) {
-    // one pace along the whole way, one ease over it.
+  if (!timed) {
+    // one pace along the whole way, one ease from its first key to its
+    // last.
     trk.constantSpeed = true;
-    trk.globalEasing = newKeyEasing();
+    trk.globalEasing = ease ?? newKeyEasing();
   }
   // its time reaches the last key.
   if (f0 + frames > layer.durationFrames) layer.durationFrames = f0 + frames;
   clearStateCaches();
   return n;
+}
+
+/// Free moves' passive keys follow their end keys: when the ends move,
+/// each keeps its share of the time between them; with an end taken away,
+/// they go too. True: something changed.
+bool bindFreeMoveKeys(Layer layer) {
+  var changed = false;
+  void fix(Track trk) {
+    if (!trk.freeMove || !trk.keyframes.any((k) => k.passive)) return;
+    final ends = trk.keyframes.where((k) => !k.passive).toList()..sort((a, b) => a.frame.compareTo(b.frame));
+    if (ends.length < 2) {
+      trk.keyframes.removeWhere((k) => k.passive);
+      trk.freeMoveSpan = null;
+      changed = true;
+      return;
+    }
+    final a1 = ends.first.frame, b1 = ends.last.frame;
+    final span = trk.freeMoveSpan;
+    final a0 = span?[0] ?? a1, b0 = span?[1] ?? b1;
+    final passive = trk.keyframes.where((k) => k.passive).toList();
+    final inside = passive.every((k) => k.frame > a1 && k.frame < b1);
+    if (a0 == a1 && b0 == b1 && inside) return;
+    // each keeps its share of the time between the ends (in its order).
+    passive.sort((x, y) => x.frame.compareTo(y.frame));
+    var last = a1;
+    for (var i = 0; i < passive.length; i++) {
+      final share = b0 == a0 ? (i + 1) / (passive.length + 1) : (passive[i].frame - a0) / (b0 - a0);
+      final room = b1 - (passive.length - i); // the ones after it still need a frame each
+      passive[i].frame = (a1 + share * (b1 - a1)).round().clamp(last + 1, math.max(last + 1, room));
+      last = passive[i].frame;
+    }
+    trk.keyframes.sort((x, y) => x.frame.compareTo(y.frame));
+    trk.freeMoveSpan = [a1, b1];
+    changed = true;
+  }
+
+  fix(layer.transform.anchor);
+  for (final al in layer.transform.anchor.animLayers) {
+    fix(al.track);
+  }
+  return changed;
+}
+
+/// The selected layer's latest free move (its track), if it has one.
+Track? latestFreeMove(Layer layer) {
+  for (final al in layer.transform.anchor.animLayers.reversed) {
+    if (al.track.freeMove) return al.track;
+  }
+  return null;
 }

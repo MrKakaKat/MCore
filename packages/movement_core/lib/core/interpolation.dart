@@ -438,3 +438,56 @@ void autoComputeTangents(Track trk) {
     );
   }
 }
+
+// ===== elasticity: a value springing after its keys =====
+
+class _Spring {
+  final int signature;
+  final double elastic, rate;
+  final List<double> values; // per whole local frame from 0
+  double speed = 0; // at the last of them
+  _Spring(this.signature, this.elastic, this.rate, this.values);
+}
+
+final _springs = Expando<_Spring>('springs');
+
+int _keysSignature(Track t) => Object.hashAll([
+      for (final k in t.keyframes) ...[k.frame, k.value, k.temporal.x1, k.temporal.y1, k.temporal.x2, k.temporal.y2]
+    ]);
+
+/// Scalar track `t` at `localFrame` as a damped spring following it: the
+/// value lags, overshoots and settles after each change (`elastic` 0..1:
+/// 0 nearly follows, 1 swings a lot). Stepped frame by frame from the
+/// track's start (cached).
+double springFollow(Track t, double localFrame, double elastic) {
+  final sig = _keysSignature(t);
+  var s = _springs[t];
+  if (s == null || s.signature != sig || s.elastic != elastic || s.rate != fps) {
+    s = _springs[t] = _Spring(sig, elastic, fps.toDouble(), [(evaluateTrack(null, t, 0.0) as num).toDouble()]);
+  }
+  final target = localFrame.isFinite ? localFrame.clamp(0, 100000).toDouble() : 0.0;
+  final need = target.ceil();
+  if (s.values.length <= need) {
+    // natural frequency ~3 Hz; damping from fully damped (0) to very
+    // springy (1).
+    const omega = 2 * math.pi * 3.0;
+    final zeta = 1.0 - 0.92 * elastic;
+    const sub = 4;
+    final dt = 1 / (fps <= 0 ? 30 : fps) / sub;
+    var x = s.values.last;
+    var v = s.speed;
+    for (var f = s.values.length; f <= need; f++) {
+      for (var i = 0; i < sub; i++) {
+        final goal = (evaluateTrack(null, t, f - 1 + (i + 1) / sub) as num).toDouble();
+        final a = omega * omega * (goal - x) - 2 * zeta * omega * v;
+        v += a * dt;
+        x += v * dt;
+      }
+      s.values.add(x);
+    }
+    s.speed = v;
+  }
+  final i = target.floor(), frac = target - i;
+  if (frac <= 0 || i + 1 >= s.values.length) return s.values[math.min(i, s.values.length - 1)];
+  return s.values[i] + (s.values[i + 1] - s.values[i]) * frac;
+}

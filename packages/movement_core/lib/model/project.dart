@@ -285,6 +285,13 @@ class Track {
   /// `loopMax` (a scale below 0).
   String loopMode = 'repeat';
   double? loopMin, loopMax;
+
+  /// A free move's way (Movement, Free move): its passive keys belong to
+  /// its two end keys - they keep their share of the time between them
+  /// when those move, and go with them when one is taken away.
+  /// `freeMoveSpan`: the ends' frames the passive keys were laid out for.
+  bool freeMove = false;
+  List<int>? freeMoveSpan;
   double? tension;
   Easing? globalEasing;
 
@@ -2261,6 +2268,8 @@ Track cloneTrack(Track src) {
   final t = Track(cloneValue(src.defaultValue), src.spatial);
   t.loop = src.loop;
   t.loopMode = src.loopMode;
+  t.freeMove = src.freeMove;
+  t.freeMoveSpan = src.freeMoveSpan == null ? null : [...src.freeMoveSpan!];
   t.loopMin = src.loopMin;
   t.loopMax = src.loopMax;
   t.tension = src.tension;

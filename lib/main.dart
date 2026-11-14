@@ -356,7 +356,8 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                   Positioned(
                     left: 0,
                     right: 0,
-                    bottom: constraints.maxHeight / 2 + 8,
+                    // just over the sheet's edge (the buttons' own padding keeps them off it).
+                    bottom: constraints.maxHeight / 2 - 6,
                     child: ValueListenableBuilder<bool>(
                       valueListenable: sheetCoversHead,
                       builder: (context, covered, _) =>

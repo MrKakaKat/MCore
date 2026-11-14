@@ -102,7 +102,7 @@ class StageGestureController {
       if (app.freeMoveRecording) {
         final fp = camera.screenToFrame(event.localPosition);
         _freeMoveDrag = true;
-        app.beginFreeMoveStroke([fp.dx, fp.dy]);
+        app.beginFreeMoveStroke([fp.dx, fp.dy], at: event.timeStamp);
         return;
       }
       // a new shape waits for its box: the drag draws it.
@@ -550,7 +550,7 @@ class StageGestureController {
 
     if (_freeMoveDrag && event.pointer == _primaryPointerId) {
       final fp = camera.screenToFrame(event.localPosition);
-      app.addFreeMovePoint([fp.dx, fp.dy]);
+      app.addFreeMovePoint([fp.dx, fp.dy], at: event.timeStamp);
       onNeedsRepaint();
       return;
     }

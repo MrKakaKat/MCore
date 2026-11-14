@@ -282,7 +282,7 @@ class EffectsView extends StatelessWidget {
             if (entry.value is Track &&
                 (inst.effectId != 'origami_fold' ||
                     origamiFoldOf(inst.params, entry.key) == null ||
-                    origamiFoldOf(inst.params, entry.key) == _origamiSelected(inst)))
+                    (origamiFoldOf(inst.params, entry.key) == _origamiSelected(inst) && _origamiRowShown(inst, entry.key))))
               _instanceParamRow(
                   context, inst, entry.key, entry.value as Track, localFrame, _paramDefault(inst, entry.key)),
         // non-animated choices (bend's base axis, 3D Rotate's back side)
@@ -404,6 +404,17 @@ class EffectsView extends StatelessWidget {
     return n != null && ns.contains(n) ? n : ns.first;
   }
 
+  /// A fold's rows by its kind: one line - softness, its start / end and
+  /// rounding; a bend between two lines - their distance and turn.
+  bool _origamiRowShown(EffectInstance inst, String key) {
+    final f = origamiFolds(inst.params).where((x) => x.n == origamiFoldOf(inst.params, key)).firstOrNull;
+    if (f == null) return true;
+    final bend = inst.params[f.kind] == 'bend';
+    if ([f.twoLineWidth, f.twoLineTurn].contains(key)) return bend;
+    if ([f.softness, f.bendFrom, f.bendTo, f.round, f.roundShape].contains(key)) return !bend;
+    return true;
+  }
+
   /// A fold's own settings (older saves shared direction / softness): it
   /// gets them, at the shared values.
   void _origamiOwnParams(EffectInstance inst, int n) {
@@ -420,11 +431,17 @@ class EffectsView extends StatelessWidget {
     inst.params.putIfAbsent(f.roundShape, () => track(circleRoundK));
     inst.params.putIfAbsent(f.bendFrom, () => track(0.0));
     inst.params.putIfAbsent(f.bendTo, () => track(0.0));
+    inst.params.putIfAbsent(f.twoLineWidth, () => track(40.0));
+    inst.params.putIfAbsent(f.twoLineTurn, () => track(0.0));
+    inst.params.putIfAbsent(f.elastic, () => track(0.0));
     // each fold's rows in one order: a size, then its shape right under it
     // (nothing jumps in between).
     final order = [
       for (final g in origamiFolds(inst.params))
-        ...[g.angle, g.direction, g.position, g.softness, g.bendFrom, g.bendTo, g.softShape, g.round, g.roundShape]
+        ...[
+          g.angle, g.elastic, g.direction, g.position, g.twoLineWidth, g.twoLineTurn, g.softness, g.bendFrom, //
+          g.bendTo, g.softShape, g.round, g.roundShape,
+        ]
     ];
     final entries = [...inst.params.entries];
     int rank(String k) {
@@ -494,6 +511,32 @@ class EffectsView extends StatelessWidget {
           ),
         ),
       ]),
+      // its kind: a crease along one line, or a bend between two.
+      Builder(builder: (_) {
+        final f = folds.firstWhere((x) => x.n == sel);
+        final bend = inst.params[f.kind] == 'bend';
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: SegmentedButton<bool>(
+            key: ValueKey('origami-kind-${inst.id}'),
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: false, label: Text('Crease (one line)')),
+              ButtonSegment(value: true, label: Text('Bend (two lines)')),
+            ],
+            selected: {bend},
+            onSelectionChanged: (v) {
+              app.pushUndo();
+              if (v.first) {
+                inst.params[f.kind] = 'bend';
+              } else {
+                inst.params.remove(f.kind);
+              }
+              app.commitEdit();
+            },
+          ),
+        );
+      }),
       if (sel != 1)
         Row(children: [
           const Text('Lies in', style: TextStyle(fontSize: 12)),
@@ -661,6 +704,8 @@ class EffectsView extends StatelessWidget {
     if (inst.effectId == 'origami_fold' && (key.endsWith('_softness') || key.endsWith('_round') || RegExp(r'^(softness|round)\d$').hasMatch(key))) return 0.0;
     if (inst.effectId == 'origami_fold' && key.contains('Shape')) return circleRoundK;
     if (inst.effectId == 'origami_fold' && key.contains('bend')) return 0.0;
+    if (inst.effectId == 'origami_fold' && key.contains('twoLineWidth')) return 40.0;
+    if (inst.effectId == 'origami_fold' && (key.contains('twoLineTurn') || key.contains('elastic'))) return 0.0;
     final defs = effectRegistry[inst.effectId]?.params ?? const <ParamDef>[];
     final def = defs.where((p) => p.key == key);
     final v = def.isEmpty ? const [0.0, 0.0] : def.first.defaultValue;
@@ -681,6 +726,9 @@ class EffectsView extends StatelessWidget {
     'pivot': 'pivot (0-1)',
     'softShape': 'softness shape (0 cut, 0.55 circle, 1 sharp)',
     'bendFrom': 'bend starts (px from the crease)',
+    'twoLineWidth': 'second line: px from the first',
+    'twoLineTurn': 'second line: turned (not parallel)',
+    'elastic': 'elasticity (springs after its keys)',
     'bendTo': 'bend ends (px; 0: by softness)',
     'round': 'round the crease',
     'roundShape': 'rounding shape (0 cut, 0.55 circle, 1 sharp)',
@@ -703,6 +751,11 @@ class EffectsView extends StatelessWidget {
       if (RegExp(r'^(direction|fold\d+_direction|direction\d)$').hasMatch(key)) return ParamScale.degrees;
       if (RegExp(r'^(fold\d+_softness|softness\d)$').hasMatch(key)) return const ParamScale.slider(0, 1);
       if (RegExp(r'^(round|fold\d+_round|round\d)$').hasMatch(key)) return const ParamScale.slider(0, 200, decimals: 1);
+      if (RegExp(r'^(twoLineWidth|fold\d+_twoLineWidth)$').hasMatch(key)) {
+        return const ParamScale.ruler(unitsPerPixel: 0.5, minorTick: 10, majorTick: 50, min: 1, decimals: 1);
+      }
+      if (RegExp(r'^(twoLineTurn|fold\d+_twoLineTurn)$').hasMatch(key)) return const ParamScale.slider(-80, 80, decimals: 1);
+      if (RegExp(r'^(elastic|fold\d+_elastic)$').hasMatch(key)) return const ParamScale.slider(0, 1, decimals: 2);
       if (RegExp(r'^(bendFrom|bendTo|fold\d+_(bendFrom|bendTo))$').hasMatch(key)) {
         return const ParamScale.ruler(unitsPerPixel: 0.5, minorTick: 10, majorTick: 50, decimals: 1);
       }

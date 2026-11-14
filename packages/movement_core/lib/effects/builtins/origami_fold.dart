@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import '../geometry_effect_registry.dart';
-import '../../core/interpolation.dart' show evaluateTrack;
+import '../../core/interpolation.dart' show evaluateTrack, springFollow;
 import '../../model/project.dart' show EffectInstance, Layer, Track, track;
 import 'bend_arc.dart' show gridBox;
 import '../../model/line_path.dart' show circleRoundK;
@@ -86,6 +86,32 @@ class OrigamiFoldKeys {
   /// the start sets the bend there - softness no longer decides it).
   String get bendFrom => n == 1 ? 'bendFrom' : round.startsWith('fold') ? 'fold${n}_bendFrom' : 'bendFrom$n';
   String get bendTo => n == 1 ? 'bendTo' : round.startsWith('fold') ? 'fold${n}_bendTo' : 'bendTo$n';
+
+  String _k(String name) => n == 1 ? name : round.startsWith('fold') ? 'fold${n}_$name' : '$name$n';
+
+  /// Its kind: 'crease' (a fold along one line) or 'bend' (the paper
+  /// between two lines bends - `twoLineWidth` px apart at the middle, the
+  /// second turned by `twoLineTurn` degrees, so the bend can be wider on
+  /// one side - and folds by the whole angle past the second).
+  String get kind => _k('kind');
+  String get twoLineWidth => _k('twoLineWidth');
+  String get twoLineTurn => _k('twoLineTurn');
+
+  /// Elasticity 0..1: the angle springs after its keys (overshoots and
+  /// settles) instead of following them exactly - 0 off.
+  String get elastic => _k('elastic');
+}
+
+/// Origami's angles with their elasticity (a damped spring after each
+/// fold's keyed angle) at local frame `localFrame`.
+void origamiElasticAngles(Map<String, dynamic> raw, Map<String, dynamic> resolved, double localFrame) {
+  for (final f in origamiFolds(raw)) {
+    final e = raw[f.elastic];
+    final el = e is Track ? _num(e.defaultValue, 0) : _num(e, 0);
+    final a = raw[f.angle];
+    if (el <= 0 || a is! Track || a.keyframes.length < 2) continue;
+    resolved[f.angle] = springFollow(a, localFrame, el.clamp(0.0, 1.0).toDouble());
+  }
 }
 
 /// The folds' parameter names, in order: the first, then any added ones
@@ -114,8 +140,10 @@ List<(String, String, double)> origamiFoldKeys(Map<String, dynamic> params) =>
 /// effect's, e.g. perspective).
 int? origamiFoldOf(Map<String, dynamic> params, String key) {
   for (final f in origamiFolds(params)) {
-    if ([f.angle, f.position, f.direction, f.softness, f.softShape, f.round, f.roundShape, f.bendFrom, f.bendTo]
-        .contains(key)) {
+    if ([
+      f.angle, f.position, f.direction, f.softness, f.softShape, f.round, f.roundShape, f.bendFrom, f.bendTo, //
+      f.kind, f.twoLineWidth, f.twoLineTurn, f.elastic,
+    ].contains(key)) {
       return f.n;
     }
   }
@@ -161,7 +189,10 @@ void removeOrigamiFold(EffectInstance inst, int n) {
   final gone = origamiFolds(inst.params).where((f) => f.n == n).firstOrNull;
   if (gone == null) return;
   final its = _regionOf(inst.params, gone);
-  for (final k in [gone.angle, gone.position, gone.direction, gone.softness, gone.softShape, gone.round, gone.roundShape, gone.region]) {
+  for (final k in [
+    gone.angle, gone.position, gone.direction, gone.softness, gone.softShape, gone.round, gone.roundShape, gone.region, //
+    gone.bendFrom, gone.bendTo, gone.kind, gone.twoLineWidth, gone.twoLineTurn, gone.elastic,
+  ]) {
     inst.params.remove(k);
   }
   for (final f in origamiFolds(inst.params)) {
@@ -221,8 +252,20 @@ class OrigamiFold {
 
   /// Its region: null (free) or (fold index in [_Folds.folds], far side?).
   final (int, bool)? region;
+
+  /// A bend between two lines: the second line's normal (pointing on,
+  /// past it) and a point on it; null for a crease.
+  final List<double>? u2, m2;
   OrigamiFold(this.n, this.u, this.nrm, this.m, this.s, this.theta, this.len, this.round, this.dirDeg, this.region,
-      [this.roundShape = 0.5523, this.softShape = 0.5523]);
+      [this.roundShape = 0.5523, this.softShape = 0.5523, this.u2, this.m2]);
+
+  /// The same fold with a bend of length `l` (a two-line bend's width at
+  /// a point).
+  OrigamiFold withLen(double l) =>
+      OrigamiFold(n, u, nrm, m, s, theta, l, 0, dirDeg, region, roundShape, softShape, u2, m2);
+
+  /// Signed distance of rest point p past the second line (two-line bend).
+  double d2(List<double> p) => (p[0] - m2![0]) * u2![0] + (p[1] - m2![1]) * u2![1];
 
   /// Signed distance of rest point p from the crease, along u.
   double d(List<double> p) => (p[0] - m[0]) * u[0] + (p[1] - m[1]) * u[1];
@@ -281,6 +324,19 @@ class _Folds {
       // never more than the paper on either side of the crease.
       final round = math.max(0.0, _num(params[k.round], 0)).clamp(0.0, math.max(0.0, math.min(reach + s, reach - s))).toDouble();
       final roundShape = _num(params[k.roundShape], 0.5523).clamp(0.0, 1.0).toDouble();
+      // a bend between two lines.
+      List<double>? u2, m2;
+      var round2 = round;
+      if (params[k.kind] == 'bend' && th != 0) {
+        final width = math.max(1.0, _num(params[k.twoLineWidth], 40));
+        final turn = _num(params[k.twoLineTurn], 0).clamp(-80.0, 80.0) * math.pi / 180;
+        u2 = [u[0] * math.cos(turn) - u[1] * math.sin(turn), u[0] * math.sin(turn) + u[1] * math.cos(turn)];
+        m2 = [c[0] + u[0] * (s + width), c[1] + u[1] * (s + width)];
+        // as far as the bend reaches anywhere on the shape (wider on one
+        // side when the lines aren't parallel).
+        len = math.min(reach - s, width + math.tan(turn.abs()) * math.max(w, h)).clamp(1.0, double.infinity).toDouble();
+        round2 = 0;
+      }
       final reg = _regionOf(params, k);
       (int, bool)? region;
       if (reg != 'free') {
@@ -289,7 +345,8 @@ class _Folds {
         if (pi != null) region = (pi, parts.length < 2 || parts[1] != 'near');
       }
       index[k.n] = out.length;
-      out.add(OrigamiFold(k.n, u, nrm, [c[0] + u[0] * s, c[1] + u[1] * s], s, th, len, round, dirDeg, region, roundShape, softShape));
+      out.add(OrigamiFold(
+          k.n, u, nrm, [c[0] + u[0] * s, c[1] + u[1] * s], s, th, len, round2, dirDeg, region, roundShape, softShape, u2, m2));
     }
     return _Folds(c, math.max(w, h), out);
   }
@@ -317,6 +374,12 @@ class _Folds {
       final d = f.d(p);
       if (d <= -f.round) continue;
       if (!inRegion(i, p)) continue;
+      if (f.u2 != null) {
+        // between two lines: the bend as wide as they are apart here.
+        if (d <= 0) continue;
+        q = _fold(f.withLen(math.max(1e-6, d - f.d2(p))), d, q);
+        continue;
+      }
       q = _fold(f, d, q);
     }
     return q;

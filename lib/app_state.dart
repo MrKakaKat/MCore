@@ -2887,23 +2887,42 @@ class AppState extends ChangeNotifier {
 
   /// A new drag: it starts from where the object stands (a drag again
   /// draws the path anew).
-  void beginFreeMoveStroke(List<double> p) {
+  /// `at`: when (the pointer event's time stamp; else now) - the hand's
+  /// own timing, kept with "As drawn".
+  void beginFreeMoveStroke(List<double> p, {Duration? at}) {
     final l = findLayer(project, selection.selectedLayer);
     if (l == null) return;
     final c = computeLayerFrameGeometry(project, l, currentFrame, includeVertices: false).center;
     _freeMoveGrab = [c[0] - p[0], c[1] - p[1]];
     freeMovePath = [c];
+    _freeMoveClock
+      ..reset()
+      ..start();
+    _freeMoveT0 = at;
+    freeMoveTimes = [0];
     notifyListeners();
   }
 
-  void addFreeMovePoint(List<double> p) {
+  void addFreeMovePoint(List<double> p, {Duration? at}) {
     if (freeMovePath.isEmpty) return;
     final q = [p[0] + _freeMoveGrab[0], p[1] + _freeMoveGrab[1]];
     final last = freeMovePath.last;
     if ((q[0] - last[0]).abs() < 0.5 && (q[1] - last[1]).abs() < 0.5) return;
+    final t0 = _freeMoveT0;
+    final t = at != null && t0 != null ? (at - t0).inMicroseconds / 1e6 : _freeMoveClock.elapsedMicroseconds / 1e6;
     freeMovePath = [...freeMovePath, q];
+    freeMoveTimes = [...freeMoveTimes, math.max(t, freeMoveTimes.last)];
     notifyListeners();
   }
+
+  /// When each point of the way was reached, seconds from its start.
+  List<double> freeMoveTimes = [];
+  final Stopwatch _freeMoveClock = Stopwatch();
+  Duration? _freeMoveT0;
+
+  /// "As drawn": the move keeps the time and pace of the hand (how long
+  /// and how quickly it was dragged) instead of the set time and ease.
+  bool freeMoveAsDrawn = false;
 
   /// The recorded path as a key layer: two keys, `freeMoveSeconds` apart
   /// from the playhead, the curve in their handles.
@@ -2916,7 +2935,8 @@ class AppState extends ChangeNotifier {
     pushUndo();
     final keep = activeAnimLayer;
     final n = addFreeMoveLayer(project, l, freeMovePath, currentFrame, math.max(1, (freeMoveSeconds * fps).round()),
-        smoothing: freeMoveSmoothing);
+        smoothing: freeMoveSmoothing,
+        times: freeMoveAsDrawn && freeMoveTimes.length == freeMovePath.length ? freeMoveTimes : null);
     activeAnimLayer = keep;
     freeMoveRecording = false;
     freeMovePath = [];
@@ -4618,6 +4638,7 @@ class AppState extends ChangeNotifier {
     'snapRotationMirror': (() => snapRotationMirrorEnabled, (v) => snapRotationMirrorEnabled = v as bool, true),
     'mirrorMovesLayer': (() => mirrorMovesLayer, (v) => mirrorMovesLayer = v as bool, false),
     'snapEdgeMid': (() => snapEdgeMidpointsEnabled, (v) => snapEdgeMidpointsEnabled = v as bool, true),
+    'freeMoveAsDrawn': (() => freeMoveAsDrawn, (v) => freeMoveAsDrawn = v as bool, false),
     'freeMoveSmoothing': (() => freeMoveSmoothing, (v) => freeMoveSmoothing = (v as num).toDouble(), 0.0),
     'snapTextCenters': (() => snapTextCentersEnabled, (v) => snapTextCentersEnabled = v as bool, true),
     'snapTextEdges': (() => snapTextEdgesEnabled, (v) => snapTextEdgesEnabled = v as bool, true),
@@ -5348,6 +5369,12 @@ class AppState extends ChangeNotifier {
     _frameUnannounced = false;
     // the selected layer's "Edit the whole object".
     editAllKeys = findLayer(project, selection.selectedLayer)?.editAll ?? false;
+    // free moves' own points go with their end keys.
+    var bound = false;
+    for (final l in project.layers) {
+      if (bindFreeMoveKeys(l)) bound = true;
+    }
+    if (bound) clearStateCaches();
     _revalidateKeySelection();
     _persistAppUi();
     super.notifyListeners();

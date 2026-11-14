@@ -1,9 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Easing;
+import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 import '../common/num_field.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
+import '../graph_editor/graph_editor_view.dart';
 
 /// Movement tab: free move - see AppState.startFreeMove.
 class FreeMoveField extends StatelessWidget {
@@ -25,19 +27,49 @@ class FreeMoveField extends StatelessWidget {
             const Icon(Icons.gesture, size: 18),
             const SizedBox(width: 6),
             const Expanded(child: Text('Free move', style: TextStyle(fontWeight: FontWeight.w600))),
-            const Text('takes', style: TextStyle(fontSize: 12)),
-            const SizedBox(width: 4),
-            SizedBox(
-              width: 56,
-              child: NumField(
+            // as drawn: the hand's own time instead.
+            if (!app.freeMoveAsDrawn) ...[
+              const Text('takes', style: TextStyle(fontSize: 12)),
+              const SizedBox(width: 4),
+              SizedBox(
                 width: 56,
-                key: const ValueKey('free-move-seconds'),
-                value: app.freeMoveSeconds,
-                onCommit: app.setFreeMoveSeconds,
+                child: NumField(
+                  width: 56,
+                  key: const ValueKey('free-move-seconds'),
+                  value: app.freeMoveSeconds,
+                  onCommit: app.setFreeMoveSeconds,
+                ),
               ),
-            ),
-            const Text(' s', style: TextStyle(fontSize: 12)),
+              const Text(' s', style: TextStyle(fontSize: 12)),
+            ],
           ]),
+          SwitchListTile(
+            key: const ValueKey('free-move-as-drawn'),
+            dense: true,
+            visualDensity: VisualDensity.compact,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('As drawn', style: TextStyle(fontSize: 13)),
+            subtitle: const Text('its time and pace as your hand made it - how long and how quickly you dragged',
+                style: TextStyle(fontSize: 11)),
+            value: app.freeMoveAsDrawn,
+            onChanged: (v) => app.setAppPreference('freeMoveAsDrawn', v),
+          ),
+          // the ease from its first key to its last (the latest move).
+          if (!app.freeMoveAsDrawn)
+            Builder(builder: (context) {
+              final l = findLayer(app.project, app.selection.selectedLayer);
+              final trk = l == null ? null : latestFreeMove(l);
+              final can = trk != null && trk.globalEasing != null && trk.keyframes.length >= 2;
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const ValueKey('free-move-ease'),
+                  onPressed: can ? () => openEase(context, app: app, track: trk, componentCount: 2, wholePath: true) : null,
+                  icon: const Icon(Icons.show_chart, size: 16),
+                  label: Text(can ? 'Ease of the last move (first key to last)' : 'Ease: make a move first'),
+                ),
+              );
+            }),
           ParamEditor(
             key: const ValueKey('free-move-smoothing'),
             prefKey: 'keys.free move smoothing',

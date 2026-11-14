@@ -11,7 +11,7 @@ import '../effects/builtins/origami_fold.dart';
 import '../geometry/shapes.dart' show buildGrid, layerFlatOutline;
 import '../model/project.dart';
 import '../model/track_edit.dart' show setTrackValueAt, localFrameOf;
-import '../effects/geometry_effect_registry.dart' show resolveEffectParams, applyEffectsAfter;
+import '../effects/geometry_effect_registry.dart' show resolveEffectParams, applyEffectsAfter, applyEffectStack;
 import 'drag_ops.dart' show DragOp;
 import 'handles.dart' show getTransformBoxHandles;
 import 'snapping.dart' show SnapGuideLine;
@@ -201,4 +201,29 @@ class OrigamiDirectionDragOp implements DragOp {
     dir = snapToStops(dir, [for (var a = 0.0; a <= 360; a += 45) a, ...edges, ...[for (final e in edges) e + 360]], 3) % 360;
     setTrackValueAt(t, lf, dir);
   }
+}
+
+/// Bends between two lines: their second lines on the stage (frame px),
+/// on the paper as it is folded - to see where the bend ends.
+List<List<List<double>>> origamiSecondLinesFrame(Project project, Layer layer, int globalFrame) {
+  final m = getTransformBoxHandles(project, layer, globalFrame).mCanvas;
+  final rest = buildGrid(layer.content, 2, 2);
+  final lf = localFrameOf(layer, globalFrame).toDouble();
+  final b = layerBox(layer);
+  final diag = math.sqrt(math.pow(b[2] - b[0], 2) + math.pow(b[3] - b[1], 2));
+  final out = <List<List<double>>>[];
+  for (final inst in origamiInstances(layer)) {
+    for (final f in origamiResolved(_params(layer, inst, lf), rest)) {
+      final u2 = f.u2, m2 = f.m2;
+      if (u2 == null || m2 == null) continue;
+      // along the line (perpendicular to its normal), across the shape.
+      final along = [-u2[1], u2[0]];
+      final pts = [
+        for (var i = 0; i <= 24; i++) [m2[0] + along[0] * diag * (i / 12 - 1), m2[1] + along[1] * diag * (i / 12 - 1)]
+      ];
+      final folded = applyEffectStack(layer, [pts], globalFrame, project: project).first;
+      out.add([for (final q in folded) applyAffine(m, q)]);
+    }
+  }
+  return out;
 }

@@ -1049,6 +1049,15 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
     if (paper != null) {
       canvas.clipPath(paper);
     }
+    // a bend's second line: where it ends (thin, not dashed).
+    for (final l in origamiSecondLinesFrame(project, layer, globalFrame)) {
+      canvas.drawPoints(
+          ui.PointMode.polygon,
+          [for (final q in l) ui.Offset(q[0], q[1])],
+          ui.Paint()
+            ..color = const ui.Color(0x99FFD54F)
+            ..strokeWidth = 1 * inv);
+    }
     for (final f in folds) {
       // dashed, along its points (it bends where it lies on a flap).
       final step = 8 * inv;

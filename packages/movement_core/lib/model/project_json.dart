@@ -74,6 +74,8 @@ Map<String, dynamic> trackToJson(Track t) => {
       'keyframes': t.keyframes.map(keyframeToJson).toList(),
       if (t.loop) 'loop': t.loop,
       if (t.loopMode != 'repeat') 'loopMode': t.loopMode,
+      if (t.freeMove) 'freeMove': true,
+      if (t.freeMoveSpan != null) 'freeMoveSpan': t.freeMoveSpan,
       if (t.loopMin != null) 'loopMin': t.loopMin,
       if (t.loopMax != null) 'loopMax': t.loopMax,
       if (t.tension != null) 'tension': t.tension,
@@ -94,6 +96,8 @@ Track trackFromJson(Map<String, dynamic> j) {
       .toList();
   t.loop = j['loop'] as bool? ?? false;
   t.loopMode = j['loopMode'] as String? ?? 'repeat';
+  t.freeMove = j['freeMove'] == true;
+  t.freeMoveSpan = (j['freeMoveSpan'] as List?)?.map((e) => (e as num).toInt()).toList();
   t.loopMin = (j['loopMin'] as num?)?.toDouble();
   t.loopMax = (j['loopMax'] as num?)?.toDouble();
   t.tension = (j['tension'] as num?)?.toDouble();

@@ -21,7 +21,8 @@ import '../core/state_cache.dart' show getLayerStateAt;
 import '../geometry/shapes.dart' show buildGrid, shapeBoundingBox;
 import '../model/project.dart';
 import 'builtins/bend_arc.dart' show applyBendGroup, bendPhysicsAngle, bendV2Keys, isBendV2;
-import 'builtins/origami_fold.dart' show origamiScale, origamiGridScaled, origamiHintsScaled, origamiMixedDirections;
+import 'builtins/origami_fold.dart'
+    show origamiScale, origamiGridScaled, origamiHintsScaled, origamiMixedDirections, origamiElasticAngles;
 
 typedef GridPoint = List<double>;
 typedef Grid = List<List<GridPoint>>;
@@ -143,6 +144,8 @@ Map<String, dynamic> resolveEffectParams(EffectInstance instance, double localFr
   instance.params.forEach((key, v) {
     out[key] = (v is Track) ? evaluateTrack(null, v, localFrame) : v;
   });
+  // origami: elastic folds spring after their keys.
+  if (instance.effectId == 'origami_fold') origamiElasticAngles(instance.params, out, localFrame);
   return out;
 }
 
