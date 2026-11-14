@@ -5,6 +5,7 @@ library;
 
 import 'dart:math' as math;
 
+import '../core/interpolation.dart' show loopStopFrame;
 import '../ui_geometry/keyframe_strip.dart' show visitLayerTracksNamed;
 import 'effect_panel.dart';
 import 'project.dart';
@@ -91,7 +92,9 @@ String keyDetailTabOf(String trackName) {
   if (trackName == 'volume') return 'Audio';
   if (trackName == 'lens angle') return 'Masks';
   if (trackName == 'trail drawing') return 'Drawing';
-  if (trackName == 'negative' || trackName == 'filter blur' || trackName == 'fractal warp') return 'Filters';
+  if (trackName == 'negative' || trackName == 'filter blur' || trackName == 'fractal warp' || trackName == 'vignette') {
+    return 'Filters';
+  }
   if (trackName == 'shadow echo fade') return 'Figures';
   if (trackName == 'text' || trackName.startsWith('text ')) return 'Text';
   if (trackName.startsWith('line ')) return 'Line';
@@ -105,7 +108,8 @@ Map<String, List<int>> keyDetailRows(Layer layer) {
   final out = <String, Set<int>>{};
   visitLayerTracksNamed(layer, (name, trk) {
     if (trk.keyframes.isEmpty) return;
-    out.putIfAbsent(keyDetailTabOf(name), () => {}).addAll(trk.keyframes.map((k) => k.frame));
+    // a free move's own points: not shown here.
+    out.putIfAbsent(keyDetailTabOf(name), () => {}).addAll(trk.keyframes.where((k) => !k.passive).map((k) => k.frame));
   });
   final layerRows = out.keys.where((k) => k.startsWith('Layer ')).toList()
     ..sort((a, b) => int.parse(a.substring(6)).compareTo(int.parse(b.substring(6))));
@@ -135,8 +139,8 @@ class KeySpan {
 Map<String, List<KeySpan>> keyDetailSpans(Layer layer) {
   final out = <String, List<KeySpan>>{};
   visitLayerTracksNamed(layer, (name, trk) {
-    if (trk.keyframes.length < 2) return;
-    final frames = trk.keyframes.map((k) => k.frame).toSet().toList()..sort();
+    final frames = trk.keyframes.where((k) => !k.passive).map((k) => k.frame).toSet().toList()..sort();
+    if (frames.length < 2) return;
     final row = out.putIfAbsent(keyDetailTabOf(name), () => []);
     for (var i = 0; i < frames.length - 1; i++) {
       row.add(KeySpan(name, frames[i], frames[i + 1]));
@@ -193,4 +197,68 @@ void deleteKeyDetailSpan(Layer layer, String tab, int a, int b, {String? track})
     trk.keyframes.sort((x, y) => x.frame.compareTo(y.frame));
   });
   return (na, nb);
+}
+
+/// A parameter's loop limits for an offset loop (it stops before going
+/// past them): sizes never below 0, opacity within 0..1.
+({double? min, double? max}) loopLimitsFor(String name) {
+  final n = name.toLowerCase();
+  if (n.contains('opacity')) return (min: 0, max: 1);
+  if (n.contains('scale') || n.contains('size') || n.contains('width') || n.contains('radius') || n.contains('blur')) {
+    return (min: 0, max: null);
+  }
+  return (min: null, max: null);
+}
+
+/// Loop on / off and its mode for one parameter (its limits set by name).
+void setTrackLoop(Track trk, String name, {bool? on, String? mode}) {
+  if (on != null) trk.loop = on;
+  if (mode != null) trk.loopMode = mode;
+  final l = loopLimitsFor(name);
+  trk.loopMin = l.min;
+  trk.loopMax = l.max;
+}
+
+/// Every parameter with keys of `layer` (the key layers' too), by name.
+Map<String, Track> keyedTracksOf(Layer layer) {
+  final out = <String, Track>{};
+  visitLayerTracksNamed(layer, (name, trk) {
+    if (trk.keyframes.length >= 2) out[name] = trk;
+  });
+  return out;
+}
+
+/// Where the layer's offset loops stop inside it - global frames.
+List<int> layerLoopStops(Layer layer) {
+  final out = <int>{};
+  visitLayerTracksNamed(layer, (name, trk) {
+    final f = loopStopFrame(trk);
+    if (f != null && f < layer.durationFrames) out.add(f + layer.startFrame);
+  });
+  return out.toList()..sort();
+}
+
+/// The loops' continuation on the key rows: per row, the repeated keys
+/// (local frames) and lines after each looping parameter's last key -
+/// to the layer's end, or where its offset loop stops. Only to look at.
+Map<String, ({List<int> keys, List<(int, int)> spans})> keyDetailLoopGhosts(Layer layer) {
+  final out = <String, ({List<int> keys, List<(int, int)> spans})>{};
+  visitLayerTracksNamed(layer, (name, trk) {
+    if (!trk.loop) return;
+    final frames = trk.keyframes.where((k) => !k.passive).map((k) => k.frame).toSet().toList()..sort();
+    if (frames.length < 2) return;
+    final period = frames.last - frames.first;
+    if (period <= 0) return;
+    final end = math.min(loopStopFrame(trk) ?? layer.durationFrames, layer.durationFrames);
+    final row = out.putIfAbsent(keyDetailTabOf(name), () => (keys: <int>[], spans: <(int, int)>[]));
+    for (var n = 1; frames.last + (n - 1) * period < end && n < 2000; n++) {
+      for (var i = 0; i + 1 < frames.length; i++) {
+        final a = frames[i] + n * period, b = frames[i + 1] + n * period;
+        if (a >= end) break;
+        row.spans.add((a, math.min(b, end)));
+        if (b <= end) row.keys.add(b);
+      }
+    }
+  });
+  return out;
 }

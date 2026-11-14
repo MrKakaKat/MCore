@@ -1533,7 +1533,33 @@ class CanvasRenderer implements Renderer {
     } else {
       canvas.drawPicture(p);
     }
+    _drawVignette(canvas, project, layer, tv(f.vignette).clamp(0.0, 1.0).toDouble(), globalFrame);
     canvas.restore();
+  }
+
+  /// The vignette over what was just drawn (only where it shows): darker
+  /// toward the edges of the object's box - the frame's for the scene.
+  void _drawVignette(ui.Canvas canvas, Project project, Layer layer, double amount, int globalFrame) {
+    if (amount <= 0) return;
+    final f = layer.filters;
+    final k = _width / stageSize.width;
+    ui.Rect box;
+    if (f.scope == 'scene') {
+      box = ui.Rect.fromLTWH(0, 0, _width, _height);
+    } else {
+      final b = computeLayerFrameGeometry(project, layer, globalFrame, includeVertices: false).bbox;
+      box = ui.Rect.fromLTRB(b.minX * k, b.minY * k, b.maxX * k, b.maxY * k);
+    }
+    final r = math.max(1.0, math.sqrt(box.width * box.width + box.height * box.height) / 2);
+    final start = f.vignetteSize.clamp(0.0, 1.0).toDouble();
+    final end = math.min(1.0, start + math.max(0.01, f.vignetteSoft.clamp(0.0, 1.0)));
+    final c = _parseColor(f.vignetteColor) ?? const ui.Color(0xFF000000);
+    canvas.drawRect(
+        box.inflate(2),
+        ui.Paint()
+          ..blendMode = ui.BlendMode.srcATop
+          ..shader = ui.Gradient.radial(box.center, r, [c.withOpacity(0), c.withOpacity(c.opacity * amount)],
+              [math.min(start, end - 0.001), end]));
   }
 
   /// Warp and gamma per pixel (the shader) - null until it is loaded.

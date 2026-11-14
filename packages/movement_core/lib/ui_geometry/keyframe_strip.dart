@@ -71,6 +71,7 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
   fn('filter blur', layer.filters.blur);
   if (layer.lens.enabled) fn('lens angle', layer.lens.fov);
   fn('fractal warp', layer.filters.warp);
+  fn('vignette', layer.filters.vignette);
   fn('shadow echo fade', layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
   if (ts != null) fn('text shadow echo fade', ts.echoFade);
@@ -143,6 +144,7 @@ void visitLayerTracks(Layer layer, void Function(Track track) fn) {
   fn(layer.filters.blur);
   if (layer.lens.enabled) fn(layer.lens.fov);
   fn(layer.filters.warp);
+  fn(layer.filters.vignette);
   fn(layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
   if (ts != null) fn(ts.echoFade);
@@ -202,11 +204,26 @@ List<int> collectVisibleLayerKeyframeFrames(Layer layer) {
   visitLayerTracks(layer, (trk) {
     if (trk.hidden) return;
     for (final k in trk.keyframes) {
-      frames.add(k.frame + layer.startFrame);
+      if (!k.passive) frames.add(k.frame + layer.startFrame);
     }
   });
   final sorted = frames.toList()..sort();
   return sorted;
+}
+
+/// The free moves' own points (passive keys) where no real key is: drawn
+/// faint on the layer's line, nothing to pick. Global frames.
+List<int> collectPassiveLayerKeyframeFrames(Layer layer) {
+  final real = collectVisibleLayerKeyframeFrames(layer).toSet();
+  final frames = <int>{};
+  visitLayerTracks(layer, (trk) {
+    if (trk.hidden) return;
+    for (final k in trk.keyframes) {
+      final f = k.frame + layer.startFrame;
+      if (k.passive && !real.contains(f)) frames.add(f);
+    }
+  });
+  return frames.toList()..sort();
 }
 
 /// one keyframe together with the track that owns it - the basis for

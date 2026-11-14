@@ -792,6 +792,12 @@ class StageGestureController {
       onNeedsRepaint();
       return;
     }
+    // the object's centre: where the tap is.
+    if (app.pivotPick) {
+      app.pivotPickAt([fp.dx, fp.dy]);
+      onNeedsRepaint();
+      return;
+    }
     // Crop lines: each tap is one more point.
     if (app.cropLine != null) {
       app.cropLineTap([fp.dx, fp.dy], camera.radiusInFrameSpace(12));

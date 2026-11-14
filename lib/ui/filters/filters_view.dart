@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' hide Transform;
 import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
+import '../common/color_row.dart';
 import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
@@ -94,6 +95,14 @@ class FiltersView extends StatelessWidget {
             ]),
             if (f.blurKind == 'directional')
               number('filter-blur-angle', 'Angle', f.blurAngle, -180, 180, (v) => f.blurAngle = v, suffix: '°'),
+            section('Vignette'),
+            _TrackRow(app: app, layer: layer, track: f.vignette, keyName: 'filter-vignette', label: 'Amount',
+                min: 0, max: 100, factor: 100, suffix: '%'),
+            number('filter-vignette-size', 'Starts at', f.vignetteSize * 100, 0, 100, (v) => f.vignetteSize = v / 100,
+                suffix: '%'),
+            number('filter-vignette-soft', 'Softness', f.vignetteSoft * 100, 0, 100, (v) => f.vignetteSoft = v / 100,
+                suffix: '%'),
+            ColorRow(label: 'Colour', hex: f.vignetteColor, onPick: (c) => edit(() => f.vignetteColor = c)),
             section('Fractal warp'),
             _TrackRow(app: app, layer: layer, track: f.warp, keyName: 'filter-warp', label: 'Amount',
                 min: 0, max: 100, suffix: ' px'),

@@ -1402,6 +1402,10 @@ class AppState extends ChangeNotifier {
   /// points (layer-local, snapped to the shape's corners), and those so far.
   ({String instId, int n, List<List<double>> points})? origamiPick;
 
+  /// The fold picked in each origami's controls (effect instance id ->
+  /// fold number).
+  final Map<String, int> origamiSelectedFold = {};
+
   void startOrigamiPick(String instId, int n) {
     origamiPick = origamiPick == null ? (instId: instId, n: n, points: <List<double>>[]) : null;
     notifyListeners();
@@ -1434,7 +1438,17 @@ class AppState extends ChangeNotifier {
     if (pick.points.length >= 2) {
       pushUndo();
       final lf = layerLocalFrame(l, currentFrame).round();
-      origamiFoldThrough(inst, buildGrid(l.content, 2, 2), pick.n, pick.points[0], pick.points[1], lf,
+      // a new crease through the two points (a fold already folding is
+      // left as it is); an untouched one (still flat) takes it.
+      var n = pick.n;
+      final k = origamiFolds(inst.params).where((x) => x.n == n).firstOrNull;
+      final angle = k == null ? null : inst.params[k.angle];
+      final flat = angle is Track && angle.keyframes.isEmpty && (angle.defaultValue as num) == 0;
+      if (!flat) {
+        n = addOrigamiFold(inst, region: 'free');
+        origamiSelectedFold[inst.id] = n;
+      }
+      origamiFoldThrough(inst, buildGrid(l.content, 2, 2), n, pick.points[0], pick.points[1], lf,
           (t, f, v) => setTrackValueAt(t, f, v));
       origamiPick = null;
       commitEdit();
@@ -2799,6 +2813,41 @@ class AppState extends ChangeNotifier {
 
   /// The stage tool of the Drawing tab: 'none' | 'fill'.
   String drawTool = 'none';
+
+  // ===== the object's centre (Movement tab) =====
+
+  /// A tap on the stage sets the selected object's centre.
+  bool pivotPick = false;
+
+  void setPivotPick(bool on) {
+    pivotPick = on && findLayer(project, selection.selectedLayer) != null;
+    if (pivotPick) stageNotice.value = 'Tap where its centre goes';
+    notifyListeners();
+  }
+
+  /// The centre to a point of its box (`fx`, `fy` 0..1).
+  void setPivotToBox(double fx, double fy) {
+    final l = findLayer(project, selection.selectedLayer);
+    if (l == null) return;
+    pushUndo();
+    setLayerPivot(project, l, layerBoxPoint(l, fx, fy), currentFrame);
+    commitEdit();
+  }
+
+  /// The centre to frame point `p` (the stage tap).
+  void pivotPickAt(List<double> p) {
+    pivotPick = false;
+    final l = findLayer(project, selection.selectedLayer);
+    if (l == null) {
+      notifyListeners();
+      return;
+    }
+    final m = toFrameMatrix(getLayerStateAt(project, l.id, currentFrame).matrix);
+    final local = applyAffine(invertAffine(m), p);
+    pushUndo();
+    setLayerPivot(project, l, local, currentFrame);
+    commitEdit();
+  }
 
   // ===== free move (Keyframes tab) =====
 

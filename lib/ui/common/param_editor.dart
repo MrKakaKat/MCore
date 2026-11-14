@@ -157,6 +157,10 @@ class ParamEditor extends StatefulWidget {
   /// while it holds some.
   static List<double>? clipboard;
 
+  /// prefKey -> the value copied under that parameter's rulers (x / y
+  /// pairs): pasted only into the same parameter.
+  static final Map<String, List<double>> localClipboard = {};
+
   /// prefKey -> how many of the smallest units a ruler's - / + step is.
   static final Map<String, double> steps = {};
 
@@ -214,12 +218,16 @@ class _ParamEditorState extends State<ParamEditor> {
                       child: Text(capitalizeLabel(widget.label!),
                           style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
                     ),
-                  const SizedBox(width: 8),
-                  // the value, so a collapsed row still says where it is.
-                  Flexible(
-                    child: Text(_readout(),
-                        style: const TextStyle(fontSize: 11, color: Colors.grey), overflow: TextOverflow.ellipsis),
-                  ),
+                  // the value, so a collapsed row still says where it is
+                  // (open: the control below shows it - the name keeps
+                  // its room).
+                  if (!_open) ...[
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(_readout(),
+                          style: const TextStyle(fontSize: 11, color: Colors.grey), overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -351,7 +359,37 @@ class _ParamEditorState extends State<ParamEditor> {
           // the step on its own row only when there is no stops row to
           // share (x / y pairs).
           if (widget.scale.isRuler && widget.values.length != 1)
-            Row(children: [_stepField()]),
+            Row(children: [
+              _stepField(),
+              const Spacer(),
+              // this parameter's own copy / paste: the value at one key
+              // into another.
+              if (widget.values.length == 2) ...[
+                IconButton(
+                  key: ValueKey('local-copy-${widget.prefKey}'),
+                  icon: const Icon(Icons.copy, size: 16),
+                  tooltip: 'copy this value (for this parameter)',
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(4),
+                  constraints: _iconConstraints,
+                  onPressed: () => setState(() => ParamEditor.localClipboard[widget.prefKey] = [...widget.values]),
+                ),
+                IconButton(
+                  key: ValueKey('local-paste-${widget.prefKey}'),
+                  icon: const Icon(Icons.content_paste, size: 16),
+                  tooltip: 'paste the copied value here',
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(4),
+                  constraints: _iconConstraints,
+                  onPressed: ParamEditor.localClipboard[widget.prefKey] == null
+                      ? null
+                      : () {
+                          widget.onEditStart();
+                          widget.onCommit([...ParamEditor.localClipboard[widget.prefKey]!]);
+                        },
+                ),
+              ],
+            ]),
         ],
       );
     }

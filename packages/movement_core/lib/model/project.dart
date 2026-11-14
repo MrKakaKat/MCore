@@ -253,11 +253,17 @@ class Keyframe {
   dynamic value; // double, or List<double> for vec2 tracks
   Easing temporal;
   SpatialTangent spatialTangent;
+
+  /// A point along a free move's way (between its first and last key):
+  /// it shapes the path, but is no key to pick - faint on the layer's
+  /// line, left out of the key layers' rows.
+  bool passive;
   Keyframe({
     required this.frame,
     required this.value,
     Easing? temporal,
     SpatialTangent? spatialTangent,
+    this.passive = false,
   })  : temporal = temporal ?? easingPresets['linear']!,
         spatialTangent = spatialTangent ?? SpatialTangent.zero();
 }
@@ -271,6 +277,14 @@ class Track {
   bool spatial;
   List<Keyframe> keyframes;
   bool loop;
+
+  /// How a loop repeats: 'repeat' (each pass starts again from the first
+  /// key's values) or 'offset' (each pass goes on from where the last
+  /// ended - a scale going 1 -> 0.9 keeps shrinking). An offset loop stops
+  /// (holds) at the pass that would take a value past `loopMin` /
+  /// `loopMax` (a scale below 0).
+  String loopMode = 'repeat';
+  double? loopMin, loopMax;
   double? tension;
   Easing? globalEasing;
 
@@ -1701,6 +1715,14 @@ class LayerFilters {
   double lightWrap;
   double lightWrapWidth;
 
+  /// Vignette: the edges darkened (toward `vignetteColor`) - amount 0..1
+  /// (keyable), where it starts (0..1 of the way from the middle to the
+  /// corners) and how soft its edge is (0..1).
+  Track vignette;
+  double vignetteSize;
+  double vignetteSoft;
+  String vignetteColor;
+
   LayerFilters({
     Track? negative,
     this.scope = 'self',
@@ -1715,7 +1737,12 @@ class LayerFilters {
     this.warpSpeed = 0.5,
     this.lightWrap = 0,
     this.lightWrapWidth = 12,
+    Track? vignette,
+    this.vignetteSize = 0.5,
+    this.vignetteSoft = 0.5,
+    this.vignetteColor = '#000000',
   })  : negative = negative ?? Track(0.0, false),
+        vignette = vignette ?? Track(0.0, false),
         blur = blur ?? Track(0.0, false),
         lift = lift ?? [0, 0, 0],
         gamma = gamma ?? [0, 0, 0],
@@ -1728,11 +1755,12 @@ class LayerFilters {
   bool get graded => [...lift, ...gamma, ...gain].any((v) => v != 0);
 
   bool get any =>
-      _on(negative) || _on(blur) || _on(warp) || graded || lightWrap > 0;
+      _on(negative) || _on(blur) || _on(warp) || graded || lightWrap > 0 || _on(vignette);
 
   /// Settings that differ from a fresh one (saved even with nothing on).
   bool get changed => any || scope != 'self' || blurKind != 'gaussian' || blurAngle != 0 ||
-      warpScale != 60 || warpSpeed != 0.5 || lightWrapWidth != 12;
+      warpScale != 60 || warpSpeed != 0.5 || lightWrapWidth != 12 ||
+      vignetteSize != 0.5 || vignetteSoft != 0.5 || vignetteColor != '#000000';
 
   LayerFilters copy() => LayerFilters(
         negative: cloneTrack(negative),
@@ -1748,6 +1776,10 @@ class LayerFilters {
         warpSpeed: warpSpeed,
         lightWrap: lightWrap,
         lightWrapWidth: lightWrapWidth,
+        vignette: cloneTrack(vignette),
+        vignetteSize: vignetteSize,
+        vignetteSoft: vignetteSoft,
+        vignetteColor: vignetteColor,
       );
 
   Map<String, dynamic> toJson() => {
@@ -1762,6 +1794,10 @@ class LayerFilters {
         if (warpSpeed != 0.5) 'warpSpeed': warpSpeed,
         if (lightWrap != 0) 'lightWrap': lightWrap,
         if (lightWrapWidth != 12) 'lightWrapWidth': lightWrapWidth,
+        if (_on(vignette)) 'vignette': trackToJson(vignette),
+        if (vignetteSize != 0.5) 'vignetteSize': vignetteSize,
+        if (vignetteSoft != 0.5) 'vignetteSoft': vignetteSoft,
+        if (vignetteColor != '#000000') 'vignetteColor': vignetteColor,
       };
 
   static LayerFilters fromJson(Map<String, dynamic> j) {
@@ -1782,6 +1818,10 @@ class LayerFilters {
       warpSpeed: n(j['warpSpeed'], 0.5),
       lightWrap: n(j['lightWrap'], 0),
       lightWrapWidth: n(j['lightWrapWidth'], 12),
+      vignette: j['vignette'] is Map ? trackFromJson(j['vignette'] as Map<String, dynamic>) : null,
+      vignetteSize: n(j['vignetteSize'], 0.5),
+      vignetteSoft: n(j['vignetteSoft'], 0.5),
+      vignetteColor: j['vignetteColor'] as String? ?? '#000000',
     );
   }
 }
@@ -2220,6 +2260,9 @@ dynamic cloneValue(dynamic v) => v is List<double> ? [...v] : v;
 Track cloneTrack(Track src) {
   final t = Track(cloneValue(src.defaultValue), src.spatial);
   t.loop = src.loop;
+  t.loopMode = src.loopMode;
+  t.loopMin = src.loopMin;
+  t.loopMax = src.loopMax;
   t.tension = src.tension;
   t.globalEasing = src.globalEasing?.copy();
   t.constantSpeed = src.constantSpeed;
@@ -2233,7 +2276,8 @@ Track cloneTrack(Track src) {
           frame: k.frame,
           value: cloneValue(k.value),
           temporal: k.temporal.copy(),
-          spatialTangent: k.spatialTangent.copy()),
+          spatialTangent: k.spatialTangent.copy(),
+          passive: k.passive),
   ];
   return t;
 }

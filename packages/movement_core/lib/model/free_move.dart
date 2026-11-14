@@ -164,7 +164,9 @@ int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath,
             frame: times[i],
             value: <double>[p[0], p[1]],
             temporal: ease,
-            spatialTangent: SpatialTangent(inTan: inTan, outTan: outTan));
+            spatialTangent: SpatialTangent(inTan: inTan, outTan: outTan),
+            // the way's own points: no keys to pick.
+            passive: i > 0 && i < pieces.length);
       }()
   ];
   if (many) {

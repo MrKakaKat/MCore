@@ -1091,6 +1091,9 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
             ..strokeWidth = 1.5 * inv);
     }
   }
+  // origami: where attached shapes bend (their crease can't be seen on
+  // them otherwise).
+  _paintAttachedCreases(canvas, project, layer, globalFrame, inv);
   // rounded corners: what the rounding cuts off (red) or fills in
   // (green) - while the Fill tab is open, a line's corner in the Line tab,
   // or while a rounding handle is dragged.
@@ -1757,4 +1760,66 @@ void _paintMirrorLine(ui.Canvas canvas, List<List<double>> l, double inv) {
   canvas.drawCircle(a, 6 * inv, dot);
   canvas.drawCircle(b, 6 * inv, dot);
   canvas.drawRect(ui.Rect.fromCenter(center: (a + b) / 2, width: 10 * inv, height: 10 * inv), dot);
+}
+
+/// Origami with attached shapes (its children): the creases drawn over
+/// them, dashed - over every attached one when the folded layer is
+/// selected, over the selected one when it is attached.
+void _paintAttachedCreases(ui.Canvas canvas, Project project, Layer layer, int globalFrame, double inv) {
+  bool folds(Layer l) => l.effectStack.any((e) => e.effectId == 'origami_fold' && e.enabled);
+  Layer? paper;
+  List<Layer> attached;
+  if (folds(layer)) {
+    paper = layer;
+    attached = [for (final l in project.layers) if (l.parentId == layer.id) l];
+  } else {
+    var up = layer.parentId == null ? null : findLayer(project, layer.parentId);
+    while (up != null && !folds(up)) {
+      up = up.parentId == null ? null : findLayer(project, up.parentId);
+    }
+    paper = up;
+    attached = [layer];
+  }
+  if (paper == null || attached.isEmpty) return;
+  ui.Path? clip;
+  for (final a in attached) {
+    final rings = layerBaseRings(project, a, globalFrame);
+    if (rings == null) continue;
+    final m = getTransformBoxHandles(project, a, globalFrame).mCanvas;
+    for (final r in rings) {
+      if (r.length < 3) continue;
+      final p = ui.Path()..addPolygon([for (final q in r) applyAffine(m, q)].map((q) => ui.Offset(q[0], q[1])).toList(), true);
+      clip = clip == null ? p : ui.Path.combine(ui.PathOperation.union, clip, p);
+    }
+  }
+  if (clip == null) return;
+  final lines = origamiFoldLinesFrame(project, paper, globalFrame);
+  if (lines.isEmpty) return;
+  final paint = ui.Paint()
+    ..color = const ui.Color(0xEEFF7043)
+    ..strokeWidth = 2 * inv;
+  canvas.save();
+  canvas.clipPath(clip);
+  for (final f in lines) {
+    final step = 6 * inv;
+    var on = true, left = step;
+    for (var i = 0; i + 1 < f.pts.length; i++) {
+      var a = ui.Offset(f.pts[i][0], f.pts[i][1]);
+      final b = ui.Offset(f.pts[i + 1][0], f.pts[i + 1][1]);
+      var seg = (b - a).distance;
+      while (seg > 1e-9) {
+        final d = math.min(seg, left);
+        final c = a + (b - a) / (b - a).distance * d;
+        if (on) canvas.drawLine(a, c, paint);
+        a = c;
+        seg -= d;
+        left -= d;
+        if (left <= 1e-9) {
+          on = !on;
+          left = step;
+        }
+      }
+    }
+  }
+  canvas.restore();
 }

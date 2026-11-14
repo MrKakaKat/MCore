@@ -199,29 +199,23 @@ class StageTransportRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget button(String key, IconData icon, String tip, VoidCallback? onPressed) => Material(
-          color: Colors.black54,
-          shape: const CircleBorder(),
-          child: IconButton(
-            key: ValueKey(key),
-            icon: Icon(icon, color: Colors.white),
-            tooltip: tip,
-            onPressed: onPressed,
-          ),
+    // no background: a shadow keeps them readable on any picture.
+    Widget button(String key, IconData icon, String tip, VoidCallback? onPressed) => IconButton(
+          key: ValueKey(key),
+          icon: Icon(icon, color: Colors.white, shadows: const [Shadow(color: Colors.black87, blurRadius: 6)]),
+          tooltip: tip,
+          onPressed: onPressed,
         );
     return AnimatedBuilder(
       animation: app,
-      builder: (context, _) => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(children: [
-          button('stage-undo', Icons.undo, 'undo', () => _toast(context, app..performUndo())),
-          const Spacer(),
-          button('stage-play', app.playing ? Icons.pause : Icons.play_arrow, 'play / pause',
-              app.canPlay || app.playing ? app.togglePlay : null),
-          const Spacer(),
-          button('stage-redo', Icons.redo, 'redo', () => _toast(context, app..performRedo())),
-        ]),
-      ),
+      builder: (context, _) => Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        button('stage-undo', Icons.undo, 'undo', () => _toast(context, app..performUndo())),
+        const SizedBox(width: 12),
+        button('stage-play', app.playing ? Icons.pause : Icons.play_arrow, 'play / pause',
+            app.canPlay || app.playing ? app.togglePlay : null),
+        const SizedBox(width: 12),
+        button('stage-redo', Icons.redo, 'redo', () => _toast(context, app..performRedo())),
+      ]),
     );
   }
 }

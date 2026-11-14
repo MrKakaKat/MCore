@@ -182,15 +182,36 @@ Grid applyEffectStack(Layer layer, Grid grid, int globalFrame, {Project? project
 /// Origami measures its creases on the layer's own box (whatever grid or
 /// outline it is given).
 Map<String, dynamic> _withBox(Layer layer, EffectInstance inst, Map<String, dynamic> params) {
-  if (inst.effectId != 'origami_fold') return params;
+  if (inst.effectId != 'origami_fold' && inst.effectId != 'rotate_3d') return params;
   final b = shapeBoundingBox(layer.content);
   return params..['_box'] = [b.minX, b.minY, b.maxX, b.maxY];
 }
 
 /// The effects deforming `layer` act point by point (an outline can go
 /// through them directly, exactly, instead of through a grid).
+/// (A 3D tilt is point by point too: it measures on the layer's box.)
 bool deformsPointwise(Layer layer) => layer.effectStack.any((i) => i.enabled && i.effectId == 'origami_fold') &&
-    layer.effectStack.every((i) => !i.enabled || !isDeformingEffect(i) || i.effectId == 'origami_fold');
+    layer.effectStack
+        .every((i) => !i.enabled || !isDeformingEffect(i) || i.effectId == 'origami_fold' || i.effectId == 'rotate_3d');
+
+/// Points (content space) through the deforming effects after instance
+/// `instId` in the layer's stack (a fold's crease, carried by a tilt
+/// after it).
+List<List<double>> applyEffectsAfter(Layer layer, String instId, List<List<double>> pts, int globalFrame,
+    {Project? project}) {
+  final localFrame = math.min(layer.durationFrames, math.max(0, layerTimeFrame(layer, globalFrame) - layer.startFrame)).toDouble();
+  final at = layer.effectStack.indexWhere((i) => i.id == instId);
+  if (at < 0 || pts.isEmpty) return pts;
+  var g = [pts];
+  for (final inst in layer.effectStack.skip(at + 1)) {
+    if (!inst.enabled || !isDeformingEffect(inst) || !effectRegistry.containsKey(inst.effectId)) continue;
+    if (!effectActiveAt(layer, inst.id, localFrame)) continue;
+    if (inst.effectId != 'rotate_3d' && inst.effectId != 'origami_fold') continue; // point by point only
+    final params = _withBox(layer, inst, resolveEffectParams(inst, localFrame));
+    g = effectRegistry[inst.effectId]!.apply(g, params, localFrame);
+  }
+  return g.first;
+}
 
 Map<String, dynamic> _resolveBend(Project? project, Layer layer, EffectInstance inst, double localFrame) =>
     resolveEffectParams(inst, localFrame)..['angle'] = bendPhysicsAngle(project, layer, inst, localFrame);

@@ -2174,6 +2174,10 @@ class _LayerLaneState extends State<_LayerLane>
               selected: widget.selected,
               dimmed: widget.dimmed,
               keyframeXs: keyframeFrames.map(_frameToX).toList(),
+              // a free move's own points: faint, nothing to pick.
+              passiveXs: collectPassiveLayerKeyframeFrames(widget.layer).map(_frameToX).toList(),
+              // offset loops: where they stop (a key of their own).
+              loopStopXs: [for (final f in layerLoopStops(widget.layer)) _frameToX(f)],
               // keys outside the layer's range (after shortening it) stay,
               // dimmed - the animation is cut off there.
               frameCounts: widget.app.timelineFrameCounts
@@ -2407,6 +2411,12 @@ class _LaneLinePainter extends CustomPainter {
   final bool selected;
   final bool dimmed;
   final List<double> keyframeXs;
+
+  /// A free move's own points: faint dots, not keys to pick.
+  final List<double> passiveXs;
+
+  /// Where an offset loop stops (a value would go too far): a key mark.
+  final List<double> loopStopXs;
   final List<bool> keyframeOutside;
   final List<bool> keyframeHeld;
 
@@ -2437,6 +2447,8 @@ class _LaneLinePainter extends CustomPainter {
     required this.selected,
     required this.dimmed,
     required this.keyframeXs,
+    this.passiveXs = const [],
+    this.loopStopXs = const [],
     this.keyframeOutside = const [],
     this.keyframeHeld = const [],
     this.keyframeText = const [],
@@ -2483,6 +2495,23 @@ class _LaneLinePainter extends CustomPainter {
       final x = startX + 6;
       canvas.drawOval(Rect.fromCenter(center: Offset(x - 2, midY), width: 6, height: 4), chain);
       canvas.drawOval(Rect.fromCenter(center: Offset(x + 2, midY), width: 6, height: 4), chain);
+    }
+
+    // a free move's own points: small, faint.
+    final passivePaint = Paint()..color = const Color(0xFFE0D47F).withOpacity(alpha * 0.3);
+    for (final x in passiveXs) {
+      canvas.drawCircle(Offset(x, midY), 2, passivePaint);
+    }
+    // an offset loop's stop: a key mark (hollow square).
+    for (final x in loopStopXs) {
+      canvas.drawRect(
+          Rect.fromCenter(center: Offset(x, midY), width: 8, height: 8),
+          Paint()
+            ..color = const Color(0xFFE0D47F).withOpacity(alpha * 0.8)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5);
+      canvas.drawLine(Offset(x - 3, midY), Offset(x + 3, midY),
+          Paint()..color = const Color(0xFFE0D47F).withOpacity(alpha * 0.8)..strokeWidth = 1.5);
     }
 
     final diamondPaint = Paint()
@@ -2571,6 +2600,8 @@ class _LaneLinePainter extends CustomPainter {
       oldDelegate.selected != selected ||
       oldDelegate.dimmed != dimmed ||
       !_sameList(oldDelegate.keyframeXs, keyframeXs) ||
+      !_sameList(oldDelegate.passiveXs, passiveXs) ||
+      !_sameList(oldDelegate.loopStopXs, loopStopXs) ||
       !_sameList(oldDelegate.keyframeOutside, keyframeOutside) ||
       !_sameList(oldDelegate.keyframeHeld, keyframeHeld) ||
       !_sameList(oldDelegate.keyframeCounts, keyframeCounts) ||

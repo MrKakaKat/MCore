@@ -81,6 +81,11 @@ class OrigamiFoldKeys {
 
   /// The rounding's shape: 0 cut straight, ~0.55 a circle, 1 sharp.
   String get roundShape => n == 1 ? 'roundShape' : round.startsWith('fold') ? 'fold${n}_roundShape' : 'roundShape$n';
+
+  /// The soft bend's own start and end, px from the crease (an end past
+  /// the start sets the bend there - softness no longer decides it).
+  String get bendFrom => n == 1 ? 'bendFrom' : round.startsWith('fold') ? 'fold${n}_bendFrom' : 'bendFrom$n';
+  String get bendTo => n == 1 ? 'bendTo' : round.startsWith('fold') ? 'fold${n}_bendTo' : 'bendTo$n';
 }
 
 /// The folds' parameter names, in order: the first, then any added ones
@@ -109,7 +114,10 @@ List<(String, String, double)> origamiFoldKeys(Map<String, dynamic> params) =>
 /// effect's, e.g. perspective).
 int? origamiFoldOf(Map<String, dynamic> params, String key) {
   for (final f in origamiFolds(params)) {
-    if ([f.angle, f.position, f.direction, f.softness, f.softShape, f.round, f.roundShape].contains(key)) return f.n;
+    if ([f.angle, f.position, f.direction, f.softness, f.softShape, f.round, f.roundShape, f.bendFrom, f.bendTo]
+        .contains(key)) {
+      return f.n;
+    }
   }
   return null;
 }
@@ -257,10 +265,18 @@ class _Folds {
       final a = dirDeg * math.pi / 180;
       final u = [math.cos(a), math.sin(a)], nrm = [-u[1], u[0]];
       final reach = (w / 2 * u[0]).abs() + (h / 2 * u[1]).abs();
-      final s = -reach + 2 * reach * _num(params[k.position], k.defaultPosition).clamp(0.0, 1.0);
+      var s = -reach + 2 * reach * _num(params[k.position], k.defaultPosition).clamp(0.0, 1.0);
       final soft = _num(params[k.softness] ?? params['softness'], 0).clamp(0.0, 1.0);
-      // never longer than the paper past the crease.
-      final len = (soft * reach * th.abs()).clamp(0.0, math.max(0.0, reach - s)).toDouble();
+      final bendFrom = _num(params[k.bendFrom], 0), bendTo = _num(params[k.bendTo], 0);
+      double len;
+      if (bendTo > bendFrom && th != 0) {
+        // its own start and end: the bend lies exactly there.
+        s = (s + bendFrom).clamp(-reach, reach).toDouble();
+        len = (bendTo - bendFrom).clamp(0.0, math.max(0.0, reach - s)).toDouble();
+      } else {
+        // never longer than the paper past the crease.
+        len = (soft * reach * th.abs()).clamp(0.0, math.max(0.0, reach - s)).toDouble();
+      }
       final softShape = _num(params[k.softShape], 0.5523).clamp(0.0, 1.0).toDouble();
       // never more than the paper on either side of the crease.
       final round = math.max(0.0, _num(params[k.round], 0)).clamp(0.0, math.max(0.0, math.min(reach + s, reach - s))).toDouble();

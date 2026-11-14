@@ -54,6 +54,7 @@ Map<String, dynamic> keyframeToJson(Keyframe k) => {
       'value': _valueToJson(k.value),
       'temporal': easingToJson(k.temporal),
       'spatialTangent': spatialTangentToJson(k.spatialTangent),
+      if (k.passive) 'passive': true,
     };
 Keyframe keyframeFromJson(Map<String, dynamic> j) => Keyframe(
       frame: j['frame'] as int,
@@ -64,6 +65,7 @@ Keyframe keyframeFromJson(Map<String, dynamic> j) => Keyframe(
       spatialTangent: j['spatialTangent'] != null
           ? spatialTangentFromJson(j['spatialTangent'] as Map<String, dynamic>)
           : null,
+      passive: j['passive'] == true,
     );
 
 Map<String, dynamic> trackToJson(Track t) => {
@@ -71,6 +73,9 @@ Map<String, dynamic> trackToJson(Track t) => {
       'spatial': t.spatial,
       'keyframes': t.keyframes.map(keyframeToJson).toList(),
       if (t.loop) 'loop': t.loop,
+      if (t.loopMode != 'repeat') 'loopMode': t.loopMode,
+      if (t.loopMin != null) 'loopMin': t.loopMin,
+      if (t.loopMax != null) 'loopMax': t.loopMax,
       if (t.tension != null) 'tension': t.tension,
       if (t.globalEasing != null) 'globalEasing': easingToJson(t.globalEasing!),
       if (t.constantSpeed) 'constantSpeed': true,
@@ -88,6 +93,9 @@ Track trackFromJson(Map<String, dynamic> j) {
       .map((k) => keyframeFromJson(k as Map<String, dynamic>))
       .toList();
   t.loop = j['loop'] as bool? ?? false;
+  t.loopMode = j['loopMode'] as String? ?? 'repeat';
+  t.loopMin = (j['loopMin'] as num?)?.toDouble();
+  t.loopMax = (j['loopMax'] as num?)?.toDouble();
   t.tension = (j['tension'] as num?)?.toDouble();
   t.constantSpeed = j['constantSpeed'] == true;
   t.animLayers = [

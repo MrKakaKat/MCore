@@ -65,6 +65,7 @@ export 'model/merge_layers.dart';
 export 'model/fill_region.dart';
 export 'model/trail.dart';
 export 'model/free_move.dart';
+export 'model/pivot.dart';
 export 'model/time_range.dart';
 export 'model/stage_camera.dart';
 export 'model/layer_edit.dart';

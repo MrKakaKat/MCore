@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
+import 'free_move_field.dart';
+import 'pivot_field.dart';
 import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
@@ -93,6 +95,10 @@ class ParamsPanelView extends StatelessWidget {
             _scaleSwitches(layer),
             _scalarParam(context, 'rotation', layer.transform.rotation, localFrame, 0.0, ParamScale.degrees),
             _scalarParam(context, 'opacity', layer.transform.opacity, localFrame, 1.0, const ParamScale.slider(0, 1)),
+            // its centre: what it turns and scales round.
+            PivotField(app: app),
+            // drag the object along a way: a key layer of it.
+            FreeMoveField(app: app),
           ],
         );
       },

@@ -11,7 +11,7 @@ import '../effects/builtins/origami_fold.dart';
 import '../geometry/shapes.dart' show buildGrid, layerFlatOutline;
 import '../model/project.dart';
 import '../model/track_edit.dart' show setTrackValueAt, localFrameOf;
-import '../effects/geometry_effect_registry.dart' show resolveEffectParams;
+import '../effects/geometry_effect_registry.dart' show resolveEffectParams, applyEffectsAfter;
 import 'drag_ops.dart' show DragOp;
 import 'handles.dart' show getTransformBoxHandles;
 import 'snapping.dart' show SnapGuideLine;
@@ -46,9 +46,11 @@ List<({EffectInstance inst, int n, String key, List<double> a, List<double> b, L
     for (final inst in origamiInstances(layer))
       for (final l in origamiFoldLines(_params(layer, inst, lf), rest, scale: sc))
         () {
-          final pts = [for (final q in l.pts) applyAffine(m, q)];
-          final fr = origamiFoldFrame(_params(layer, inst, lf), rest, l.n, scale: sc);
-          final mid = fr == null ? pts[pts.length ~/ 2] : applyAffine(m, fr.mid);
+          // carried by the effects after the fold too (a tilt).
+          final after = applyEffectsAfter(layer, inst.id, [...l.pts, if (origamiFoldFrame(_params(layer, inst, lf), rest, l.n, scale: sc) case final fr?) fr.mid],
+              globalFrame, project: project);
+          final pts = [for (final q in after.take(l.pts.length)) applyAffine(m, q)];
+          final mid = after.length > l.pts.length ? applyAffine(m, after.last) : pts[pts.length ~/ 2];
           return (inst: inst, n: l.n, key: l.key, a: pts.first, b: pts.last, mid: mid, pts: pts);
         }()
   ];

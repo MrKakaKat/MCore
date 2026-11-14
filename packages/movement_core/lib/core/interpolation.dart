@@ -214,6 +214,41 @@ dynamic evaluateTrack(Project? project, Track trk, double localFrame, [Layer? la
   return combineAnimLayers(project, trk, own, localFrame, layer);
 }
 
+bool _numericKey(dynamic v) => v is num || (v is List && v.every((e) => e is num));
+
+dynamic _copyValue(dynamic v) => v is List ? [for (final e in v) (e as num).toDouble()] : v;
+
+/// An offset loop's passes after the first that stay within its limits
+/// (loopMin / loopMax) - null: no limit, it goes on. 0: it stops at its
+/// last key.
+int? loopOffsetPasses(Track trk) {
+  final kfs = trk.keyframes;
+  if (!trk.loop || trk.loopMode != 'offset' || kfs.length < 2) return null;
+  if (trk.loopMin == null && trk.loopMax == null) return null;
+  if (!_numericKey(kfs.first.value) || !_numericKey(kfs.last.value)) return null;
+  List<double> asList(dynamic v) => v is List ? [for (final e in v) (e as num).toDouble()] : [(v as num).toDouble()];
+  final a = asList(kfs.first.value), b = asList(kfs.last.value);
+  int? best;
+  for (var i = 0; i < b.length && i < a.length; i++) {
+    final d = b[i] - a[i];
+    if (d.abs() < 1e-12) continue;
+    final limit = d < 0 ? trk.loopMin : trk.loopMax;
+    if (limit == null) continue;
+    final k = ((limit - b[i]) / d + 1e-9).floor();
+    final n = k < 0 ? 0 : k;
+    best = best == null ? n : math.min(best, n);
+  }
+  return best;
+}
+
+/// Where an offset loop stops, local frame (null: it doesn't).
+int? loopStopFrame(Track trk) {
+  final passes = loopOffsetPasses(trk);
+  if (passes == null) return null;
+  final kfs = trk.keyframes;
+  return kfs.last.frame + passes * (kfs.last.frame - kfs.first.frame);
+}
+
 /// `base` with the track's enabled animation layers on top (all of them,
 /// or all but `skip`).
 dynamic combineAnimLayers(Project? project, Track trk, dynamic base, double localFrame, [Layer? layer, AnimLayer? skip]) {
@@ -282,6 +317,19 @@ dynamic _evaluateOwn(Project? project, Track trk, double localFrame, [Layer? lay
   if (trk.loop && kfs.length >= 2 && frame > kfs.last.frame) {
     final first = kfs.first.frame, last = kfs.last.frame;
     final span = last - first;
+    // offset: each pass goes on from where the one before ended.
+    if (span > 0 && trk.loopMode == 'offset' && _numericKey(kfs.first.value) && _numericKey(kfs.last.value)) {
+      final n = ((frame - first) / span).floor();
+      final passes = loopOffsetPasses(trk);
+      final delta = residualValue(kfs.last.value, kfs.first.value, false);
+      dynamic times(dynamic d, int k) => d is List ? [for (final x in d) (x as num) * k] : (d as num) * k;
+      // stopped: held where the last allowed pass ended.
+      if (passes != null && n > passes) {
+        return combineValues(_copyValue(kfs.last.value), times(delta, passes), false);
+      }
+      final inner = _evaluateOwn(project, trk, first + (frame - first) - n * span, layer);
+      return combineValues(_copyValue(inner), times(delta, n), false);
+    }
     if (span > 0) frame = first + ((frame - first) % span + span) % span;
   }
 

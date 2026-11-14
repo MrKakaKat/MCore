@@ -43,12 +43,7 @@ Layer? splitLayer(Project project, Layer layer, int globalFrame, String newId) {
   // left part: keep keys up to the cut, pin the value at the cut.
   visitLayerTracks(layer, (trk) {
     if (trk.keyframes.isEmpty) return;
-    final value = _copy(evaluateTrack(project, trk, s.toDouble(), layer));
-    final before = trk.keyframes.where((k) => k.frame < s).toList();
-    final ease = before.isEmpty ? null : before.last.temporal;
-    trk.keyframes.removeWhere((k) => k.frame >= s);
-    trk.keyframes.add(Keyframe(frame: s, value: value, temporal: ease));
-    if (trk.spatial) autoComputeTangents(trk);
+    _splitLeft(trk, s, _copy(evaluateTrackOwn(project, trk, s.toDouble(), layer)));
   });
 
   // right part: shift keys left by the cut, pin the value at its start.
@@ -58,15 +53,7 @@ Layer? splitLayer(Project project, Layer layer, int globalFrame, String newId) {
   visitLayerTracks(right, rightTracks.add);
   for (final trk in rightTracks) {
     if (trk.keyframes.isEmpty) continue;
-    final value = _copy(evaluateTrack(project, trk, s.toDouble(), right));
-    final before = trk.keyframes.where((k) => k.frame <= s).toList();
-    final ease = before.isEmpty ? null : before.last.temporal;
-    trk.keyframes.removeWhere((k) => k.frame <= s);
-    for (final k in trk.keyframes) {
-      k.frame -= s;
-    }
-    trk.keyframes.insert(0, Keyframe(frame: 0, value: value, temporal: ease));
-    if (trk.spatial) autoComputeTangents(trk);
+    _splitRight(trk, s, _copy(evaluateTrackOwn(project, trk, s.toDouble(), right)));
   }
 
   layer.durationFrames = s;
@@ -77,6 +64,66 @@ Layer? splitLayer(Project project, Layer layer, int globalFrame, String newId) {
 }
 
 dynamic _copy(dynamic v) => v is List ? List<double>.from(v) : v;
+
+bool _loops(Track trk) => trk.loop && trk.keyframes.length >= 2 && trk.keyframes.last.frame > trk.keyframes.first.frame;
+
+/// The part before the cut at local frame `s` (`value`: the track's own
+/// value there). A key at the cut only where keys lie on both sides.
+void _splitLeft(Track trk, int s, dynamic value) {
+  final ks = trk.keyframes;
+  // a loop: everything before the cut stays exactly as it was.
+  if (_loops(trk)) return;
+  if (ks.every((k) => k.frame < s)) return;
+  if (ks.every((k) => k.frame >= s)) {
+    // not started yet: it holds its first value - no keys to show.
+    trk.keyframes = [];
+    trk.defaultValue = value;
+    return;
+  }
+  final before = ks.where((k) => k.frame < s).toList();
+  trk.keyframes.removeWhere((k) => k.frame >= s);
+  trk.keyframes.add(Keyframe(frame: s, value: value, temporal: before.last.temporal));
+  if (trk.spatial) autoComputeTangents(trk);
+}
+
+/// The part from the cut on, its keys moved to start at 0.
+void _splitRight(Track trk, int s, dynamic value) {
+  final ks = trk.keyframes;
+  if (_loops(trk)) {
+    // a loop goes on in step: the keys move by whole passes, so the
+    // part starts mid-pass exactly where the original was (an offset
+    // loop's values go on from the passes already made).
+    final f = ks.first.frame, period = ks.last.frame - f;
+    final n = s > f ? ((s - f) / period).floor() : 0;
+    final delta = trk.loopMode == 'offset' ? residualValue(ks.last.value, ks.first.value, false) : null;
+    for (final k in ks) {
+      k.frame += n * period - s;
+      if (delta != null && n > 0) {
+        k.value = combineValues(_copy(k.value), delta is List ? [for (final d in delta) d * n] : delta * n, false);
+      }
+    }
+    return;
+  }
+  if (ks.every((k) => k.frame <= s)) {
+    // already over: it holds where it ended - no keys left to show.
+    trk.keyframes = [];
+    trk.defaultValue = value;
+    return;
+  }
+  if (ks.every((k) => k.frame > s)) {
+    for (final k in ks) {
+      k.frame -= s;
+    }
+    return;
+  }
+  final before = ks.where((k) => k.frame <= s).toList();
+  trk.keyframes.removeWhere((k) => k.frame <= s);
+  for (final k in trk.keyframes) {
+    k.frame -= s;
+  }
+  trk.keyframes.insert(0, Keyframe(frame: 0, value: value, temporal: before.last.temporal));
+  if (trk.spatial) autoComputeTangents(trk);
+}
 
 /// Swaps the layer's content for `replacement`, keeping every parameter.
 /// The new content takes the old one's place (offset) and is fitted to

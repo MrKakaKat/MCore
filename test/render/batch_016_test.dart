@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:movement_core/movement_core.dart' hide Transform;
 import 'package:movement_mobile/app_state.dart';
+import 'package:movement_mobile/ui/params_panel/free_move_field.dart';
 import 'package:movement_mobile/ui/timeline/keyframes_editor_view.dart';
 import 'package:movement_mobile/ui/timeline/timeline_rows_view.dart';
 import 'package:movement_mobile/ui/timeline/timeline_toolbar.dart';
@@ -120,9 +121,11 @@ void main() {
     app.setFrame(l.startFrame + 10);
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: KeyframesEditorView(app: app))));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('free-move-field')), findsOneWidget);
     expect(find.byKey(const ValueKey('master-key-ease')), findsOneWidget);
     expect(find.byKey(const ValueKey('key-edit-all')), findsOneWidget);
+    expect(find.byKey(const ValueKey('loop-all')), findsOneWidget);
+    // free move: in the Movement tab now.
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SingleChildScrollView(child: FreeMoveField(app: app)))));
     await tester.tap(find.byKey(const ValueKey('free-move-start')));
     await tester.pump();
     expect(app.freeMoveRecording, isTrue);

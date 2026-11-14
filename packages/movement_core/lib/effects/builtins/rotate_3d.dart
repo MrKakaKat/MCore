@@ -49,9 +49,22 @@ Grid rotate3dGrid(Grid grid, Map<String, dynamic> params, double localFrame) {
   if (angle == 0) return grid;
   final all = grid.expand((row) => row).toList();
   if (all.isEmpty) return grid;
-  final xs = [for (final p in all) p[0]], ys = [for (final p in all) p[1]];
-  final minX = xs.reduce(math.min), maxX = xs.reduce(math.max);
-  final minY = ys.reduce(math.min), maxY = ys.reduce(math.max);
+  // the layer's own box (given as `_box`): the same pivot whatever part of
+  // it comes through, folded or not; else the grid's.
+  final b = params['_box'];
+  final double minX, maxX, minY, maxY;
+  if (b is List && b.length == 4) {
+    minX = (b[0] as num).toDouble();
+    minY = (b[1] as num).toDouble();
+    maxX = (b[2] as num).toDouble();
+    maxY = (b[3] as num).toDouble();
+  } else {
+    final xs = [for (final p in all) p[0]], ys = [for (final p in all) p[1]];
+    minX = xs.reduce(math.min);
+    maxX = xs.reduce(math.max);
+    minY = ys.reduce(math.min);
+    maxY = ys.reduce(math.max);
+  }
   final w = maxX - minX, h = maxY - minY;
 
   final pivot = params['pivot'];

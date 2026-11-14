@@ -397,11 +397,10 @@ class EffectsView extends StatelessWidget {
   }
 
   /// Origami: which fold is being set (its settings show below).
-  static final Map<String, int> _origamiFold = {};
 
   int _origamiSelected(EffectInstance inst) {
     final ns = [for (final f in origamiFolds(inst.params)) f.n];
-    final n = _origamiFold[inst.id];
+    final n = app.origamiSelectedFold[inst.id];
     return n != null && ns.contains(n) ? n : ns.first;
   }
 
@@ -419,11 +418,13 @@ class EffectsView extends StatelessWidget {
     inst.params.putIfAbsent(f.softShape, () => track(circleRoundK));
     inst.params.putIfAbsent(f.round, () => track(0.0));
     inst.params.putIfAbsent(f.roundShape, () => track(circleRoundK));
+    inst.params.putIfAbsent(f.bendFrom, () => track(0.0));
+    inst.params.putIfAbsent(f.bendTo, () => track(0.0));
     // each fold's rows in one order: a size, then its shape right under it
     // (nothing jumps in between).
     final order = [
       for (final g in origamiFolds(inst.params))
-        ...[g.angle, g.direction, g.position, g.softness, g.softShape, g.round, g.roundShape]
+        ...[g.angle, g.direction, g.position, g.softness, g.bendFrom, g.bendTo, g.softShape, g.round, g.roundShape]
     ];
     final entries = [...inst.params.entries];
     int rank(String k) {
@@ -462,7 +463,7 @@ class EffectsView extends StatelessWidget {
             selected: f.n == sel,
             visualDensity: VisualDensity.compact,
             onPressed: () {
-              _origamiFold[inst.id] = f.n;
+              app.origamiSelectedFold[inst.id] = f.n;
               app.notifyListeners();
             },
             onDeleted: f.n == 1
@@ -480,7 +481,7 @@ class EffectsView extends StatelessWidget {
           onSelected: (r) {
             app.pushUndo();
             final n = addOrigamiFold(inst, region: r);
-            _origamiFold[inst.id] = n;
+            app.origamiSelectedFold[inst.id] = n;
             app.commitEdit();
           },
           itemBuilder: (_) => [
@@ -521,7 +522,7 @@ class EffectsView extends StatelessWidget {
         key: ValueKey('origami-two-points-${inst.id}'),
         onPressed: () => app.startOrigamiPick(inst.id, sel),
         icon: Icon(app.origamiPick != null ? Icons.ads_click : Icons.timeline, size: 16),
-        label: Text(app.origamiPick != null ? 'Tap two points on the shape...' : 'Fold \$sel through two points'),
+        label: Text(app.origamiPick != null ? 'Tap two points on the shape...' : 'New fold through two points'),
       ),
       // shapes joined to the paper: they fold with it where they lie past
       // a crease (or along an edge, at its angle).
@@ -659,6 +660,7 @@ class EffectsView extends StatelessWidget {
     if (inst.effectId == 'origami_fold' && (key.endsWith('_direction') || RegExp(r'^direction\d$').hasMatch(key))) return 0.0;
     if (inst.effectId == 'origami_fold' && (key.endsWith('_softness') || key.endsWith('_round') || RegExp(r'^(softness|round)\d$').hasMatch(key))) return 0.0;
     if (inst.effectId == 'origami_fold' && key.contains('Shape')) return circleRoundK;
+    if (inst.effectId == 'origami_fold' && key.contains('bend')) return 0.0;
     final defs = effectRegistry[inst.effectId]?.params ?? const <ParamDef>[];
     final def = defs.where((p) => p.key == key);
     final v = def.isEmpty ? const [0.0, 0.0] : def.first.defaultValue;
@@ -678,6 +680,8 @@ class EffectsView extends StatelessWidget {
     'react': 'gives when pushed % (Collide on)',
     'pivot': 'pivot (0-1)',
     'softShape': 'softness shape (0 cut, 0.55 circle, 1 sharp)',
+    'bendFrom': 'bend starts (px from the crease)',
+    'bendTo': 'bend ends (px; 0: by softness)',
     'round': 'round the crease',
     'roundShape': 'rounding shape (0 cut, 0.55 circle, 1 sharp)',
   };
@@ -699,6 +703,9 @@ class EffectsView extends StatelessWidget {
       if (RegExp(r'^(direction|fold\d+_direction|direction\d)$').hasMatch(key)) return ParamScale.degrees;
       if (RegExp(r'^(fold\d+_softness|softness\d)$').hasMatch(key)) return const ParamScale.slider(0, 1);
       if (RegExp(r'^(round|fold\d+_round|round\d)$').hasMatch(key)) return const ParamScale.slider(0, 200, decimals: 1);
+      if (RegExp(r'^(bendFrom|bendTo|fold\d+_(bendFrom|bendTo))$').hasMatch(key)) {
+        return const ParamScale.ruler(unitsPerPixel: 0.5, minorTick: 10, majorTick: 50, decimals: 1);
+      }
       if (RegExp(r'^(softShape|roundShape|fold\d+_(softShape|roundShape)|(softShape|roundShape)\d)$').hasMatch(key)) {
         return const ParamScale.slider(0, 1, decimals: 3);
       }

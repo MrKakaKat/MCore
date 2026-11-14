@@ -326,6 +326,7 @@ class _KeyDetailRowsState extends State<KeyDetailRows> {
     final layer = widget.layer;
     final rows = keyDetailRows(layer);
     final spans = keyDetailSpans(layer);
+    final ghosts = keyDetailLoopGhosts(layer);
     double x(int local) => (layer.startFrame + local) * widget.pixelsPerFrame;
     var sel = app.keyDetailSelection;
     if (sel != null &&
@@ -376,10 +377,15 @@ class _KeyDetailRowsState extends State<KeyDetailRows> {
                       _moved = total;
                     }
                   : null,
-              onHorizontalDragEnd: (_) => _dragX = null,
+              // (only with a line selected in this row: else the row would
+              // take sideways drags from the timeline - it stood still there)
+              onHorizontalDragEnd: sel?.tab == tabs[r] ? (_) => _dragX = null : null,
               child: CustomPaint(
                 painter: _KeyRowPainter(
                   xs: [for (final f in rows[tabs[r]]!) x(f)],
+                  // the loops' continuation (only to look at).
+                  ghostXs: [for (final f in ghosts[tabs[r]]?.keys ?? const <int>[]) x(f)],
+                  ghostSpans: [for (final s in ghosts[tabs[r]]?.spans ?? const <(int, int)>[]) (x(s.$1), x(s.$2))],
                   spans: [for (final s in spans[tabs[r]] ?? const <KeySpan>[]) (x(s.a), x(s.b))],
                   markers: tabs[r] == 'Movement' ? [for (final f in pushMarkers) f * widget.pixelsPerFrame + x(0)] : const [],
                   color: keyDetailColor(tabs[r]),
@@ -446,10 +452,16 @@ class _KeyRowPainter extends CustomPainter {
   final String shape;
   final List<(double, double)> selected;
   final double? trailTo;
+
+  /// The loops' continuation: faint keys and lines, only to look at.
+  final List<double> ghostXs;
+  final List<(double, double)> ghostSpans;
   _KeyRowPainter(
       {required this.xs,
       required this.color,
       required this.shape,
+      this.ghostXs = const [],
+      this.ghostSpans = const [],
       this.spans = const [],
       this.markers = const [],
       this.selected = const [],
@@ -489,8 +501,24 @@ class _KeyRowPainter extends CustomPainter {
         ..color = color
         ..strokeWidth = 2 * r);
     }
+    // the loops' continuation: faint.
+    final ghost = Paint()
+      ..color = color.withOpacity(0.3)
+      ..strokeWidth = 1.5;
+    for (final s in ghostSpans) {
+      canvas.drawLine(Offset(s.$1, cy), Offset(s.$2, cy), ghost);
+    }
+    for (final x in ghostXs) {
+      _key(canvas, x, cy, r, ghost);
+    }
     final fill = Paint()..color = color;
     for (final x in xs) {
+      _key(canvas, x, cy, r, fill);
+    }
+  }
+
+  void _key(Canvas canvas, double x, double cy, double r, Paint fill) {
+    {
       final c = Offset(x, cy);
       switch (shape) {
         case 'Movement':
@@ -527,6 +555,8 @@ class _KeyRowPainter extends CustomPainter {
       old.selected.join() != selected.join() ||
       old.trailTo != trailTo ||
       old.xs.join() != xs.join() ||
+      old.ghostXs.join() != ghostXs.join() ||
+      old.ghostSpans.join() != ghostSpans.join() ||
       old.spans.join() != spans.join() ||
       old.markers.join() != markers.join();
 }

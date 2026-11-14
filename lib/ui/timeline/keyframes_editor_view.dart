@@ -3,9 +3,6 @@ import 'package:movement_core/movement_core.dart' hide Transform;
 
 import '../../app_state.dart';
 import '../common/no_layer.dart';
-import '../common/num_field.dart';
-import '../common/param_editor.dart';
-import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
 import 'key_mode_panel.dart';
 
@@ -75,7 +72,7 @@ class KeyframesEditorView extends StatelessWidget {
                 app.commitEdit();
               },
             ),
-            _freeMoveField(context),
+            _loopRow(layer),
             const Divider(height: 16),
             KeyModePanel(app: app, layer: layer),
             const Divider(height: 16),
@@ -96,81 +93,52 @@ class KeyframesEditorView extends StatelessWidget {
     );
   }
 
-  /// Free move: drag the object along its way on the stage; confirmed, it
-  /// becomes a key layer of two keys (the curve in their handles).
-  Widget _freeMoveField(BuildContext context) {
-    final rec = app.freeMoveRecording;
-    return Card(
-      key: const ValueKey('free-move-field'),
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Icon(Icons.gesture, size: 18),
-            const SizedBox(width: 6),
-            const Expanded(child: Text('Free move', style: TextStyle(fontWeight: FontWeight.w600))),
-            const Text('takes', style: TextStyle(fontSize: 12)),
-            const SizedBox(width: 4),
-            SizedBox(
-              width: 56,
-              child: NumField(
-                key: const ValueKey('free-move-seconds'),
-                value: app.freeMoveSeconds,
-                onCommit: app.setFreeMoveSeconds,
-              ),
-            ),
-            const Text(' s', style: TextStyle(fontSize: 12)),
-          ]),
-          ParamEditor(
-            key: const ValueKey('free-move-smoothing'),
-            prefKey: 'keys.free move smoothing',
-            label: 'smoothing',
-            values: [app.freeMoveSmoothing],
-            scale: const ParamScale.slider(0, 1, decimals: 2),
-            onEditStart: () {},
-            onChanged: (v) => app.setAppPreference('freeMoveSmoothing', v.first.clamp(0.0, 1.0).toDouble()),
-            onCommit: (v) => app.setAppPreference('freeMoveSmoothing', v.first.clamp(0.0, 1.0).toDouble()),
-            trailing: [ResetIconButton(onPressed: () => app.setAppPreference('freeMoveSmoothing', 0.0))],
-          ),
-          Text(
-              app.freeMoveSmoothing >= 0.999
-                  ? 'One smooth curve: two keys.'
-                  : app.freeMoveSmoothing == 0
-                      ? 'Off: it follows the way as drawn (a key where it takes one, at most one a frame).'
-                      : 'The more, the smoother (fewer keys).',
-              style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          const SizedBox(height: 4),
-          Text(
-              rec
-                  ? (app.freeMovePath.length < 2
-                      ? 'Drag the object on the stage along its way.'
-                      : 'Drag again to draw it anew, or confirm.')
-                  : 'Move the object by hand along any curve: it becomes a key layer of two keys, from the playhead.',
-              style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          const SizedBox(height: 4),
-          Row(children: [
-            if (!rec)
-              OutlinedButton.icon(
-                key: const ValueKey('free-move-start'),
-                onPressed: app.startFreeMove,
-                icon: const Icon(Icons.gesture, size: 16),
-                label: const Text('Draw the move'),
-              )
-            else ...[
-              FilledButton.icon(
-                key: const ValueKey('free-move-confirm-tab'),
-                onPressed: app.freeMovePath.length >= 2 ? app.confirmFreeMove : null,
-                icon: const Icon(Icons.check, size: 16),
-                label: const Text('Confirm'),
-              ),
-              const SizedBox(width: 8),
-              TextButton(onPressed: app.cancelFreeMove, child: const Text('Cancel')),
-            ],
-          ]),
-        ]),
+  /// Loop for all its keyed parameters at once (multi-keys loop as one),
+  /// and how: from the first key's values again, or on from where each
+  /// pass ended (an offset loop stops where a value would go too far -
+  /// a scale below 0 - marked on the layer).
+  Widget _loopRow(Layer layer) {
+    final tracks = keyedTracksOf(layer);
+    if (tracks.isEmpty) return const SizedBox.shrink();
+    final allLoop = tracks.values.every((t) => t.loop);
+    final anyLoop = tracks.values.any((t) => t.loop);
+    final offset = tracks.values.where((t) => t.loop).every((t) => t.loopMode == 'offset') && anyLoop;
+    final stops = layerLoopStops(layer);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SwitchListTile(
+        key: const ValueKey('loop-all'),
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        contentPadding: const EdgeInsets.only(left: 4),
+        title: const Text('Loop all its parameters', style: TextStyle(fontSize: 13)),
+        subtitle: const Text('every keyed parameter repeats (each with its own keys)', style: TextStyle(fontSize: 11)),
+        value: allLoop,
+        onChanged: (v) {
+          app.pushUndo();
+          tracks.forEach((name, t) => setTrackLoop(t, name, on: v));
+          app.commitEdit();
+        },
       ),
-    );
+      if (anyLoop)
+        SwitchListTile(
+          key: const ValueKey('loop-offset'),
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          contentPadding: const EdgeInsets.only(left: 4),
+          title: const Text('Loop on from where it ended', style: TextStyle(fontSize: 13)),
+          subtitle: Text(
+              stops.isEmpty
+                  ? 'no jump back: each pass starts from the last values (a shrinking scale keeps shrinking)'
+                  : 'stops at frame ${stops.join(', ')} - a value would go past its limit (marked on the layer)',
+              style: const TextStyle(fontSize: 11)),
+          value: offset,
+          onChanged: (v) {
+            app.pushUndo();
+            tracks.forEach((name, t) => setTrackLoop(t, name, mode: v ? 'offset' : 'repeat'));
+            app.commitEdit();
+          },
+        ),
+    ]);
   }
 
   /// A parameter whose key at `localFrame` ends a transition (one before
@@ -383,10 +351,23 @@ class KeyframesEditorView extends StatelessWidget {
                 value: track.loop,
                 onChanged: (_) {
                   app.pushUndo();
-                  track.loop = !track.loop;
+                  setTrackLoop(track, label, on: !track.loop);
                   app.commitEdit();
                 },
               ),
+              // on from where it ended, not back to the start.
+              if (track.loop)
+                IconButton(
+                  key: ValueKey('loop-offset-$label'),
+                  icon: Icon(Icons.trending_up, size: 18, color: track.loopMode == 'offset' ? Colors.amber : Colors.grey),
+                  tooltip: track.loopMode == 'offset' ? 'loops on from where it ended' : 'loops back to the start',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    app.pushUndo();
+                    setTrackLoop(track, label, mode: track.loopMode == 'offset' ? 'repeat' : 'offset');
+                    app.commitEdit();
+                  },
+                ),
             ],
           ),
           if (sortedKfs.isEmpty)

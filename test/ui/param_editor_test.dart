@@ -109,9 +109,10 @@ void main() {
 
     testWidgets('dragging the opacity slider sets opacity', (tester) async {
       await pump(tester);
-      await tester.ensureVisible(find.byType(Slider));
+      // (the first: opacity - Free move's smoothing comes after it)
+      await tester.ensureVisible(find.byType(Slider).first);
       await tester.pump();
-      await tester.drag(find.byType(Slider), const Offset(-1000, 0));
+      await tester.drag(find.byType(Slider).first, const Offset(-1000, 0));
       await tester.pump();
       expect(layer.transform.opacity.defaultValue as double, closeTo(0, 0.01));
     });
