@@ -20,7 +20,17 @@ const audioPeaksPerSecond = 240;
 
 /// Seconds into the source a timed-media layer (video / audio) plays at
 /// `localFrame`, its own frame at the project rate.
-double mediaSourceTime(Content c, num localFrame) => c.sourceIn + localFrame / fps;
+double mediaSourceTime(Content c, num localFrame) => c.sourceIn + localFrame / fps * c.mediaSpeed;
+
+/// Its speed changed: as long as before for the same stretch of its
+/// source (twice as fast - half as long). Returns the new length.
+int setMediaSpeed(Layer layer, double speed) {
+  final s = speed.clamp(0.1, 8.0).toDouble();
+  final old = layer.content.mediaSpeed;
+  layer.content.mediaSpeed = s;
+  layer.durationFrames = (layer.durationFrames * old / s).round().clamp(1, 1 << 30);
+  return layer.durationFrames;
+}
 
 int _audioCounter = 0;
 
@@ -129,14 +139,18 @@ Int16List mixTimeline(Project project, Map<String, Int16List> pcmByAsset, {requi
       final g = i * fps / sampleRate; // global frame, fractional
       final local = loopedFrame(layer, g) - start;
       if (local < 0 || local >= layer.durationFrames) continue;
-      final src = ((layer.content.sourceIn + local / fps) * sampleRate + 1e-6).floor();
+      // (sped up / slowed down: between two samples of the source)
+      final pos = mediaSourceTime(layer.content, local) * sampleRate + 1e-6;
+      final src = pos.floor();
       if (src < 0 || src >= srcFrames) continue;
+      final sf = layer.content.mediaSpeed == 1 ? 0.0 : pos - src;
+      final next = math.min(src + 1, srcFrames - 1);
       final gf = g.floor();
       final frac = g - gf;
       final gain = gainAt(gf) * (1 - frac) + gainAt(gf + 1) * frac;
       if (gain == 0) continue;
       for (var c = 0; c < ch; c++) {
-        acc[i * ch + c] += pcm[src * ch + c] * gain;
+        acc[i * ch + c] += (pcm[src * ch + c] * (1 - sf) + pcm[next * ch + c] * sf) * gain;
       }
     }
   }

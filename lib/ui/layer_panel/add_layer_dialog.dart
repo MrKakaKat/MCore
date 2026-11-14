@@ -6,6 +6,7 @@ import 'package:movement_core/movement_core.dart';
 
 import 'project_ref_ui.dart';
 
+import '../media/media_library.dart';
 import '../../app_state.dart';
 import '../common/hint.dart';
 import '../../io/image_import.dart';
@@ -159,53 +160,32 @@ Future<void> showAddLayerDialog(BuildContext context, AppState app, {String? rep
             ]),
           ),
         const Divider(),
+        // the phone's videos, pictures, GIFs and music, by album.
         SimpleDialogOption(
+          key: const ValueKey('add-media'),
           onPressed: () async {
             Navigator.pop(dialogContext);
-            await _importImage(context, app, replaceId); // the CALLER's context, not the dialog's own - stays mounted
+            await openMediaLibrary(context, app, replaceId: replaceId);
           },
           child: const Row(children: [
-            Icon(Icons.add_photo_alternate),
+            Icon(Icons.photo_library_outlined),
             SizedBox(width: 8),
-            Text('Import image...'),
+            Text('Media library...'),
           ]),
         ),
+        // the system's own file picker (files elsewhere).
         SimpleDialogOption(
+          key: const ValueKey('add-from-files'),
           onPressed: () async {
             Navigator.pop(dialogContext);
-            await importVideoFlow(context, app, replaceId: replaceId);
+            await showFilePickers(context, app, replaceId: replaceId);
           },
           child: const Row(children: [
-            Icon(Icons.video_library),
+            Icon(Icons.folder_open),
             SizedBox(width: 8),
-            Text('Import video...'),
+            Text('From files...'),
           ]),
         ),
-        SimpleDialogOption(
-          key: const ValueKey('import-gif'),
-          onPressed: () async {
-            Navigator.pop(dialogContext);
-            await importGifFlow(context, app, replaceId: replaceId);
-          },
-          child: const Row(children: [
-            Icon(Icons.gif_box),
-            SizedBox(width: 8),
-            Text('Import GIF...'),
-          ]),
-        ),
-        // a sound has no picture to put in another layer's place.
-        if (replaceId == null)
-          SimpleDialogOption(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              await importAudioFlow(context, app);
-            },
-            child: const Row(children: [
-              Icon(Icons.audiotrack),
-              SizedBox(width: 8),
-              Text('Import audio...'),
-            ]),
-          ),
         SimpleDialogOption(
           onPressed: () async {
             Navigator.pop(dialogContext);
@@ -220,6 +200,40 @@ Future<void> showAddLayerDialog(BuildContext context, AppState app, {String? rep
       ],
     ),
   );
+}
+
+/// From files: the system's pickers, one per kind.
+Future<void> showFilePickers(BuildContext context, AppState app, {String? replaceId}) async {
+  final kind = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => SimpleDialog(
+      title: const Text('From files'),
+      children: [
+        for (final (k, label, icon) in [
+          ('image', 'Image...', Icons.add_photo_alternate),
+          ('video', 'Video...', Icons.video_library),
+          ('gif', 'GIF...', Icons.gif_box),
+          if (replaceId == null) ('audio', 'Audio...', Icons.audiotrack),
+        ])
+          SimpleDialogOption(
+            key: ValueKey('files-$k'),
+            onPressed: () => Navigator.pop(dialogContext, k),
+            child: Row(children: [Icon(icon), const SizedBox(width: 8), Text(label)]),
+          ),
+      ],
+    ),
+  );
+  if (kind == null || !context.mounted) return;
+  switch (kind) {
+    case 'image':
+      await _importImage(context, app, replaceId);
+    case 'video':
+      await importVideoFlow(context, app, replaceId: replaceId);
+    case 'gif':
+      await importGifFlow(context, app, replaceId: replaceId);
+    case 'audio':
+      await importAudioFlow(context, app);
+  }
 }
 
 /// picks a.svg file, parses it via movement_core's own importShapesFromSvg,
@@ -282,10 +296,15 @@ Future<void> _importSvg(BuildContext context, AppState app, [String? replaceId])
 /// never gave us a real file path to reference in the first place (then
 /// "embedded" is the only option, so the dialog is skipped rather than
 /// offering a choice with one dead option).
-Future<void> _importImage(BuildContext context, AppState app, [String? replaceId]) async {
+Future<void> _importImage(BuildContext context, AppState app, [String? replaceId]) =>
+    importImageFlow(context, app, replaceId: replaceId);
+
+/// Image import: picked here, or a file already chosen (`pickedPath`, the
+/// media library).
+Future<void> importImageFlow(BuildContext context, AppState app, {String? replaceId, String? pickedPath}) async {
   PickedImage? picked;
   try {
-    picked = await pickImageForImport();
+    picked = pickedPath != null ? await readImageForImport(pickedPath) : await pickImageForImport();
   } catch (e) {
     // a failed pick/ read/decode used to fail completely silently
     // (pickImageForImport just returned null, indistinguishable from a plain
@@ -411,16 +430,18 @@ Future<void> importVideoFlow(BuildContext context, AppState app, {String? replac
 
 /// An animated GIF becomes an animated layer (through the video path:
 /// its frames, at its own rate, with its transparency; no sound).
-Future<void> importGifFlow(BuildContext context, AppState app, {String? replaceId}) async {
-  String? path;
-  try {
-    final result = await pickOriginalFiles(type: FileType.custom, allowedExtensions: ['gif']);
-    if (result == null || result.files.isEmpty) return;
-    path = result.files.single.path;
-  } catch (e) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not open the GIF: $e')));
-    return;
+Future<void> importGifFlow(BuildContext context, AppState app, {String? replaceId, String? pickedPath}) async {
+  String? path = pickedPath;
+  if (path == null) {
+    try {
+      final result = await pickOriginalFiles(type: FileType.custom, allowedExtensions: ['gif']);
+      if (result == null || result.files.isEmpty) return;
+      path = result.files.single.path;
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not open the GIF: $e')));
+      return;
+    }
   }
   if (path == null || !context.mounted) return;
   final error = await showDialog<Object?>(

@@ -166,6 +166,7 @@ Map<String, dynamic> contentToJson(Content c) => {
       if (c.videoAssetId != null) 'videoAssetId': c.videoAssetId,
       if (c.shape == 'video') 'videoSourceIn': c.sourceIn,
       if (c.shape == 'audio') 'sourceIn': c.sourceIn,
+      if (c.mediaSpeed != 1) 'mediaSpeed': c.mediaSpeed,
       if (c.videoFps != null) 'videoFps': c.videoFps,
       if (c.videoFrameCount != null) 'videoFrameCount': c.videoFrameCount,
       if (c.videoAlpha) 'videoAlpha': true,
@@ -247,6 +248,7 @@ Content contentFromJson(Map<String, dynamic> j) => Content(
           .toList(),
     )
       ..playReversed = j['playReversed'] == true
+      ..mediaSpeed = (j['mediaSpeed'] as num?)?.toDouble() ?? 1
       ..contourColors = (j['contourColors'] as List?)?.map((v) => v as String?).toList()
       ..contourJoin = (j['contourJoin'] as List?)?.map((v) => v == true).toList()
       ..mediaHash = j['mediaHash'] as String?
@@ -721,6 +723,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.dig) 'dig': true,
       if (l.lens.enabled) 'lens': l.lens.toJson(),
       if (l.editAll) 'editAll': true,
+      if (l.inheritRounding) 'inheritRounding': true,
       if (l.pathOffset[0] != 0 || l.pathOffset[1] != 0) 'pathOffset': l.pathOffset,
       if (l.pathTurn != 0) 'pathTurn': l.pathTurn,
       if (l.pathScale != 1) 'pathScale': l.pathScale,
@@ -922,6 +925,7 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
       ..dig = j['dig'] == true
       ..lens = j['lens'] is Map ? LensSettings.fromJson(j['lens'] as Map<String, dynamic>) : LensSettings()
       ..editAll = j['editAll'] as bool? ?? false
+      ..inheritRounding = j['inheritRounding'] as bool? ?? false
       ..pathOffset = (j['pathOffset'] as List?)?.map((v) => (v as num).toDouble()).toList() ?? [0, 0]
       ..pathTurn = (j['pathTurn'] as num?)?.toDouble() ?? 0
       ..pathScale = (j['pathScale'] as num?)?.toDouble() ?? 1

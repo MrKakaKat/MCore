@@ -4,7 +4,7 @@ description: >
   packages/movement_core (pure Dart, tested with dart test); this package
   is the Flutter app (render/, ui/, services/, io/) on top of it.
 publish_to: none
-version: 0.1.8+18
+version: 0.1.9+19
 
 environment:
   sdk: ^3.4.0
@@ -23,6 +23,7 @@ dependencies:
   just_audio: ^0.9.46
   # project bundles and backups
   archive: ^4.5.2
+  photo_manager: ^3.6.0
   # (video and sound go through Android's own codecs, see
   # android/app/src/main/kotlin/.../MediaPlugin.kt - nothing bundled)
 

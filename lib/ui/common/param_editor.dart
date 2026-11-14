@@ -446,10 +446,12 @@ class _ParamEditorState extends State<ParamEditor> {
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+      // the stops' field always in the middle (whatever is beside it):
+      // left and right halves of the same width.
       child: Row(children: [
-        // the - / + step at the left edge, the stops after it.
-        if (widget.scale.isRuler) _stepField(),
-        const Spacer(),
+        Expanded(
+          child: Align(alignment: Alignment.centerLeft, child: widget.scale.isRuler ? _stepField() : const SizedBox.shrink()),
+        ),
         IconButton(
           key: ValueKey('station-remove-${widget.prefKey}'),
           icon: const Icon(Icons.remove, size: 16),

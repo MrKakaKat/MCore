@@ -49,7 +49,7 @@ class KeptSpan {
 /// The seconds of its source each layer plays: sourceIn .. sourceIn +
 /// duration.
 (double, double) usedSourceSeconds(Layer layer) =>
-    (layer.content.sourceIn, layer.content.sourceIn + layer.durationFrames / fps);
+    (layer.content.sourceIn, layer.content.sourceIn + layer.durationFrames / fps * layer.content.mediaSpeed);
 
 /// The spans of a source (`totalUnits` long, `unitsPerSecond`) to keep
 /// for the given used ranges (seconds), each widened by `marginSeconds`,

@@ -2204,6 +2204,7 @@ class _LayerLaneState extends State<_LayerLane>
                   ? widget.app.audioPeaks(widget.layer.content.audioAssetId)
                   : null,
               sourceIn: widget.layer.content.sourceIn,
+              mediaSpeed: widget.layer.content.mediaSpeed,
               pixelsPerFrame: widget.pixelsPerFrame,
               linked: widget.layer.linkId != null,
             ),
@@ -2434,6 +2435,7 @@ class _LaneLinePainter extends CustomPainter {
   /// its in-point; null for everything else.
   final Uint8List? peaks;
   final double sourceIn;
+  final double mediaSpeed;
   final double pixelsPerFrame;
 
   /// Linked in time to other layers (a small chain at its start).
@@ -2456,6 +2458,7 @@ class _LaneLinePainter extends CustomPainter {
     this.frameCounts,
     this.peaks,
     this.sourceIn = 0,
+    this.mediaSpeed = 1,
     this.pixelsPerFrame = 1,
     this.linked = false,
   });
@@ -2469,7 +2472,7 @@ class _LaneLinePainter extends CustomPainter {
       canvas.save();
       canvas.translate(startX, 0);
       canvas.drawPicture(_waveformPicture(
-          wave, sourceIn, pixelsPerFrame, endX - startX, size.height, color.withOpacity(alpha * 0.55)));
+          wave, sourceIn, pixelsPerFrame, endX - startX, size.height, color.withOpacity(alpha * 0.55), mediaSpeed));
       canvas.restore();
     }
     final linePaint = Paint()
@@ -2609,6 +2612,7 @@ class _LaneLinePainter extends CustomPainter {
       !_sameList(oldDelegate.frameCounts?.keys ?? const [], frameCounts?.keys ?? const []) ||
       oldDelegate.peaks != peaks ||
       oldDelegate.sourceIn != sourceIn ||
+      oldDelegate.mediaSpeed != mediaSpeed ||
       oldDelegate.pixelsPerFrame != pixelsPerFrame ||
       oldDelegate.linked != linked;
 }
@@ -2616,10 +2620,11 @@ class _LaneLinePainter extends CustomPainter {
 /// Recorded waveforms, so a lane's bars are drawn once - not again on
 /// every repaint (scroll, playhead, focus). A new picture only when the
 /// audio, its in-point, the zoom, the lane's length or colour change.
-final LinkedHashMap<(Uint8List, double, double, double, double, int, int), ui.Picture> _waveforms = LinkedHashMap();
+final LinkedHashMap<(Uint8List, double, double, double, double, int, int, double), ui.Picture> _waveforms = LinkedHashMap();
 
-ui.Picture _waveformPicture(Uint8List wave, double sourceIn, double pixelsPerFrame, double width, double height, Color color) {
-  final key = (wave, sourceIn, pixelsPerFrame, width, height, color.value, fps);
+ui.Picture _waveformPicture(Uint8List wave, double sourceIn, double pixelsPerFrame, double width, double height, Color color,
+    [double speed = 1]) {
+  final key = (wave, sourceIn, pixelsPerFrame, width, height, color.value, fps, speed);
   final have = _waveforms.remove(key);
   if (have != null) return _waveforms[key] = have; // most recently used last
   waveformRecordings++;
@@ -2631,8 +2636,8 @@ ui.Picture _waveformPicture(Uint8List wave, double sourceIn, double pixelsPerFra
     ..strokeWidth = 1.5;
   const step = 2.0; // one bar per 2 px
   for (var x = 0.0; x < width; x += step) {
-    final t0 = sourceIn + x / pixelsPerFrame / fps;
-    final t1 = sourceIn + (x + step) / pixelsPerFrame / fps;
+    final t0 = sourceIn + x / pixelsPerFrame / fps * speed;
+    final t1 = sourceIn + (x + step) / pixelsPerFrame / fps * speed;
     final h = peakBetween(wave, t0, t1) * (midY - 0.5);
     if (h < 0.3) continue;
     canvas.drawLine(Offset(x, midY - h), Offset(x, midY + h), barPaint);

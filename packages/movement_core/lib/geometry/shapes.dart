@@ -4,6 +4,7 @@ import '../effects/geometry_effect_registry.dart';
 import '../model/project.dart';
 import '../model/prop_links.dart' show linkOffset;
 import '../core/interpolation.dart' show evaluateTrack;
+import '../core/state_cache.dart' show getLayerStateAt;
 import '../effects/builtins/origami_fold.dart' show origamiFoldLines, origamiScale;
 import 'contour.dart' show warpPoint, densifyRing;
 
@@ -211,10 +212,18 @@ List<(double, double)> cornerRadiiEach(Layer layer, int? globalFrame, {Project? 
   final w = c.size[0].abs(), h = c.size[1].abs();
   var sx = 1.0, sy = 1.0;
   if (layer.fill.cornersKeepRound) {
-    final f = globalFrame == null ? 0.0 : layerLocalFrame(layer, globalFrame).toDouble();
-    final sc = evaluateTrack(project, layer.transform.scale, f, layer) as List;
-    sx = (sc[0] as num).toDouble().abs();
-    sy = (sc[1] as num).toDouble().abs();
+    if (project != null && globalFrame != null) {
+      // as it is drawn: a parent's scale counts too (it used to make the
+      // corners oval under a scaled parent).
+      final m = getLayerStateAt(project, layer.id, globalFrame).matrix;
+      sx = math.sqrt(m[0] * m[0] + m[1] * m[1]);
+      sy = math.sqrt(m[2] * m[2] + m[3] * m[3]);
+    } else {
+      final f = globalFrame == null ? 0.0 : layerLocalFrame(layer, globalFrame).toDouble();
+      final sc = evaluateTrack(project, layer.transform.scale, f, layer) as List;
+      sx = (sc[0] as num).toDouble().abs();
+      sy = (sc[1] as num).toDouble().abs();
+    }
   }
   return [
     for (var i = 0; i < 4; i++)

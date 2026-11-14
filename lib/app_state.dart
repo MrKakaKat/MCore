@@ -2814,6 +2814,57 @@ class AppState extends ChangeNotifier {
   /// The stage tool of the Drawing tab: 'none' | 'fill'.
   String drawTool = 'none';
 
+  // ===== media library: recently used =====
+
+  /// The media files brought in lately, newest first: path, kind ('video'
+  /// | 'image' | 'gif' | 'audio') and name. Kept between runs.
+  List<({String path, String kind, String name})> recentMedia = [];
+
+  void addRecentMedia(String path, String kind, String name) {
+    recentMedia = [
+      (path: path, kind: kind, name: name),
+      for (final r in recentMedia)
+        if (r.path != path) r
+    ].take(60).toList();
+    _persistAppUi();
+    notifyListeners();
+  }
+
+  String get _recentMediaJson =>
+      jsonEncode([for (final r in recentMedia) {'path': r.path, 'kind': r.kind, 'name': r.name}]);
+
+  set _recentMediaJson(String v) {
+    try {
+      recentMedia = [
+        for (final e in jsonDecode(v) as List)
+          (path: (e as Map)['path'] as String, kind: e['kind'] as String, name: e['name'] as String? ?? '')
+      ];
+    } catch (_) {
+      recentMedia = [];
+    }
+  }
+
+  // ===== media speed (Audio tab) =====
+
+  /// A video's / sound's speed (its length follows: twice as fast, half as
+  /// long). A video takes the sound linked to it along, and the other way.
+  void setMediaSpeedOf(String layerId, double speed) {
+    final l = findLayer(project, layerId);
+    if (l == null || !isTimedMedia(l.content.shape)) return;
+    pushUndo();
+    final same = [
+      l,
+      if (l.linkId != null)
+        for (final o in project.layers)
+          if (!identical(o, l) && o.linkId == l.linkId && isTimedMedia(o.content.shape) && o.startFrame == l.startFrame) o
+    ];
+    for (final x in same) {
+      setMediaSpeed(x, speed);
+    }
+    _fitTimeline();
+    commitEdit();
+  }
+
   // ===== the object's centre (Movement tab) =====
 
   /// A tap on the stage sets the selected object's centre.
@@ -4638,6 +4689,7 @@ class AppState extends ChangeNotifier {
     'snapRotationMirror': (() => snapRotationMirrorEnabled, (v) => snapRotationMirrorEnabled = v as bool, true),
     'mirrorMovesLayer': (() => mirrorMovesLayer, (v) => mirrorMovesLayer = v as bool, false),
     'snapEdgeMid': (() => snapEdgeMidpointsEnabled, (v) => snapEdgeMidpointsEnabled = v as bool, true),
+    'recentMedia': (() => _recentMediaJson, (v) => _recentMediaJson = v as String, '[]'),
     'freeMoveAsDrawn': (() => freeMoveAsDrawn, (v) => freeMoveAsDrawn = v as bool, false),
     'freeMoveSmoothing': (() => freeMoveSmoothing, (v) => freeMoveSmoothing = (v as num).toDouble(), 0.0),
     'snapTextCenters': (() => snapTextCentersEnabled, (v) => snapTextCentersEnabled = v as bool, true),
@@ -5374,6 +5426,8 @@ class AppState extends ChangeNotifier {
     for (final l in project.layers) {
       if (bindFreeMoveKeys(l)) bound = true;
     }
+    // children taking their parent's corner rounding.
+    if (syncInheritedRounding(project)) bound = true;
     if (bound) clearStateCaches();
     _revalidateKeySelection();
     _persistAppUi();

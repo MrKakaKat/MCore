@@ -42,6 +42,11 @@ Future<PickedImage?> pickImageForImport() async {
   if (path == null) {
     throw StateError('The picked image has no accessible file path on this platform.');
   }
+  return readImageForImport(path);
+}
+
+/// An image file (from the media library, or picked) read for import.
+Future<PickedImage> readImageForImport(String path) async {
   final bytes = await File(path).readAsBytes();
 
   final codec = await ui.instantiateImageCodec(bytes);

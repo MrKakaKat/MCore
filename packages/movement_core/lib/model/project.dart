@@ -748,6 +748,10 @@ class Content {
   /// Video: plays its stretch of the clip backwards (Reverse tab).
   bool playReversed = false;
 
+  /// Video / audio: how fast it plays its source (1 as it is, 2 twice as
+  /// fast - a sound higher, like a tape).
+  double mediaSpeed = 1;
+
   /// Frame rate of the extracted (constant-rate) frames, and how many.
   double? videoFps;
   int? videoFrameCount;
@@ -2047,6 +2051,10 @@ class Layer {
   /// changes over its whole animation, the animation itself doesn't.
   bool editAll = false;
 
+  /// Parenting: the child takes its parent's corner rounding (radius,
+  /// shape, kept round when scaled) - off by default.
+  bool inheritRounding = false;
+
   /// Timeline tab, Path: how far its position path has been moved (px),
   /// turned (degrees) and sized (times) as a whole - shown as the Path's
   /// parameters (the keys themselves hold the result).
@@ -2454,6 +2462,7 @@ Layer cloneLayer(Layer src) {
     ..confirmHistory = [for (final h in src.confirmHistory) Map<String, dynamic>.from(h)]
     ..effectRanges = {for (final e in src.effectRanges.entries) e.key: [...e.value]}
     ..content.playReversed = src.content.playReversed
+    ..content.mediaSpeed = src.content.mediaSpeed
     ..content.contourColors = src.content.contourColors == null ? null : [...src.content.contourColors!]
     ..content.contourJoin = src.content.contourJoin == null ? null : [...src.content.contourJoin!]
     ..parentFrom = src.parentFrom
@@ -2463,6 +2472,7 @@ Layer cloneLayer(Layer src) {
     ..dig = src.dig
     ..lens = src.lens.copy()
     ..editAll = src.editAll
+    ..inheritRounding = src.inheritRounding
     ..pathOffset = [...src.pathOffset]
     ..pathTurn = src.pathTurn
     ..pathScale = src.pathScale

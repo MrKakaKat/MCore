@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart' hide Transform;
 import 'package:movement_core/movement_core.dart';
 
+import '../media/media_library.dart';
+import '../common/num_field.dart';
 import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
-import '../layer_panel/add_layer_dialog.dart' show importAudioFlow;
 
 /// Audio tab: the selected sound layer's volume (animatable) and mute, and
 /// importing sound. Where the sound starts in its file and how long it
@@ -31,9 +32,23 @@ class AudioView extends StatelessWidget {
           key: const ValueKey('audio-import'),
           icon: const Icon(Icons.audiotrack, size: 18),
           label: const Text('Add audio'),
-          onPressed: () => importAudioFlow(context, app),
+          // the phone's music, searchable (Files... there for the rest).
+          onPressed: () => openMediaLibrary(context, app, section: 'audio'),
         );
         final error = app.audioError;
+        // a video: its speed (its sound goes along).
+        if (layer != null && layer.content.shape == 'video') {
+          return ListView(padding: const EdgeInsets.all(8), children: [
+            Row(children: [
+              const Icon(Icons.movie_outlined, size: 18),
+              const SizedBox(width: 6),
+              Expanded(
+                  child: Text(layer.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
+            ]),
+            _speedRow(layer),
+          ]);
+        }
         // nothing (or no sound) picked: the same centred offer as Text.
         if (layer == null || layer.content.shape != 'audio') {
           return Center(
@@ -71,6 +86,45 @@ class AudioView extends StatelessWidget {
     );
   }
 
+  /// How fast it plays its source: quick picks and an exact number - its
+  /// length follows (twice as fast, half as long); a sound gets higher /
+  /// lower with it, like a tape.
+  Widget _speedRow(Layer layer) {
+    final s = layer.content.mediaSpeed;
+    return Padding(
+      key: const ValueKey('media-speed'),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Text('Speed', style: TextStyle(fontSize: 13)),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 64,
+            child: NumField(
+              key: const ValueKey('media-speed-field'),
+              width: 64,
+              value: s,
+              onCommit: (v) => app.setMediaSpeedOf(layer.id, v),
+            ),
+          ),
+          const Text(' ×', style: TextStyle(fontSize: 13)),
+        ]),
+        Wrap(spacing: 6, children: [
+          for (final v in const [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 4.0])
+            ChoiceChip(
+              key: ValueKey('media-speed-$v'),
+              label: Text('$v×'),
+              selected: (s - v).abs() < 1e-9,
+              visualDensity: VisualDensity.compact,
+              onSelected: (_) => app.setMediaSpeedOf(layer.id, v),
+            ),
+        ]),
+        const Text('Its length follows (twice as fast: half as long); a sound goes higher or lower with it.',
+            style: TextStyle(fontSize: 11, color: Colors.grey)),
+      ]),
+    );
+  }
+
   List<Widget> _layerControls(BuildContext context, Layer layer) {
     final c = layer.content;
     final rebuilding = c.audioAssetId != null && app.audioRebuilding.contains(c.audioAssetId);
@@ -92,6 +146,7 @@ class AudioView extends StatelessWidget {
           ),
         ],
       ),
+      _speedRow(layer),
       Text(
         'From ${_time(c.sourceIn)} of the file, plays ${_time(playing)}'
         '${c.audioDuration != null ? ' (file ${_time(c.audioDuration!)})' : ''}',

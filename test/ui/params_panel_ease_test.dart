@@ -40,6 +40,9 @@ void main() {
     ]);
     await pump(tester);
 
+    // (further down the list: built once scrolled to)
+    await tester.scrollUntilVisible(easeButtonFinder, 100,
+        scrollable: find.descendant(of: find.byType(ParamsPanelView), matching: find.byType(Scrollable)).first);
     expect(easeButtonFinder, findsOneWidget);
     await tester.ensureVisible(easeButtonFinder);
     await tester.pump();

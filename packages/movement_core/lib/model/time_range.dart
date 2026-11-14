@@ -83,7 +83,7 @@ void trimLayersToRange(Project project, int a, int b) {
           k.frame -= shift;
         }
       });
-      if (isTimedMedia(l.content.shape)) l.content.sourceIn += shift / fps;
+      if (isTimedMedia(l.content.shape)) l.content.sourceIn += shift / fps * l.content.mediaSpeed;
     }
     l.startFrame = start;
     l.durationFrames = end - start;

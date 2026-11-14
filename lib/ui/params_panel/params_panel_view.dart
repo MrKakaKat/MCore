@@ -214,9 +214,10 @@ class ParamsPanelView extends StatelessWidget {
       child: Row(
         children: [
           const SizedBox(width: 56, child: Text('Parent')),
-          Flexible(
+          // as wide as there is room: to the screen's edge.
+          Expanded(
             child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 160),
+            constraints: const BoxConstraints(),
             child: DropdownButton<String?>(
               isExpanded: true,
               value: layer.parentId,
@@ -249,7 +250,6 @@ class ParamsPanelView extends StatelessWidget {
             onPressed: () =>
                 app.parentPickFor == layer.id ? app.finishParentPick() : app.startParentPick(layer.id),
           ),
-          const Spacer(),
           if (hasMore)
             StatefulBuilder(
               builder: (context, set) => IconButton(
@@ -307,6 +307,12 @@ class ParamsPanelView extends StatelessWidget {
               chip('Rotation', layer.inheritRotation, (v) => app.setInherit(layer.id, rotation: v)),
               chip('Scale', layer.inheritScale, (v) => app.setInherit(layer.id, scale: v)),
               chip('Keep difference', layer.parentKeepDifference, (v) => app.setInherit(layer.id, keepDifference: v)),
+              // its corners rounded like the parent's (off: its own).
+              chip('Rounding', layer.inheritRounding, (v) {
+                app.pushUndo();
+                layer.inheritRounding = v;
+                app.commitEdit();
+              }),
             ],
           ),
         ),

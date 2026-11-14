@@ -93,7 +93,7 @@ class LayerTrackDragOp {
   void _keepContentInTime() {
     final shift = layer.startFrame - _dragStartStart;
     if (isTimedMedia(layer.content.shape)) {
-      layer.content.sourceIn = _dragStartSourceIn + shift / fps;
+      layer.content.sourceIn = _dragStartSourceIn + shift / fps * layer.content.mediaSpeed;
     }
     _keyFramesAtGrab.forEach((k, f) => k.frame = f - shift);
   }

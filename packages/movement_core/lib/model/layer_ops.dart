@@ -470,3 +470,31 @@ void retimeProject(Project project, int newFps) {
   project.fps = newFps;
   clearStateCaches();
 }
+
+
+/// Parenting, "Rounding": each child that takes its parent's corner
+/// rounding gets it (parents up the chain first). True: something changed.
+bool syncInheritedRounding(Project project) {
+  var changed = false;
+  final byId = {for (final l in project.layers) l.id: l};
+  bool sync(Layer l, int depth) {
+    if (!l.inheritRounding || l.parentId == null || depth > 32) return false;
+    final p = byId[l.parentId];
+    if (p == null) return false;
+    sync(p, depth + 1);
+    final f = l.fill, pf = p.fill;
+    if (f.cornerRadius == pf.cornerRadius && f.cornerShape == pf.cornerShape && f.cornersKeepRound == pf.cornersKeepRound) {
+      return false;
+    }
+    f
+      ..cornerRadius = pf.cornerRadius
+      ..cornerShape = pf.cornerShape
+      ..cornersKeepRound = pf.cornersKeepRound;
+    return true;
+  }
+
+  for (final l in project.layers) {
+    if (sync(l, 0)) changed = true;
+  }
+  return changed;
+}

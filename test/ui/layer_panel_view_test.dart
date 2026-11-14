@@ -72,7 +72,7 @@ void main() {
 
     await tester.tap(find.text('Add layer'));
     await tester.pumpAndSettle();
-    expect(find.text('Import GIF...'), findsOneWidget);
+    expect(find.text('Media library...'), findsOneWidget);
     await tester.tap(find.text('Shapes'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Rectangle'));

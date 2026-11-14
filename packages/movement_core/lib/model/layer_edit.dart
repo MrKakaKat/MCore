@@ -36,7 +36,7 @@ Layer? splitLayer(Project project, Layer layer, int globalFrame, String newId) {
     ..startFrame = globalFrame
     ..durationFrames = layer.durationFrames - s;
   // video / audio: the right half continues the clip from the cut.
-  if (isTimedMedia(right.content.shape)) right.content.sourceIn += s / fps;
+  if (isTimedMedia(right.content.shape)) right.content.sourceIn += s / fps * right.content.mediaSpeed;
   // effect instance ids only have to be unique per layer - the clone's
   // copies are fine as they are.
 
