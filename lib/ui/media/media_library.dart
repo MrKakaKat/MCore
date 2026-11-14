@@ -103,7 +103,11 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
 
   Future<void> _loadAlbums() async {
     if (_section == 'recent' || _access != true) return;
-    final albums = await PhotoManager.getAssetPathList(type: _type);
+    // newest first (left to itself the system lists oldest first).
+    final albums = await PhotoManager.getAssetPathList(
+      type: _type,
+      filterOption: FilterOptionGroup(orders: [const OrderOption(type: OrderOptionType.createDate, asc: false)]),
+    );
     if (!mounted) return;
     setState(() {
       _albums = albums;
