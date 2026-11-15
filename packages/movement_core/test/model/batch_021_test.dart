@@ -74,4 +74,68 @@ void main() {
     final m = toFrameMatrix(getLayerStateAt(p, 'm', 5).matrix);
     expect(applyAffine(m, [0, -25])[1], closeTo(475, 1e-6));
   });
+
+  group('links read real motion', () {
+    Layer rect(String id, double x) => createLayer('rect')
+      ..id = id
+      ..durationFrames = 100
+      ..content.size = [50, 50]
+      ..transform.anchor.defaultValue = [x, 0.5];
+    void moveA(Layer a) => a.transform.anchor.keyframes = [
+          Keyframe(frame: 0, value: <double>[0.1, 0.5], temporal: lin),
+          Keyframe(frame: 100, value: <double>[0.3, 0.5], temporal: lin),
+        ];
+
+    test('B moved by its parent A (no keys of its own) moves C linked to B', () {
+      final a = rect('a', 0.1), b = rect('b', 0.3)..parentId = 'a', c = rect('c', 0.7);
+      moveA(a);
+      final k = PropLink(sourceId: 'b', from: 'x', to: 'x');
+      c.links.add(k);
+      final p = Project(layers: [a, b, c]);
+      pinLinkBase(p, k, 0);
+      clearStateCaches();
+      expect(getLayerStateAt(p, 'c', 50).matrix[4], closeTo(0.8, 1e-9));
+      expect(c.transform.anchor.keyframes, isEmpty);
+    });
+
+    test('a chain A -> B -> C with keys only on A; B following, C on its size handle', () {
+      final a = rect('a', 0.1), b = rect('b', 0.4), c = rect('c', 0.7);
+      a.transform.anchor.keyframes = [
+        Keyframe(frame: 0, value: <double>[0.1, 0.5], temporal: lin),
+        Keyframe(frame: 100, value: <double>[0.1, 0.3], temporal: lin), // 200 px up
+      ];
+      b.links.add(PropLink(sourceId: 'a', to: 'y', mode: 'follow'));
+      c.links.add(PropLink(sourceId: 'b', to: 'scaleBottom', mode: 'follow'));
+      final p = Project(layers: [a, b, c]);
+      for (final l in [b, c]) {
+        pinLinkBase(p, l.links.single, 0);
+      }
+      clearStateCaches();
+      final m = toFrameMatrix(getLayerStateAt(p, 'c', 50).matrix);
+      expect(applyAffine(m, [0, -25])[1], closeTo(375, 1e-6), reason: "C's top went up with B: 100 px");
+    });
+
+    test('turning: a parent turns B, C linked to B turns too', () {
+      final a = rect('a', 0.5), b = rect('b', 0.6)..parentId = 'a', c = rect('c', 0.2);
+      a.transform.rotation.keyframes = [
+        Keyframe(frame: 0, value: 0.0, temporal: lin),
+        Keyframe(frame: 100, value: 90.0, temporal: lin),
+      ];
+      final k = PropLink(sourceId: 'b', from: 'rotation', to: 'rotation');
+      c.links.add(k);
+      final p = Project(layers: [a, b, c]);
+      pinLinkBase(p, k, 0);
+      clearStateCaches();
+      expect(getLayerStateAt(p, 'c', 100).rot, closeTo(90, 1e-9));
+    });
+
+    test('a source hanging on the layer itself: no endless loop, and refused when made', () {
+      final a = rect('a', 0.2), b = rect('b', 0.4)..parentId = 'a';
+      a.links.add(PropLink(sourceId: 'b', from: 'x', to: 'y'));
+      final p = Project(layers: [a, b]);
+      expect(linkWouldCycle(p, a, 'b'), isTrue);
+      clearStateCaches();
+      expect(() => getLayerStateAt(p, 'a', 10), returnsNormally);
+    });
+  });
 }

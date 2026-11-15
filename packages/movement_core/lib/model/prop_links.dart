@@ -9,6 +9,7 @@ import 'dart:typed_data';
 
 import '../core/interpolation.dart' show evaluateTrack;
 import '../core/stage_size.dart';
+import '../core/state_cache.dart' show getLayerStateAt;
 import 'audio.dart' show mediaSourceTime, peakBetween;
 import 'project.dart';
 
@@ -33,8 +34,46 @@ double _own(Project project, Layer l, String prop, num globalFrame) {
 }
 
 /// A property's value with its links (what a layer linked to it sees).
-double linkedPropAt(Project project, Layer l, String prop, num globalFrame, [Set<String>? seen]) =>
-    _own(project, l, prop, globalFrame) + linkOffset(project, l, prop, globalFrame, seen);
+///
+/// Position and rotation are where the layer really is on the stage -
+/// however it got there: its keys, its own links, a parent, a path, a
+/// wiggle, a swing... (so B moved by A moves C linked to B, though neither
+/// has a key). Scale and opacity: its own value with its links.
+double linkedPropAt(Project project, Layer l, String prop, num globalFrame, [Set<String>? seen]) {
+  if (prop == 'x' || prop == 'y' || prop == 'rotation') {
+    try {
+      final st = getLayerStateAt(project, l.id, globalFrame);
+      if (prop == 'x') return st.matrix[4] * stageSize.width;
+      if (prop == 'y') return st.matrix[5] * stageSize.height;
+      return _worldRotation(project, l, globalFrame);
+    } on _LinkLoop {
+      // its motion needs the layer being worked out (it hangs on it): its
+      // keys and links only.
+    }
+  }
+  return _own(project, l, prop, globalFrame) + linkOffset(project, l, prop, globalFrame, seen);
+}
+
+/// How far `l` is turned on the stage: its own turn and its parents'.
+double _worldRotation(Project project, Layer l, num globalFrame) {
+  var r = 0.0;
+  final seen = <String>{};
+  Layer? at = l;
+  while (at != null && seen.add(at.id)) {
+    r += getLayerStateAt(project, at.id, globalFrame).rot;
+    at = at.parentId == null || !at.inheritRotation ? null : findLayer(project, at.parentId);
+  }
+  return r;
+}
+
+/// Thrown when working out a layer's links needs that same layer again
+/// (a source hanging on it): caught where the source is read.
+class _LinkLoop implements Exception {
+  const _LinkLoop();
+}
+
+/// The layers whose links are being worked out right now.
+final Set<String> _linksWorking = {};
 
 /// While true, links work at every frame (their from / until left out) -
 /// for linkPreviewOutline.
@@ -58,9 +97,18 @@ double linkOffsetIfWorking(Project project, Layer layer, String prop, num global
 /// What `layer`'s links add to `prop` at `globalFrame` (0 without any).
 double linkOffset(Project project, Layer layer, String prop, num globalFrame, [Set<String>? seen]) {
   if (layer.links.isEmpty) return 0;
-  final ignoreRange = _ignoreLinkRanges;
   final s = seen ?? <String>{};
   if (!s.add(layer.id)) return 0; // a circle (refused when made)
+  if (!_linksWorking.add(layer.id)) throw const _LinkLoop();
+  try {
+    return _linkSum(project, layer, prop, globalFrame, s);
+  } finally {
+    _linksWorking.remove(layer.id);
+  }
+}
+
+double _linkSum(Project project, Layer layer, String prop, num globalFrame, Set<String> s) {
+  final ignoreRange = _ignoreLinkRanges;
   var sum = 0.0;
   for (final k in layer.links) {
     if (!k.enabled || k.to != prop || k.sourceId == null) continue;
@@ -156,7 +204,8 @@ bool linkWouldCycle(Project project, Layer layer, String sourceId) {
     if (!seen.add(id)) return false;
     final l = findLayer(project, id);
     if (l == null) return false;
-    return l.links.any((k) => k.sourceId != null && reaches(k.sourceId!));
+    // its links, and what it hangs on (a parent moves it).
+    return l.links.any((k) => k.sourceId != null && reaches(k.sourceId!)) || (l.parentId != null && reaches(l.parentId!));
   }
 
   return reaches(sourceId);
