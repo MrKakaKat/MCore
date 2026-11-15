@@ -297,13 +297,17 @@ LayerState _layerStateAt(Project project, String layerId, num globalFrame) {
   final lookup = physicsOffsetLookup;
   if (lookup != null && !physicsSuspended && layer.physics.collide) {
     final off = lookup(project, layerId, globalFrame.round());
-    // a third value: shrunk to keep turning (rotate logic 'size').
+    // a third value: its size (shrunk to keep turning, grown to hold);
+    // a fourth: how far a hit turned it (degrees) - both about its pivot.
     final k = off != null && off.length > 2 ? off[2] : 1.0;
-    if (off != null && (off[0] != 0 || off[1] != 0 || k != 1)) {
-      finalMatrix = [
-        finalMatrix[0] * k, finalMatrix[1] * k, finalMatrix[2] * k, finalMatrix[3] * k,
-        finalMatrix[4] + off[0] / stageSize.width, finalMatrix[5] + off[1] / stageSize.height,
-      ];
+    final turn = off != null && off.length > 3 ? off[3] : 0.0;
+    if (off != null && (off[0] != 0 || off[1] != 0 || k != 1 || turn != 0)) {
+      var a = finalMatrix[0] * k, b = finalMatrix[1] * k, c = finalMatrix[2] * k, d = finalMatrix[3] * k;
+      if (turn != 0) {
+        final r = turn * math.pi / 180, cs = math.cos(r), sn = math.sin(r);
+        (a, b, c, d) = (cs * a - sn * b, sn * a + cs * b, cs * c - sn * d, sn * c + cs * d);
+      }
+      finalMatrix = [a, b, c, d, finalMatrix[4] + off[0] / stageSize.width, finalMatrix[5] + off[1] / stageSize.height];
     }
   }
 

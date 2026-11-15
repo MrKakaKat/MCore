@@ -139,6 +139,8 @@ void main() {
     app.selectLayer(b.id);
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: LinksView(app: app))));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('link-head-0')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('link-to-0')));
     await tester.pumpAndSettle();
     expect(find.text('my whole size (both scales)'), findsWidgets);

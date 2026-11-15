@@ -57,7 +57,11 @@ class LinksView extends StatelessWidget {
                 key: const ValueKey('link-add'),
                 icon: const Icon(Icons.add, size: 16),
                 label: const Text('Add'),
-                onPressed: () => set(() => layer.links.add(PropLink())),
+                onPressed: () => set(() {
+                  final k = PropLink();
+                  _LinkCard.open[k] = true;
+                  layer.links.add(k);
+                }),
               ),
               // a copied link: onto this layer.
               if (app.copiedLink != null && !app.copiedLink!.fromSound)
@@ -81,13 +85,41 @@ class LinksView extends StatelessWidget {
             for (var i = layer.links.length - 1; i >= 0; i--)
               if (!layer.links[i].fromSound) () {
               final k = layer.links[i];
-              return Card(
+              final srcName = others.where((l) => l.id == k.sourceId).firstOrNull?.name;
+              final what = k.follows
+                  ? 'follows its ${_propNames[k.from] ?? k.from}'
+                  : 'its ${_propNames[k.from] ?? k.from}';
+              return _LinkCard(
                 key: ValueKey('link-$i'),
-                child: Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                link: k,
+                headKey: ValueKey('link-head-$i'),
+                header: Row(children: [
+                  Checkbox(value: k.enabled, onChanged: (v) => set(() => k.enabled = v ?? true)),
+                  Expanded(
+                    child: Text(
+                      '${srcName ?? 'no source'} · $what → my ${_propNames[k.to] ?? k.to}'
+                      '${k.factor != 1 ? ' ×${k.factor}' : ''}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13, color: k.enabled ? null : Colors.white38),
+                    ),
+                  ),
+                  IconButton(
+                    key: ValueKey('link-copy-$i'),
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.copy, size: 16),
+                    tooltip: 'copy this link',
+                    onPressed: () => app.copyLink(k),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.close, size: 16),
+                    tooltip: 'remove',
+                    onPressed: () => set(() => layer.links.removeAt(i)),
+                  ),
+                ]),
+                body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Row(children: [
-                      Checkbox(value: k.enabled, onChanged: (v) => set(() => k.enabled = v ?? true)),
                       const SizedBox(width: 56, child: Text('From')),
                       Expanded(
                         child: DropdownButton<String?>(
@@ -118,17 +150,6 @@ class LinksView extends StatelessWidget {
                           },
                         ),
                       ),
-                      IconButton(
-                        key: ValueKey('link-copy-$i'),
-                        icon: const Icon(Icons.copy, size: 16),
-                        tooltip: 'copy this link',
-                        onPressed: () => app.copyLink(k),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 16),
-                        tooltip: 'remove',
-                        onPressed: () => set(() => layer.links.removeAt(i)),
-                      ),
                     ]),
                     // the kind: adds the source's change, or follows the
                     // source object as a parent would (one axis only).
@@ -138,12 +159,9 @@ class LinksView extends StatelessWidget {
                           key: ValueKey('link-mode-$i-$mode'),
                           label: Text(label, style: const TextStyle(fontSize: 12)),
                           selected: k.mode == mode,
+                          // one kind at a time; each keeps its own settings.
                           onSelected: (_) => set(() {
-                            k.mode = mode;
-                            if (k.follows && !followTargets.contains(k.to)) k.to = 'y';
-                            // what it reads: a place / handle to follow, or a property.
-                            if (k.follows && !followSources.contains(k.from)) k.from = 'position';
-                            if (!k.follows && !linkProps.contains(k.from)) k.from = 'x';
+                            k.switchMode(mode);
                             pinLinkBase(app.project, k, app.currentFrame);
                           }),
                         ),
@@ -196,7 +214,6 @@ class LinksView extends StatelessWidget {
                     ]),
                     _rangeRow(layer, k, 'link-$i', set),
                   ]),
-                ),
               );
             }(),
             const Divider(height: 24),
@@ -273,8 +290,12 @@ class LinksView extends StatelessWidget {
           label: const Text('Add'),
           onPressed: sounds.isEmpty
               ? null
-              : () => set(() => layer.links.add(PropLink(
-                  from: 'sound', to: 'scaleX', sourceId: sounds.first.id, min: defaults['scaleX']!.$1, max: defaults['scaleX']!.$2))),
+              : () => set(() {
+                  final k = PropLink(
+                      from: 'sound', to: 'scaleX', sourceId: sounds.first.id, min: defaults['scaleX']!.$1, max: defaults['scaleX']!.$2);
+                  _LinkCard.open[k] = true;
+                  layer.links.add(k);
+                }),
         ),
         if (app.copiedLink != null && app.copiedLink!.fromSound)
           IconButton(
@@ -290,36 +311,43 @@ class LinksView extends StatelessWidget {
       for (var i = layer.links.length - 1; i >= 0; i--)
         if (layer.links[i].fromSound) () {
           final k = layer.links[i];
-          return Card(
+          final soundName = sounds.where((l) => l.id == k.sourceId).firstOrNull?.name;
+          return _LinkCard(
             key: ValueKey('sound-link-$i'),
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Checkbox(value: k.enabled, onChanged: (v) => set(() => k.enabled = v ?? true)),
-                  const Icon(Icons.music_note, size: 16),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: DropdownButton<String?>(
-                      key: ValueKey('sound-link-source-$i'),
-                      isExpanded: true,
-                      value: sounds.any((l) => l.id == k.sourceId) ? k.sourceId : null,
-                      items: [for (final l in sounds) DropdownMenuItem<String?>(value: l.id, child: Text(l.name, overflow: TextOverflow.ellipsis))],
-                      onChanged: (id) => set(() => k.sourceId = id),
-                    ),
-                  ),
-                  IconButton(
-                    key: ValueKey('sound-link-copy-$i'),
-                    icon: const Icon(Icons.copy, size: 16),
-                    tooltip: 'copy this link',
-                    onPressed: () => app.copyLink(k),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 16),
-                    tooltip: 'remove',
-                    onPressed: () => set(() => layer.links.removeAt(i)),
-                  ),
-                ]),
+            link: k,
+            headKey: ValueKey('sound-link-head-$i'),
+            header: Row(children: [
+              Checkbox(value: k.enabled, onChanged: (v) => set(() => k.enabled = v ?? true)),
+              const Icon(Icons.music_note, size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text('${soundName ?? 'no sound'} → changes ${_propNames[k.to] ?? k.to}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: k.enabled ? null : Colors.white38)),
+              ),
+              IconButton(
+                key: ValueKey('sound-link-copy-$i'),
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.copy, size: 16),
+                tooltip: 'copy this link',
+                onPressed: () => app.copyLink(k),
+              ),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close, size: 16),
+                tooltip: 'remove',
+                onPressed: () => set(() => layer.links.removeAt(i)),
+              ),
+            ]),
+            body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                DropdownButton<String?>(
+                  key: ValueKey('sound-link-source-$i'),
+                  isExpanded: true,
+                  value: sounds.any((l) => l.id == k.sourceId) ? k.sourceId : null,
+                  items: [for (final l in sounds) DropdownMenuItem<String?>(value: l.id, child: Text(l.name, overflow: TextOverflow.ellipsis))],
+                  onChanged: (id) => set(() => k.sourceId = id),
+                ),
                 Wrap(spacing: 10, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
                   DropdownButton<String>(
                     key: ValueKey('sound-link-to-$i'),
@@ -353,9 +381,51 @@ class LinksView extends StatelessWidget {
                 const Hint('More smoothing: it follows the music\'s swell instead of every beat and noise.'),
                 _rangeRow(layer, k, 'sound-link-$i', set),
               ]),
-            ),
           );
         }(),
     ]);
+  }
+}
+
+/// A link's card: its summary line (on / off, copy, remove) always, its
+/// settings folded away until opened (a new link opens).
+class _LinkCard extends StatefulWidget {
+  final PropLink link;
+  final Key headKey;
+  final Widget header, body;
+  const _LinkCard({super.key, required this.link, required this.headKey, required this.header, required this.body});
+
+  /// Which links are open (kept while the tab is rebuilt).
+  static final Expando<bool> open = Expando();
+
+  @override
+  State<_LinkCard> createState() => _LinkCardState();
+}
+
+class _LinkCardState extends State<_LinkCard> {
+  @override
+  Widget build(BuildContext context) {
+    final open = _LinkCard.open[widget.link] ?? widget.link.sourceId == null;
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        InkWell(
+          key: widget.headKey,
+          onTap: () => setState(() => _LinkCard.open[widget.link] = !open),
+          child: Row(children: [
+            Expanded(child: widget.header),
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Icon(open ? Icons.expand_less : Icons.expand_more, size: 20),
+            ),
+          ]),
+        ),
+        if (open)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 8, 8),
+            child: widget.body,
+          ),
+      ]),
+    );
   }
 }

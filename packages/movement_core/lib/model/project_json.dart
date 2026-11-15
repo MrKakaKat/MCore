@@ -759,6 +759,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
               if (k.baseY != null) 'baseY': k.baseY,
               if (k.fromFrame != null) 'fromFrame': k.fromFrame,
               if (k.untilFrame != null) 'untilFrame': k.untilFrame,
+              if (k.memory.isNotEmpty) 'memory': {for (final e in k.memory.entries) e.key: [e.value.from, e.value.to, e.value.factor]},
               if (k.fromSound) ...{'min': k.min, 'max': k.max, 'smooth': k.smooth}}
         ],
       if (l.cuts.isNotEmpty)
@@ -891,7 +892,14 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
             baseY: (k['baseY'] as num?)?.toDouble(),
             fromFrame: (k['fromFrame'] as num?)?.toInt(),
             untilFrame: (k['untilFrame'] as num?)?.toInt(),
-          )
+          )..memory = {
+              for (final e in ((k['memory'] as Map?) ?? const {}).entries)
+                e.key as String: (
+                  from: (e.value as List)[0] as String,
+                  to: e.value[1] as String,
+                  factor: (e.value[2] as num).toDouble(),
+                )
+            }
       ],
       cuts: [
         for (final c in (j['cuts'] as List? ?? const []))

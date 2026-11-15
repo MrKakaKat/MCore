@@ -399,6 +399,41 @@ class PhysicsWorld {
       b[0] += dAng;
       b[1] += dAng;
     }
+    // Grows to hold: `b` pressed along `n` (unit, outward from what
+    // presses) by `d` at `contact` grows about its pivot so that point
+    // moves out by `d`. False when growing can't move it that way (the
+    // point is on its near side).
+    bool grow(_Body b, List<double> off, List<double> n, double d, List<double> contact) {
+      if (!b.layer.physics.grows || d <= 0) return false;
+      final r = (contact[0] - b.pivot[0] - off[0]) * n[0] + (contact[1] - b.pivot[1] - off[1]) * n[1];
+      if (r < 1e-3) return false;
+      final k = (1 + d / r).clamp(1.0, 1.5);
+      b.rescale(k);
+      while (off.length < 3) {
+        off.add(1);
+      }
+      off[2] *= k;
+      return true;
+    }
+
+    // Turns when hit: a push `p` at `contact` off its middle turns it
+    // (the lighter, the more).
+    void spin(_Body b, List<double> off, List<double> p, List<double> contact) {
+      final ph = b.layer.physics;
+      if (!ph.spin || ph.immovable) return;
+      final c = b.centre(off);
+      final rx = contact[0] - c[0], ry = contact[1] - c[1];
+      final torque = rx * p[1] - ry * p[0];
+      final rad = math.max(1.0, b.minSize / 2);
+      final dth = (torque / (rad * rad) / ph.weight.clamp(0.1, 10.0) * 0.5).clamp(-0.2, 0.2);
+      if (dth.abs() < 1e-6) return;
+      b.turn(dth);
+      while (off.length < 4) {
+        off.add(off.length == 2 ? 1 : 0);
+      }
+      off[3] += dth * 180 / math.pi;
+    }
+
     for (final l in _colliders) {
       induced[l.id] ??= [0, 0];
       final s = getLayerStateAt(project, l.id, f);
@@ -412,8 +447,23 @@ class PhysicsWorld {
       // shrunk to keep turning (rotate logic 'size'): the size it had.
       final was = prev?.induced[l.id];
       final sc = was != null && was.length > 2 ? was[2] : 1.0;
-      if (l.physics.rotateLogic == 'size' && induced[l.id]!.length < 3) induced[l.id]!.add(sc);
-      final body = _Body(l, [m[0] * sc, m[1] * sc, m[2] * sc, m[3] * sc], hull, prev?.keyed[l.id] ?? [m[4], m[5]], [m[4], m[5]],
+      // turned by earlier hits (Turns when hit).
+      final turned = was != null && was.length > 3 ? was[3] * math.pi / 180 : 0.0;
+      if ((l.physics.rotateLogic == 'size' || l.physics.grows || l.physics.spin) && induced[l.id]!.length < 3) {
+        induced[l.id]!.add(sc);
+      }
+      if (l.physics.spin && induced[l.id]!.length < 4) induced[l.id]!.add(0);
+      final lin = [m[0] * sc, m[1] * sc, m[2] * sc, m[3] * sc];
+      if (turned != 0) {
+        final cs = math.cos(turned), sn = math.sin(turned);
+        final (a, b, c, d) = (lin[0], lin[1], lin[2], lin[3]);
+        lin
+          ..[0] = cs * a - sn * b
+          ..[1] = sn * a + cs * b
+          ..[2] = cs * c - sn * d
+          ..[3] = sn * c + cs * d;
+      }
+      final body = _Body(l, lin, hull, prev?.keyed[l.id] ?? [m[4], m[5]], [m[4], m[5]],
           prevOffset: prev?.induced[l.id] ?? const [0.0, 0.0], parts: _partsOf(l.id, r));
       // inertia: last frame's push carries on, a little slower.
       final k = l.physics.immovable ? 0.0 : l.physics.inertia.clamp(0.0, 0.99);
@@ -490,14 +540,21 @@ class PhysicsWorld {
                 final (h, oh, o, oo) = inner;
                 final hit = _inner(h, oh, o, oo, gap);
                 if (hit == null) continue;
-                final wH = h.layer.physics.immovable ? double.infinity : h.layer.physics.weight;
+                // one that grows to hold takes its share by growing - even
+                // Immovable.
+                final wH = h.layer.physics.immovable && !h.layer.physics.grows ? double.infinity : h.layer.physics.weight;
                 final wO = o.layer.physics.immovable ? double.infinity : o.layer.physics.weight;
                 if (wH.isInfinite && wO.isInfinite) continue;
                 final shareH = wH.isInfinite ? 0.0 : (wO.isInfinite ? 1.0 : wO / (wH + wO));
                 final n = hit.$1, d = hit.$2;
-                // the wall is pushed outward, the one inside back in.
-                push(h.layer.id, oh, n[0] * d * shareH, n[1] * d * shareH);
-                push(o.layer.id, oo, -n[0] * d * (1 - shareH), -n[1] * d * (1 - shareH));
+                // the wall is pushed outward (or grows), the one inside back in.
+                final at = o.support(n, oo);
+                if (shareH > 0 && !grow(h, oh, n, d * shareH, at) && !h.layer.physics.immovable) {
+                  push(h.layer.id, oh, n[0] * d * shareH, n[1] * d * shareH);
+                }
+                final pO = [-n[0] * d * (1 - shareH), -n[1] * d * (1 - shareH)];
+                push(o.layer.id, oo, pO[0], pO[1]);
+                spin(o, oo, pO, at);
                 moved = true;
                 if (s == steps) {
                   touching
@@ -540,8 +597,10 @@ class PhysicsWorld {
               if (soft > 0 && it > 0) continue;
               // kept for the next steps / frames, from the pair's first id.
               normals[key] = A.layer.id.compareTo(B.layer.id) < 0 ? hit.$1 : [-hit.$1[0], -hit.$1[1]];
-              final wA = A.layer.physics.immovable ? double.infinity : A.layer.physics.weight;
-              final wB = B.layer.physics.immovable ? double.infinity : B.layer.physics.weight;
+              // one that grows to hold takes its share by growing - even
+              // Immovable.
+              final wA = A.layer.physics.immovable && !A.layer.physics.grows ? double.infinity : A.layer.physics.weight;
+              final wB = B.layer.physics.immovable && !B.layer.physics.grows ? double.infinity : B.layer.physics.weight;
               if (wA.isInfinite && wB.isInfinite) continue;
               // A moves by B's share, B by A's (inverse weight).
               final shareA = wA.isInfinite ? 0.0 : (wB.isInfinite ? 1.0 : wB / (wA + wB));
@@ -554,8 +613,18 @@ class PhysicsWorld {
                 final maxSink = math.min(A.minSize, B.minSize) / 3;
                 if (hit.$2 - d > maxSink) d = hit.$2 - maxSink;
               }
-              push(A.layer.id, offA, -n[0] * d * shareA, -n[1] * d * shareA);
-              push(B.layer.id, offB, n[0] * d * shareB, n[1] * d * shareB);
+              // where they meet: the deepest point of each into the other.
+              final atB = A.support(n, offA), atA = B.support([-n[0], -n[1]], offB);
+              if (shareA > 0 &&
+                  !grow(A, offA, [-n[0], -n[1]], d * shareA, atA) &&
+                  !A.layer.physics.immovable) {
+                push(A.layer.id, offA, -n[0] * d * shareA, -n[1] * d * shareA);
+                spin(A, offA, [-n[0] * d * shareA, -n[1] * d * shareA], atA);
+              }
+              if (shareB > 0 && !grow(B, offB, n, d * shareB, atB) && !B.layer.physics.immovable) {
+                push(B.layer.id, offB, n[0] * d * shareB, n[1] * d * shareB);
+                spin(B, offB, [n[0] * d * shareB, n[1] * d * shareB], atB);
+              }
               moved = true;
               if (s == steps) {
                 touching
@@ -970,6 +1039,21 @@ class _Body {
   bool get multi => parts != null;
 
   List<double> _t = const [0.0, 0.0];
+
+  /// Its pivot (where it is placed), without the induced offset.
+  List<double> get pivot => _t;
+
+  /// Turns it about its own pivot by `rad`.
+  void turn(double rad) {
+    final cs = math.cos(rad), sn = math.sin(rad);
+    final (a, b, c, d) = (linear[0], linear[1], linear[2], linear[3]);
+    linear
+      ..[0] = cs * a - sn * b
+      ..[1] = sn * a + cs * b
+      ..[2] = cs * c - sn * d
+      ..[3] = sn * c + cs * d;
+    place(_t);
+  }
 
   /// Shrinks (or grows) it about its own pivot by `k`.
   void rescale(double k) {

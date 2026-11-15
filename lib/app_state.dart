@@ -4938,6 +4938,10 @@ class AppState extends ChangeNotifier {
     snapEqualSizeEnabled = true;
     snapGridEnabled = true;
     gridOverlayEnabled = true; // snapping to an invisible grid would be confusing
+    // the grid it starts with: 2 x 2, its diagonals on.
+    snapGridCols = 2;
+    snapGridRows = 2;
+    gridLineKinds = 1 | 2 | 4;
     snapFrameBoundaryEnabled = true;
     snapRotationEnabled = true;
     snapRotationHorizontalEnabled = true;

@@ -923,6 +923,28 @@ class EffectsView extends StatelessWidget {
             value: ph.hollow,
             onChanged: (v) => set(() => ph.hollow = v),
           ),
+          // grows to hold what presses on it from inside / in its notch.
+          SwitchListTile(
+            key: const ValueKey('physics-grows'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Grows to hold'),
+            subtitle: hint('Something pressing on it from inside (Hollow) or in its notch (a U) makes it grow '
+                'instead of moving it - even when Immovable; it stays grown'),
+            value: ph.grows,
+            onChanged: (v) => set(() => ph.grows = v),
+          ),
+          // turns when hit off its middle.
+          if (!ph.immovable)
+            SwitchListTile(
+              key: const ValueKey('physics-spin'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Turns when hit'),
+              subtitle: hint('A push off its middle turns it as well - the lighter it is, the more'),
+              value: ph.spin,
+              onChanged: (v) => set(() => ph.spin = v),
+            ),
           // turning into an Immovable: shrink / step aside to keep turning.
           if (!ph.immovable) ...[
             const Text('Turning into an Immovable', style: TextStyle(fontSize: 13)),

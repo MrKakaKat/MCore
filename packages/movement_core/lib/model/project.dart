@@ -1297,6 +1297,15 @@ class PhysicsSettings {
   /// goes back to how it was.
   String rotateLogic = 'none';
   bool rotateReturn = true;
+
+  /// Grows to hold: something pressing on it from inside (a hollow one)
+  /// or in its notch (a U) makes it grow, about its own pivot, instead of
+  /// moving it - even when Immovable. It stays grown.
+  bool grows = false;
+
+  /// Turns when hit: a push off its middle turns it as well (the lighter,
+  /// the more). It stays turned.
+  bool spin = false;
   PhysicsSettings(
       {this.collide = false,
       this.group = '1',
@@ -1325,7 +1334,9 @@ class PhysicsSettings {
       leashStrength: leashStrength)
     ..hollow = hollow
     ..rotateLogic = rotateLogic
-    ..rotateReturn = rotateReturn;
+    ..rotateReturn = rotateReturn
+    ..grows = grows
+    ..spin = spin;
   Map<String, dynamic> toJson() => {
         'collide': collide,
         'group': group,
@@ -1338,6 +1349,8 @@ class PhysicsSettings {
         if (hollow) 'hollow': true,
         if (rotateLogic != 'none') 'rotateLogic': rotateLogic,
         if (!rotateReturn) 'rotateReturn': false,
+        if (grows) 'grows': true,
+        if (spin) 'spin': true,
       };
   static PhysicsSettings fromJson(Map<String, dynamic> j) {
     final l = j['leash'] as Map?;
@@ -1356,7 +1369,9 @@ class PhysicsSettings {
     )
       ..hollow = j['hollow'] == true
       ..rotateLogic = j['rotateLogic'] as String? ?? 'none'
-      ..rotateReturn = j['rotateReturn'] != false;
+      ..rotateReturn = j['rotateReturn'] != false
+      ..grows = j['grows'] == true
+      ..spin = j['spin'] == true;
   }
 }
 
@@ -1590,6 +1605,10 @@ class PropLink {
   /// to its end). Before it nothing is added; after it what it had added
   /// stays.
   int? fromFrame, untilFrame;
+
+  /// What each kind was set to (from, to, factor) - switching back to a
+  /// kind brings its own settings back.
+  Map<String, ({String from, String to, double factor})> memory = {};
   PropLink(
       {this.enabled = true,
       this.sourceId,
@@ -1619,7 +1638,29 @@ class PropLink {
       mode: mode,
       baseY: baseY,
       fromFrame: fromFrame,
-      untilFrame: untilFrame);
+      untilFrame: untilFrame)
+    ..memory = {...memory};
+
+  /// Switches to kind `to` ('add' | 'follow'): this kind's settings are
+  /// kept for when it comes back, that kind's own come back (or ones that
+  /// fit it). Only one kind ever works at a time.
+  void switchMode(String next) {
+    if (next == mode) return;
+    memory[mode] = (from: from, to: to, factor: factor);
+    mode = next;
+    final m = memory[next];
+    if (m != null) {
+      from = m.from;
+      to = m.to;
+      factor = m.factor;
+    }
+    if (follows) {
+      if (!followTargets.contains(to)) to = 'y';
+      if (!followSources.contains(from)) from = 'position';
+    } else {
+      if (!linkProps.contains(from)) from = 'x';
+    }
+  }
 }
 
 /// A key of a layer's order on the stage: from local frame `frame` it

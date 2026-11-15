@@ -174,11 +174,21 @@ double _followAmount(Project project, Layer layer, PropLink k, Layer src, num t,
   if (prop == 'y') return dy;
   final rot = _own(project, layer, 'rotation', t) * math.pi / 180;
   final c = math.cos(rot), sn = math.sin(rot);
-  // the whole size: it grows by the move on each of its own axes.
+  // the whole size: both scales by the same amount (as a linked pair of
+  // rulers) - a followed size handle's move along its own side's way
+  // (right / bottom out: grows; left / top out: grows too), the place's
+  // move along the axis it moves on most.
   if (prop == 'scale.x' || prop == 'scale.y') {
     final alongX = dx * c + dy * sn, alongY = -dx * sn + dy * c;
-    final size = prop == 'scale.x' ? layer.content.size[0] : layer.content.size[1];
-    return size <= 0 ? 0 : (prop == 'scale.x' ? alongX : alongY) / size;
+    final w = layer.content.size[0], h = layer.content.size[1];
+    final ux = w <= 0 ? 0.0 : alongX / w, uy = h <= 0 ? 0.0 : alongY / h;
+    return switch (k.from) {
+      'scaleRight' => ux,
+      'scaleLeft' => -ux,
+      'scaleBottom' => uy,
+      'scaleTop' => -uy,
+      _ => ux.abs() >= uy.abs() ? ux : uy,
+    };
   }
   // a size handle: the way the side it moves grows (see linkMovedSide),
   // turned with the layer.

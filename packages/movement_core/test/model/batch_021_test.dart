@@ -171,17 +171,54 @@ void main() {
       expect(getLayerStateAt(p, 'c', 0).scale, [closeTo(1.5, 1e-9), closeTo(1.5, 1e-9)]);
     });
 
-    test('the whole size, following: it grows by the move on each of its axes', () {
+    test('the whole size, following: both scales by one amount (a linked pair)', () {
       final a = rect('a', 0.2, 0.2, 10, 10), c = rect('c', 0.5, 0.5, 100, 50);
       final k = PropLink(sourceId: 'a', to: 'scale', mode: 'follow');
       c.links.add(k);
       final p = Project(layers: [a, c]);
       pinLinkBase(p, k, 0);
-      a.transform.anchor.defaultValue = [0.25, 0.23]; // +50, +30 px
+      a.transform.anchor.defaultValue = [0.25, 0.2]; // +50 px across
       clearStateCaches();
       final st = getLayerStateAt(p, 'c', 0);
-      expect(st.scale[0] * 100, closeTo(150, 1e-6), reason: 'width +50');
-      expect(st.scale[1] * 50, closeTo(80, 1e-6), reason: 'height +30');
+      expect(st.scale, [closeTo(1.5, 1e-9), closeTo(1.5, 1e-9)], reason: 'width +50 (half), so height by half too');
+    });
+
+    test("following a size handle with the whole size: the whole object grows as the handle goes out", () {
+      final a = rect('a', 0.2, 0.5, 100, 100), c = rect('c', 0.7, 0.5, 50, 40);
+      final k = PropLink(sourceId: 'a', from: 'scaleBottom', to: 'scale', mode: 'follow');
+      c.links.add(k);
+      final p = Project(layers: [a, c]);
+      pinLinkBase(p, k, 0);
+      // a's bottom goes 20 px down (it grows from its top).
+      a.transform.scale.defaultValue = [1.0, 1.2];
+      a.transform.anchor.defaultValue = [0.2, 0.51];
+      clearStateCaches();
+      expect(getLayerStateAt(p, 'c', 0).scale, [closeTo(1.5, 1e-9), closeTo(1.5, 1e-9)]);
+    });
+
+    test('switching the kind: one works at a time, each keeps its own settings', () {
+      final a = rect('a', 0.2, 0.5, 10, 10), c = rect('c', 0.7, 0.5, 50, 50);
+      final k = PropLink(sourceId: 'a', from: 'rotation', to: 'rotation', factor: 2);
+      c.links.add(k);
+      final p = Project(layers: [a, c]);
+      k.switchMode('follow');
+      expect([k.from, k.to], ['position', 'y']);
+      k.from = 'scaleRight';
+      k.to = 'scaleBottom';
+      k.factor = 1;
+      pinLinkBase(p, k, 0);
+      k.switchMode('add');
+      expect([k.from, k.to, k.factor], ['rotation', 'rotation', 2]);
+      k.switchMode('follow');
+      expect([k.from, k.to, k.factor], ['scaleRight', 'scaleBottom', 1]);
+      // only the follow works: moving a sideways (its right handle goes
+      // along) does nothing to the rotation.
+      pinLinkBase(p, k, 0);
+      a.transform.rotation.defaultValue = 30.0;
+      clearStateCaches();
+      expect(getLayerStateAt(p, 'c', 0).rot, 0);
+      final back = layerFromJson(jsonDecode(jsonEncode(layerToJson(c))) as Map<String, dynamic>).links.single;
+      expect(back.memory['add']?.from, 'rotation');
     });
 
     test('a source read as its whole size', () {
