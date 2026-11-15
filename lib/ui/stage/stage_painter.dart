@@ -366,6 +366,12 @@ void paintStage({
   if (hideHandles && !cameraViewActive && selectedLayer != null && selectedInRange) {
     if (cropEditing || pieceInsets != null) {
       _paintCrop(canvas, project, selectedLayer, globalFrame, activeDrag, inv);
+      // cropping the layers selected with it too: their crop boxes.
+      if (cropEditing) {
+        for (final g in groupLayers) {
+          if (getLayerStateAt(project, g.id, globalFrame).inRange) _paintCrop(canvas, project, g, globalFrame, null, inv);
+        }
+      }
     } else if (glowHandlesVisible && selectedLayer.fill.active) {
       _paintGlowHandles(canvas, project, selectedLayer, globalFrame, activeDrag, inv);
     }
@@ -373,7 +379,9 @@ void paintStage({
   if (!hideHandles && !cameraViewActive && selectedLayer != null && selectedInRange) {
     // the layers selected with it: their boxes, moving along with it.
     for (final g in groupLayers) {
-      if (getLayerStateAt(project, g.id, globalFrame).inRange) {
+      if (cropEditing && getLayerStateAt(project, g.id, globalFrame).inRange) {
+        _paintCrop(canvas, project, g, globalFrame, null, inv);
+      } else if (getLayerStateAt(project, g.id, globalFrame).inRange) {
         _paintTransformBox(canvas, project, g, globalFrame, null, inv, hasDeform: false, outlineOnly: true);
         // its own move handle: it can be moved alone without leaving the
         // selection.
@@ -769,7 +777,26 @@ void _paintPropLinks(ui.Canvas canvas, Project project, int globalFrame, double 
       canvas.drawCircle(p, 9 * inv, ring); // source: a circle in a circle
       canvas.drawCircle(p, 5 * inv, ring);
       canvas.drawCircle(c, 7 * inv, ring); // follower: a bigger hollow one
+      // on one size handle: a second, dashed line to that handle.
+      final h = linkHandlePoint(project, layer, k, globalFrame);
+      if (h != null) {
+        final hp = ui.Offset(h[0], h[1]);
+        _dashedLine(canvas, p, hp, line, inv);
+        canvas.drawRect(ui.Rect.fromCenter(center: hp, width: 8 * inv, height: 8 * inv), ring);
+      }
     }
+  }
+}
+
+/// A dashed line from `a` to `b` (dashes of 6, gaps of 4 screen px).
+void _dashedLine(ui.Canvas canvas, ui.Offset a, ui.Offset b, ui.Paint paint, double inv) {
+  final d = b - a;
+  final len = d.distance;
+  if (len < 1e-6) return;
+  final u = d / len;
+  final dash = 6 * inv, gap = 4 * inv;
+  for (var t = 0.0; t < len; t += dash + gap) {
+    canvas.drawLine(a + u * t, a + u * math.min(len, t + dash), paint);
   }
 }
 
@@ -1332,9 +1359,18 @@ void _paintCornerPin(
   path.close();
   canvas.drawPath(path, linePaint);
 
-  for (final k in h.keys) {
+  // edges pin: the handles sit in the middle of the edges.
+  final edges = inst.effectId == 'edges_pin';
+  final spots = edges
+      ? {for (final e in getEdgesPinHandles(project, layer, inst, globalFrame)) e.key: e.screen}
+      : {for (final k in h.keys) k: h.screen[k]!};
+  for (final MapEntry(key: k, value: p) in spots.entries) {
     if (_isSiblingHidden(activeDrag, 'cornerPin', k)) continue;
-    final p = h.screen[k]!;
+    if (edges) {
+      // a filled dot (corners: rings).
+      canvas.drawCircle(ui.Offset(p[0], p[1]), 6 * inv, ui.Paint()..color = _cornerPinColor);
+      continue;
+    }
     canvas.drawCircle(
         ui.Offset(p[0], p[1]), 7 * inv, ui.Paint()..color = _handleFill);
     canvas.drawCircle(

@@ -900,7 +900,7 @@ class CanvasRenderer implements Renderer {
     // raw vertices - texture warping can't improve on exact, and that
     // effect's apply() expects to receive exactly those 3 points.
     final hasExactPointPin = layer.effectStack.any((i) =>
-        i.enabled && i.effectId == 'corner_pin' && i.params.containsKey('p0'));
+        i.enabled && isPinEffect(i.effectId) && i.params.containsKey('p0'));
     // a parent's shape effects bend its children too.
     final inheritsDeform = deformingAncestors(project, layer, globalFrame).isNotEmpty;
     final needsSubdivision = layer.effectStack.any(isDeformingEffect) || inheritsDeform;
@@ -1448,8 +1448,12 @@ class CanvasRenderer implements Renderer {
     final c = layer.content;
     final centre = applyAffine(mCanvas, c.offset);
     final k = math.sqrt((mCanvas[0] * mCanvas[3] - mCanvas[1] * mCanvas[2]).abs());
-    final radius = math.min(c.size[0].abs(), c.size[1].abs()) / 2 * k;
     final lens = layer.lens;
+    // a magnifier reaches its whole box (to the corners).
+    final radius = (lens.shaped
+            ? math.sqrt(c.size[0] * c.size[0] + c.size[1] * c.size[1]) / 2
+            : math.min(c.size[0].abs(), c.size[1].abs()) / 2) *
+        k;
     final fov = (evaluateTrack(project, lens.fov, lf.toDouble(), layer) as num).toDouble().clamp(1.0, 178.0);
     final shader = prog.fragmentShader()
       ..setFloat(0, w.toDouble())
@@ -1461,14 +1465,35 @@ class CanvasRenderer implements Renderer {
       ..setFloat(6, lens.zoom)
       ..setFloat(7, lens.vignette.clamp(0.0, 1.0))
       ..setFloat(8, lens.softness.clamp(0.0, 1.0))
+      ..setFloat(9, lens.shaped ? 1 : 0)
       ..setImageSampler(0, below);
     final out = ui.PictureRecorder();
     ui.Canvas(out).drawRect(ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), ui.Paint()..shader = shader);
     final img = out.endRecording().toImageSync(w, h);
     below.dispose();
     shader.dispose();
+    // a magnifier: inside the layer's own shape only.
+    final clip = lens.shaped ? lensClipPath(project, layer, globalFrame) : null;
+    if (clip != null) {
+      canvas.save();
+      canvas.clipPath(clip);
+      // the glass shows only its own view: what is under it (seen
+      // shrunk or bent) never shows through beside it.
+      if (opacity >= 0.999) {
+        final all = ui.Rect.fromLTWH(-_width, -_height, _width * 3, _height * 3);
+        canvas.drawRect(all, ui.Paint()..blendMode = ui.BlendMode.clear);
+        final bg = backgroundColor;
+        if (bg != null) canvas.drawRect(all, ui.Paint()..color = bg);
+      }
+    }
     canvas.drawImage(img, ui.Offset.zero, ui.Paint()..color = ui.Color.fromRGBO(0, 0, 0, opacity));
+    if (clip != null) canvas.restore();
   }
+
+  /// A magnifier's shape on the canvas (canvas px): the layer's outline -
+  /// letters for a text, contours for a drawing.
+  ui.Path? lensClipPath(Project project, Layer layer, int globalFrame) =>
+      _buildSourcePath(project, layer, const [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], layer.id, globalFrame);
 
   /// `pic` (canvas-sized, canvas units) through the layer's filters onto
   /// `canvas`: warp and gamma (the shader), then the colour wheels' linear

@@ -254,19 +254,37 @@ class StageGestureController {
     // they sit on the same box midpoints/corners the transform box uses.
     if (cropEditing || pieceInsets != null) {
       final piece = !cropEditing;
-      final h = getCropHandles(project, layer, globalFrame, insets: piece ? pieceInsets : null);
+      // cropping several: any of the selected layers' handles, and the
+      // others crop with it.
+      final group = piece
+          ? [layer]
+          : [
+              layer,
+              for (final id in app.selectedGroup)
+                if (id != layer.id) findLayer(project, id),
+            ].whereType<Layer>().where((l) => getLayerStateAt(project, l.id, globalFrame).inRange).toList();
       String? bestCrop;
+      Layer? bestLayer;
       var bestCropDist = handleRadius;
-      for (final e in h.screen.entries) {
-        final d = _dist(fp, e.value);
-        if (d < bestCropDist) {
-          bestCropDist = d;
-          bestCrop = e.key;
+      for (final l in group) {
+        final h = getCropHandles(project, l, globalFrame, insets: piece ? pieceInsets : null);
+        for (final e in h.screen.entries) {
+          final d = _dist(fp, e.value);
+          if (d < bestCropDist) {
+            bestCropDist = d;
+            bestCrop = e.key;
+            bestLayer = l;
+          }
         }
       }
-      return bestCrop == null
-          ? null
-          : ActiveDragInfo(family: 'crop', activeKey: bestCrop, op: CropDragOp(layer: layer, handle: bestCrop, piece: piece));
+      if (bestCrop == null || bestLayer == null) return null;
+      if (group.length > 1) {
+        return ActiveDragInfo(
+            family: 'crop',
+            activeKey: bestCrop,
+            op: GroupCropDragOp.grab(project, bestLayer, [for (final l in group) if (l != bestLayer) l], bestCrop, globalFrame, fp));
+      }
+      return ActiveDragInfo(family: 'crop', activeKey: bestCrop, op: CropDragOp(layer: layer, handle: bestCrop, piece: piece));
     }
 
     // tier 1: corner-pin / mesh-warp / pendulum-pivot, closest wins.
@@ -290,7 +308,16 @@ class StageGestureController {
     }
 
     final cpInst = getCornerPinInstance(layer);
-    if (cpInst != null) {
+    if (cpInst != null && cpInst.effectId == 'edges_pin') {
+      // edges pin: an edge's middle moves the edge.
+      for (final e in getEdgesPinHandles(project, layer, cpInst, globalFrame)) {
+        final d = _dist(fp, e.screen);
+        if (d < bestDist) {
+          bestDist = d;
+          best = ActiveDragInfo(family: 'cornerPin', activeKey: e.key, op: EdgeDragOp(layer: layer, inst: cpInst, a: e.a, b: e.b));
+        }
+      }
+    } else if (cpInst != null) {
       final h = getCornerPinHandles(project, layer, cpInst, globalFrame);
       for (final k in h.keys) {
         final d = _dist(fp, h.screen[k]!);

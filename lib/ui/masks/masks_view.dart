@@ -85,10 +85,29 @@ class MasksView extends StatelessWidget {
               title: const Text('Round lens'),
               subtitle: hint('The circle inside this layer shows what is under it through a lens - from a fish eye to '
                   'a telephoto (the layer itself is not drawn)'),
-              value: layer.lens.enabled,
+              value: layer.lens.enabled && !layer.lens.shaped,
               onChanged: (v) {
                 app.pushUndo();
                 layer.lens.enabled = v;
+                layer.lens.shaped = false;
+                app.commitEdit();
+              },
+            ),
+            // a magnifier: the layer's own shape, any form.
+            SwitchListTile(
+              key: const ValueKey('mask-magnifier'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.zoom_in),
+              title: const Text('Magnifier'),
+              subtitle: hint('This layer\'s own shape (any form) enlarges or shrinks what is under it - Zoom above 1 '
+                  'enlarges, below 1 shrinks; the angle of view bends it like a fish eye (the layer itself is not drawn)'),
+              value: layer.lens.enabled && layer.lens.shaped,
+              onChanged: (v) {
+                app.pushUndo();
+                layer.lens.enabled = v;
+                layer.lens.shaped = v;
+                if (v && layer.lens.zoom == 1) layer.lens.zoom = 2;
                 app.commitEdit();
               },
             ),

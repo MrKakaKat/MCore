@@ -2729,12 +2729,21 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The layers a crop applies to: the selected one and the ones selected
+  /// with it.
+  List<Layer> get _cropGroup => [
+        if (_selected != null) _selected!,
+        for (final id in selectedGroup)
+          if (id != _selected?.id) findLayer(project, id),
+      ].whereType<Layer>().toList();
+
   void setCropAspect(String aspect) {
-    final layer = _selected;
-    if (layer == null) return;
+    if (_selected == null) return;
     pushUndo();
-    layer.cropAspect = aspect;
-    fitCropToAspect(project, layer, currentFrame);
+    for (final layer in _cropGroup) {
+      layer.cropAspect = aspect;
+      fitCropToAspect(project, layer, currentFrame);
+    }
     commitEdit();
   }
 
@@ -2749,10 +2758,11 @@ class AppState extends ChangeNotifier {
   /// setCropInset without its own undo step (slider drags push one when
   /// the drag starts).
   void setCropInsetLive(int side, double value) {
-    final layer = _selected;
-    if (layer == null) return;
-    final opposite = layer.crop[(side + 2) % 4];
-    layer.crop[side] = value.clamp(0.0, 0.95 - opposite);
+    if (_selected == null) return;
+    for (final layer in _cropGroup) {
+      final opposite = layer.crop[(side + 2) % 4];
+      layer.crop[side] = value.clamp(0.0, 0.95 - opposite);
+    }
     commitEdit();
   }
 
@@ -2767,10 +2777,11 @@ class AppState extends ChangeNotifier {
   }
 
   void resetCrop() {
-    final layer = _selected;
-    if (layer == null) return;
+    if (_selected == null) return;
     pushUndo();
-    layer.crop = [0.0, 0.0, 0.0, 0.0];
+    for (final layer in _cropGroup) {
+      layer.crop = [0.0, 0.0, 0.0, 0.0];
+    }
     commitEdit();
   }
 

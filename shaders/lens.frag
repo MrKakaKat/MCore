@@ -13,6 +13,7 @@ uniform float uHalfFov;   // radians
 uniform float uZoom;
 uniform float uVignette;
 uniform float uSoft;
+uniform float uShaped;    // 1: a magnifier of any shape (clipped outside)
 uniform sampler2D uImage;
 
 out vec4 fragColor;
@@ -22,7 +23,8 @@ void main() {
   vec2 d = pos - uCenter;
   float r = length(d);
   float rn = r / max(uRadius, 1.0);
-  if (rn >= 1.0) {
+  // a magnifier's shape is cut outside: it reaches past its radius.
+  if (rn >= 1.0 && uShaped < 0.5) {
     fragColor = vec4(0.0);
     return;
   }
@@ -32,7 +34,8 @@ void main() {
   vec2 uv = src / uSize;
   vec4 c = vec4(0.0);
   if (uv.x >= 0.0 && uv.y >= 0.0 && uv.x <= 1.0 && uv.y <= 1.0) c = texture(uImage, uv);
-  c.rgb *= 1.0 - uVignette * rn * rn;
-  float edge = uSoft > 0.0 ? clamp((1.0 - rn) / uSoft, 0.0, 1.0) : 1.0;
+  float rv = min(rn, 1.0);
+  c.rgb *= 1.0 - uVignette * rv * rv;
+  float edge = (uSoft > 0.0 && uShaped < 0.5) ? clamp((1.0 - rn) / uSoft, 0.0, 1.0) : 1.0;
   fragColor = c * edge;
 }

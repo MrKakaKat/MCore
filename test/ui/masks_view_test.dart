@@ -98,6 +98,10 @@ void main() {
 
   testWidgets('editing feather commits to the track\'s default, and the keyframe toggle adds/removes a keyframe', (tester) async {
     layer.masks.add(Mask());
+    // tall enough for the mask's folds to be built (the list is lazy).
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     await pump(tester);
 
     final featherRow = find.ancestor(of: find.text('Feather'), matching: find.byType(ParamEditor)).first;

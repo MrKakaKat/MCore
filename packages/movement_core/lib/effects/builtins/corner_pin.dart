@@ -2,19 +2,45 @@ import 'dart:math' as math;
 
 import '../geometry_effect_registry.dart';
 
+/// Corner pin and edges pin: the shape's corners moved (corner pin: each
+/// on its own; edges pin: an edge's two corners together, so the edges
+/// beside it stretch). Both keep the corners' offsets the same way.
+bool isPinEffect(String effectId) => effectId == 'corner_pin' || effectId == 'edges_pin';
+
+/// Edges pin: the edges, each as its two corner keys (a rect's top, right,
+/// bottom, left; a triangle's sides).
+List<(String, String)> pinEdges(List<String> cornerKeys) => [
+      for (var i = 0; i < cornerKeys.length; i++) (cornerKeys[i], cornerKeys[(i + 1) % cornerKeys.length]),
+    ];
+
+const _pinParams = [
+  ParamDef(key: 'tl', type: 'vec2', defaultValue: [0.0, 0.0]),
+  ParamDef(key: 'tr', type: 'vec2', defaultValue: [0.0, 0.0]),
+  ParamDef(key: 'br', type: 'vec2', defaultValue: [0.0, 0.0]),
+  ParamDef(key: 'bl', type: 'vec2', defaultValue: [0.0, 0.0]),
+];
+
 void registerCornerPin() {
-  registerEffect(EffectDef(
+  registerEffect(const EffectDef(
     id: 'corner_pin',
     name: 'Corner Pin',
     category: 'geometry',
     type: 'vertex',
-    params: const [
-      ParamDef(key: 'tl', type: 'vec2', defaultValue: [0.0, 0.0]),
-      ParamDef(key: 'tr', type: 'vec2', defaultValue: [0.0, 0.0]),
-      ParamDef(key: 'br', type: 'vec2', defaultValue: [0.0, 0.0]),
-      ParamDef(key: 'bl', type: 'vec2', defaultValue: [0.0, 0.0]),
-    ],
-    apply: (grid, params, localFrame) {
+    params: _pinParams,
+    apply: _cornerPinApply,
+  ));
+  // the same corners, moved an edge at a time (handles on the edges).
+  registerEffect(const EffectDef(
+    id: 'edges_pin',
+    name: 'Edges Pin',
+    category: 'geometry',
+    type: 'vertex',
+    params: _pinParams,
+    apply: _cornerPinApply,
+  ));
+}
+
+Grid _cornerPinApply(Grid grid, Map<String, dynamic> params, double localFrame) {
       // exact-N-point mode: pin points sit AT the shape's own vertices
       // (grid is the single-row [p0..pN-1] list here) - a triangle's 3
       // (affine) or a confirmed polygon's 4 (projective, same Heckbert
@@ -142,8 +168,6 @@ void registerCornerPin() {
       }
 
       return [for (final row in grid) [for (final p in row) warp(p)]];
-    },
-  ));
 }
 
 /// Whether the quad p0 p1 p2 p3 (in order) is convex - every turn the

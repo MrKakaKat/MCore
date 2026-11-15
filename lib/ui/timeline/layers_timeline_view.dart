@@ -1102,6 +1102,12 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
             !layers.any((l) => l.id == _focusedLayerId)) {
           _focusedLayerId = null;
         }
+        // picking several only goes with a focused layer: once that is
+        // gone (an undone merge, a deletion) picking ends too - left on,
+        // every tap only added to a group and no layer could be picked.
+        if (_focusedLayerId == null && widget.app.timelineGroupPick) {
+          widget.app.timelineGroupPick = false;
+        }
         // the selection changed from elsewhere (a new or copied layer,
         // the Layers tab, the stage): a focused timeline follows it, so
         // it never stays on the old layer with the new one dimmed.
@@ -1178,7 +1184,8 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                           final focusedLayer = _focusedLayerId == null
                               ? null
                               : layers
-                                  .firstWhere((l) => l.id == _focusedLayerId);
+                                  .where((l) => l.id == _focusedLayerId)
+                                  .firstOrNull;
                           // _edgeSlack on both sides - see its own comment.
                           // Every Positioned child below adds _edgeSlack to
                           // its frame-based x.

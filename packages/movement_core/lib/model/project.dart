@@ -1576,6 +1576,20 @@ class PropLink {
   /// (loudest), added to its own value; `smooth` (0..1) evens out the
   /// noise (0: every beat, 1: only the swell).
   double min, max, smooth;
+
+  /// 'add': the source's property change, times the factor, is added to
+  /// mine. 'follow': like parenting for one property - mine moves exactly
+  /// as far as the source object moves (px), only along its own axis (a
+  /// bottom size handle follows the source up and down, never sideways).
+  String mode;
+
+  /// The y base of a 'follow' link (`base` holds x).
+  double? baseY;
+
+  /// When the link works (global frames, null: from the layer's start /
+  /// to its end). Before it nothing is added; after it what it had added
+  /// stays.
+  int? fromFrame, untilFrame;
   PropLink(
       {this.enabled = true,
       this.sourceId,
@@ -1585,11 +1599,31 @@ class PropLink {
       this.base,
       this.min = 0,
       this.max = 1,
-      this.smooth = 0.3});
+      this.smooth = 0.3,
+      this.mode = 'add',
+      this.baseY,
+      this.fromFrame,
+      this.untilFrame});
   bool get fromSound => from == 'sound';
-  PropLink copy() =>
-      PropLink(enabled: enabled, sourceId: sourceId, from: from, to: to, factor: factor, base: base, min: min, max: max, smooth: smooth);
+  bool get follows => mode == 'follow' && !fromSound;
+  PropLink copy() => PropLink(
+      enabled: enabled,
+      sourceId: sourceId,
+      from: from,
+      to: to,
+      factor: factor,
+      base: base,
+      min: min,
+      max: max,
+      smooth: smooth,
+      mode: mode,
+      baseY: baseY,
+      fromFrame: fromFrame,
+      untilFrame: untilFrame);
 }
+
+/// What a 'follow' link can move: a position axis or one size handle.
+const followTargets = ['x', 'y', 'scaleLeft', 'scaleRight', 'scaleTop', 'scaleBottom'];
 
 const linkProps = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity'];
 
@@ -1661,11 +1695,19 @@ class LensSettings {
 
   /// How soft the rim is, 0..1 of the radius.
   double softness;
-  LensSettings({this.enabled = false, Track? fov, this.zoom = 1, this.vignette = 0, this.softness = 0.02})
+
+  /// A magnifier: the lens is the layer's own shape (any form - text,
+  /// a drawn contour...), not the circle in its box; zoom above 1
+  /// enlarges what is under it, below 1 shrinks it; the angle of view
+  /// still bends it (a fish eye) about its middle.
+  bool shaped;
+  LensSettings(
+      {this.enabled = false, Track? fov, this.zoom = 1, this.vignette = 0, this.softness = 0.02, this.shaped = false})
       : fov = fov ?? Track(50.0, false);
-  LensSettings copy() =>
-      LensSettings(enabled: enabled, fov: cloneTrack(fov), zoom: zoom, vignette: vignette, softness: softness);
+  LensSettings copy() => LensSettings(
+      enabled: enabled, fov: cloneTrack(fov), zoom: zoom, vignette: vignette, softness: softness, shaped: shaped);
   Map<String, dynamic> toJson() => {
+        if (shaped) 'shaped': true,
         'fov': trackToJson(fov),
         if (zoom != 1) 'zoom': zoom,
         if (vignette != 0) 'vignette': vignette,
@@ -1677,6 +1719,7 @@ class LensSettings {
         zoom: (j['zoom'] as num?)?.toDouble() ?? 1,
         vignette: (j['vignette'] as num?)?.toDouble() ?? 0,
         softness: (j['softness'] as num?)?.toDouble() ?? 0.02,
+        shaped: j['shaped'] as bool? ?? false,
       );
 }
 

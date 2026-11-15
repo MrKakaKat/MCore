@@ -92,6 +92,34 @@ class CornerDragOp implements DragOp {
   }
 }
 
+/// Edges pin: an edge (`a`-`b`) moved as a whole - both its corners go
+/// along, the edges beside it stretch to follow.
+class EdgeDragOp implements DragOp {
+  final Layer layer;
+  final EffectInstance inst;
+  final String a, b;
+  EdgeDragOp({required this.layer, required this.inst, required this.a, required this.b});
+
+  @override
+  List<SnapGuideLine> get snapGuides => const [];
+
+  @override
+  void apply(Project project, int globalFrame, List<double> framePoint) {
+    final h = getCornerPinHandles(project, layer, inst, globalFrame);
+    final p = applyAffine(invertAffine(h.mCanvas), framePoint);
+    final local = localFrameOf(layer, globalFrame);
+    final ta = inst.params[a] as Track, tb = inst.params[b] as Track;
+    final oa = (evaluateTrack(project, ta, local.toDouble(), layer) as List).cast<num>();
+    final ob = (evaluateTrack(project, tb, local.toDouble(), layer) as List).cast<num>();
+    final na = h.natural[a]!, nb = h.natural[b]!;
+    // the edge's middle now, against where the finger is.
+    final mid = [(na[0] + oa[0] + nb[0] + ob[0]) / 2, (na[1] + oa[1] + nb[1] + ob[1]) / 2];
+    final d = [p[0] - mid[0], p[1] - mid[1]];
+    setTrackValueAt(ta, local, [oa[0] + d[0], oa[1] + d[1]]);
+    setTrackValueAt(tb, local, [ob[0] + d[0], ob[1] + d[1]]);
+  }
+}
+
 // ===== mesh-warp =====
 
 class MeshDragOp implements DragOp {

@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../effects/builtins/corner_pin.dart' show isPinEffect;
 import '../effects/geometry_effect_registry.dart';
 import '../model/project.dart';
 import '../model/prop_links.dart' show linkOffset;
@@ -150,7 +151,7 @@ List<List<double>> getContentOutline(Content content, Layer? layer, int? globalF
   final pts = layer == null ? shapePoints(content) : layerShapePoints(layer);
   if (hasEffects) {
     // a triangle's exact corner pin works on its own points.
-    if (layer.effectStack.any((i) => i.enabled && i.effectId == 'corner_pin' && i.params.containsKey('p0'))) {
+    if (layer.effectStack.any((i) => i.enabled && isPinEffect(i.effectId) && i.params.containsKey('p0'))) {
       return applyEffectStack(layer, [pts], globalFrame!, project: project)[0];
     }
     return warpRingThroughEffects(layer, content, pts, globalFrame!, project: project);

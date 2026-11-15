@@ -60,7 +60,9 @@ class LinksView extends StatelessWidget {
               ),
             ]),
             const Hint('One property of this layer moves with one property of another layer - its change since '
-                'this layer starts, times the factor. A linked layer can drive the next one: a chain.'),
+                'this layer starts, times the factor. A linked layer can drive the next one: a chain. '
+                '"Follows it": like parenting for one property - it moves as far as the other object does, '
+                'along its own axis only. "Works": the time it works in.'),
             for (var i = 0; i < layer.links.length; i++)
               if (!layer.links[i].fromSound) () {
               final k = layer.links[i];
@@ -107,24 +109,43 @@ class LinksView extends StatelessWidget {
                         onPressed: () => set(() => layer.links.removeAt(i)),
                       ),
                     ]),
+                    // the kind: adds the source's change, or follows the
+                    // source object as a parent would (one axis only).
+                    Wrap(spacing: 6, children: [
+                      for (final (mode, label) in const [('add', 'Adds its change'), ('follow', 'Follows it (like parenting)')])
+                        ChoiceChip(
+                          key: ValueKey('link-mode-$i-$mode'),
+                          label: Text(label, style: const TextStyle(fontSize: 12)),
+                          selected: k.mode == mode,
+                          onSelected: (_) => set(() {
+                            k.mode = mode;
+                            if (k.follows && !followTargets.contains(k.to)) k.to = 'y';
+                            pinLinkBase(app.project, k, app.currentFrame);
+                          }),
+                        ),
+                    ]),
                     Wrap(spacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                      DropdownButton<String>(
-                        key: ValueKey('link-from-$i'),
-                        value: k.from,
-                        items: [
-                          for (final p in linkProps) DropdownMenuItem(value: p, child: Text('its ${_propNames[p]}')),
-                        ],
-                        onChanged: (v) => set(() {
-                          k.from = v ?? k.from;
-                          pinLinkBase(app.project, k, app.currentFrame);
-                        }),
-                      ),
+                      if (k.follows)
+                        const Text('its position')
+                      else
+                        DropdownButton<String>(
+                          key: ValueKey('link-from-$i'),
+                          value: k.from,
+                          items: [
+                            for (final p in linkProps) DropdownMenuItem(value: p, child: Text('its ${_propNames[p]}')),
+                          ],
+                          onChanged: (v) => set(() {
+                            k.from = v ?? k.from;
+                            pinLinkBase(app.project, k, app.currentFrame);
+                          }),
+                        ),
                       const Icon(Icons.arrow_forward, size: 16),
                       DropdownButton<String>(
                         key: ValueKey('link-to-$i'),
                         value: k.to,
                         items: [
-                          for (final p in linkTargets) DropdownMenuItem(value: p, child: Text('my ${_propNames[p]}')),
+                          for (final p in k.follows ? followTargets : linkTargets)
+                            DropdownMenuItem(value: p, child: Text('my ${_propNames[p]}')),
                         ],
                         onChanged: (v) => set(() => k.to = v ?? k.to),
                       ),
@@ -138,6 +159,7 @@ class LinksView extends StatelessWidget {
                         ),
                       ),
                     ]),
+                    _rangeRow(layer, k, 'link-$i', set),
                   ]),
                 ),
               );
@@ -148,6 +170,49 @@ class LinksView extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// When the link works: from / until a frame (empty: the layer's start /
+  /// end); the playhead's frame with one tap.
+  Widget _rangeRow(Layer layer, PropLink k, String key, void Function(void Function()) set) {
+    Widget end(String label, int? value, int whole, void Function(int?) on) => Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(label, style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 4),
+          NumField(
+              key: ValueKey('$key-$label'),
+              width: 56,
+              integer: true,
+              value: (value ?? whole).toDouble(),
+              onCommit: (v) => set(() => on(v.round()))),
+          IconButton(
+            key: ValueKey('$key-$label-now'),
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.vertical_align_center, size: 16),
+            tooltip: 'the playhead',
+            onPressed: () => set(() => on(app.currentFrame)),
+          ),
+          if (value != null)
+            IconButton(
+              key: ValueKey('$key-$label-clear'),
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.close, size: 14),
+              tooltip: label == 'from' ? "from the layer's start" : "to the layer's end",
+              onPressed: () => set(() => on(null)),
+            ),
+        ]);
+    return Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 4, children: [
+      const Text('Works', style: TextStyle(fontSize: 12)),
+      end('from', k.fromFrame, layer.startFrame, (v) {
+        k.fromFrame = v;
+        final b = k.untilFrame;
+        if (v != null && b != null && b < v) k.untilFrame = v;
+      }),
+      end('until', k.untilFrame, layer.startFrame + layer.durationFrames, (v) {
+        k.untilFrame = v;
+        final a = k.fromFrame;
+        if (v != null && a != null && a > v) k.fromFrame = v;
+      }),
+    ]);
   }
 
   /// Sound: a property of this layer follows how loud an audio layer is.
@@ -238,6 +303,7 @@ class LinksView extends StatelessWidget {
                   Text('${(k.smooth * 100).round()}%', style: const TextStyle(fontSize: 12)),
                 ]),
                 const Hint('More smoothing: it follows the music\'s swell instead of every beat and noise.'),
+                _rangeRow(layer, k, 'sound-link-$i', set),
               ]),
             ),
           );

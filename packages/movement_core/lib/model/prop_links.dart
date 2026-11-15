@@ -46,23 +46,84 @@ double linkOffset(Project project, Layer layer, String prop, num globalFrame, [S
     if (!k.enabled || k.to != prop || k.sourceId == null) continue;
     final src = findLayer(project, k.sourceId);
     if (src == null) continue;
+    // its time: before it nothing, after it what it added at its end.
+    num t = globalFrame;
+    final a = k.fromFrame, b = k.untilFrame;
+    if (a != null && t < a) {
+      if (k.fromSound) continue;
+      t = a;
+    }
+    if (b != null && t > b) {
+      if (k.fromSound) continue;
+      t = b;
+    }
     // a sound: how loud it is now, between min and max.
     if (k.fromSound) {
-      final level = soundLevelAt(src, globalFrame, smooth: k.smooth);
+      final level = soundLevelAt(src, t, smooth: k.smooth);
       sum += k.min + (k.max - k.min) * level;
       continue;
     }
-    final now = linkedPropAt(project, src, k.from, globalFrame, {...s});
-    final then = k.base ?? linkedPropAt(project, src, k.from, layer.startFrame, {...s});
-    sum += k.factor * (now - then);
+    if (k.follows) {
+      sum += k.factor * _followAmount(project, layer, k, src, t, s);
+      continue;
+    }
+    sum += k.factor * _change(project, layer, k, src, k.from, k.base, t, s);
   }
   return sum;
 }
+
+/// How much `src`'s `prop` changed by `t` since the link's start: its set
+/// start, else the base pinned when it was made, else the layer's start.
+double _change(Project project, Layer layer, PropLink k, Layer src, String prop, double? base, num t, Set<String> seen) {
+  final now = linkedPropAt(project, src, prop, t, {...seen});
+  final a = k.fromFrame;
+  final then = a != null
+      ? linkedPropAt(project, src, prop, a, {...seen})
+      : base ?? linkedPropAt(project, src, prop, layer.startFrame, {...seen});
+  return now - then;
+}
+
+/// A 'follow' link: how far the source has moved since the link's start
+/// (px), along `k.to`'s own axis - in that property's units.
+double _followAmount(Project project, Layer layer, PropLink k, Layer src, num t, Set<String> seen) {
+  if (!followTargets.contains(k.to)) return _change(project, layer, k, src, k.from, k.base, t, seen);
+  final dx = _change(project, layer, k, src, 'x', k.base, t, seen);
+  final dy = _change(project, layer, k, src, 'y', k.baseY, t, seen);
+  if (k.to == 'x') return dx;
+  if (k.to == 'y') return dy;
+  // a size handle: the way the side it moves grows (see linkMovedSide),
+  // turned with the layer.
+  final n = linkMovedSide(k.to)!;
+  final rot = _own(project, layer, 'rotation', t) * math.pi / 180;
+  final nx = n[0] * math.cos(rot) - n[1] * math.sin(rot), ny = n[0] * math.sin(rot) + n[1] * math.cos(rot);
+  final along = dx * nx + dy * ny;
+  // a handle moves by (its scale change) x (the size on its axis).
+  final size = n[0] != 0 ? layer.content.size[0] : layer.content.size[1];
+  return size <= 0 ? 0 : along / size;
+}
+
+/// The side a size-handle link moves, as its outward direction in the
+/// layer (x: -1 left / 1 right; y: -1 top / 1 bottom): 'scaleLeft' /
+/// 'scaleRight' grow the left / right side; 'scaleBottom' holds the bottom
+/// and moves the top, 'scaleTop' holds the top and moves the bottom. Null:
+/// not a size handle.
+List<double>? linkMovedSide(String to) => switch (to) {
+      'scaleLeft' => const [-1.0, 0.0],
+      'scaleRight' => const [1.0, 0.0],
+      'scaleBottom' => const [0.0, -1.0],
+      'scaleTop' => const [0.0, 1.0],
+      _ => null,
+    };
 
 /// Pins `k`'s base to its source's value now, so the layer keeps its
 /// place when the link is made and follows every change after.
 void pinLinkBase(Project project, PropLink k, num globalFrame) {
   final src = findLayer(project, k.sourceId);
+  if (k.follows) {
+    k.base = src == null ? null : linkedPropAt(project, src, 'x', globalFrame);
+    k.baseY = src == null ? null : linkedPropAt(project, src, 'y', globalFrame);
+    return;
+  }
   k.base = src == null ? null : linkedPropAt(project, src, k.from, globalFrame);
 }
 

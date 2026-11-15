@@ -16,6 +16,7 @@
 /// ============================================================
 library;
 
+import '../effects/builtins/corner_pin.dart' show isPinEffect;
 import 'dart:math' as math;
 
 import '../core/interpolation.dart';
@@ -244,7 +245,7 @@ void rescaleProjectContent(Project project, double scaleX, double scaleY) {
     }
 
     for (final inst in layer.effectStack) {
-      if (inst.effectId == 'corner_pin') {
+      if (isPinEffect(inst.effectId)) {
         for (final key in inst.params.keys) {
           if (cornerPinKeys.contains(key) || pKeyPattern.hasMatch(key)) {
             final v = inst.params[key];

@@ -157,21 +157,35 @@ class CropDragOp implements DragOp {
 
   /// Moves the piece rect ([pieceInsets]) instead of the crop.
   final bool piece;
-  CropDragOp({required this.layer, required this.handle, this.piece = false});
+  /// Layers whose edges a crop edge doesn't snap to (cropped with it).
+  final Set<String> exclude;
+  CropDragOp({required this.layer, required this.handle, this.piece = false, this.exclude = const {}});
+
+  List<SnapGuideLine> _guides = const [];
 
   @override
-  List<SnapGuideLine> get snapGuides => const [];
+  List<SnapGuideLine> get snapGuides => _guides;
 
   @override
   void apply(Project project, int globalFrame, List<double> framePoint) {
     final h = getCropHandles(project, layer, globalFrame, insets: piece ? pieceInsets : null);
-    final p = applyAffine(invertAffine(h.mCanvas), framePoint);
+    final snapped = piece
+        ? (point: framePoint, guides: const <SnapGuideLine>[])
+        : cropEdgeSnap(project, layer, handle, globalFrame, framePoint, exclude: exclude);
+    _guides = snapped.guides;
+    final p = applyAffine(invertAffine(h.mCanvas), snapped.point);
     final f = h.full, c = h.crop;
     final fw = f.maxX - f.minX, fh = f.maxY - f.minY;
     final minW = fw * _minCropFraction, minH = fh * _minCropFraction;
     // the quarters (and the middle) of the full box hold the edge a moment.
-    final px = snapToStops(p[0].clamp(f.minX, f.maxX).toDouble(), [for (final q in const [0.25, 0.5, 0.75]) f.minX + fw * q], fw * 0.025);
-    final py = snapToStops(p[1].clamp(f.minY, f.maxY).toDouble(), [for (final q in const [0.25, 0.5, 0.75]) f.minY + fh * q], fh * 0.025);
+    // (an edge already snapped on the stage stays there.)
+    final snappedX = snapped.point[0] != framePoint[0], snappedY = snapped.point[1] != framePoint[1];
+    final px = snappedX
+        ? p[0].clamp(f.minX, f.maxX).toDouble()
+        : snapToStops(p[0].clamp(f.minX, f.maxX).toDouble(), [for (final q in const [0.25, 0.5, 0.75]) f.minX + fw * q], fw * 0.025);
+    final py = snappedY
+        ? p[1].clamp(f.minY, f.maxY).toDouble()
+        : snapToStops(p[1].clamp(f.minY, f.maxY).toDouble(), [for (final q in const [0.25, 0.5, 0.75]) f.minY + fh * q], fh * 0.025);
 
     var minX = c.minX, minY = c.minY, maxX = c.maxX, maxY = c.maxY;
     final moveLeft = handle == 'left' || handle == 'tl' || handle == 'bl';
@@ -232,6 +246,92 @@ class CropDragOp implements DragOp {
       maxY += dy;
     }
     _setCropRect(layer, minX, minY, maxX, maxY, piece: piece);
+  }
+}
+
+/// A crop edge on the stage snaps to the frame's edges and middle and to
+/// the other objects' edges and middles (only while the layer stands
+/// straight - its edges then run along the axes). `handle` says which
+/// edges move. Returns the point to use and the guide lines.
+({List<double> point, List<SnapGuideLine> guides}) cropEdgeSnap(
+    Project project, Layer layer, String handle, int globalFrame, List<double> framePoint,
+    {Set<String> exclude = const {}}) {
+  final none = (point: framePoint, guides: const <SnapGuideLine>[]);
+  if (!snapEnabled) return none;
+  final m = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
+  final straight = m[1].abs() < 1e-6 && m[2].abs() < 1e-6;
+  if (!straight) return none;
+  final movesX = handle != 'top' && handle != 'bottom';
+  final movesY = handle != 'left' && handle != 'right';
+  final xs = <double>[], ys = <double>[];
+  if (snapFrameBoundaryEnabled) {
+    xs.addAll([0, stageSize.width / 2, stageSize.width]);
+    ys.addAll([0, stageSize.height / 2, stageSize.height]);
+  }
+  for (final o in project.layers) {
+    if (o.id == layer.id || exclude.contains(o.id) || o.hidden || isAudioShape(o.content.shape)) continue;
+    if (!getLayerStateAt(project, o.id, globalFrame).inRange) continue;
+    final b = computeLayerFrameGeometry(project, o, globalFrame, includeVertices: false).bbox;
+    xs.addAll([b.minX, (b.minX + b.maxX) / 2, b.maxX]);
+    ys.addAll([b.minY, (b.minY + b.maxY) / 2, b.maxY]);
+  }
+  final r = snapEdgeToEdgeFrameRadius;
+  double? best(List<double> vs, double v) {
+    double? out;
+    var d = r;
+    for (final c in vs) {
+      if ((c - v).abs() <= d) {
+        d = (c - v).abs();
+        out = c;
+      }
+    }
+    return out;
+  }
+
+  var x = framePoint[0], y = framePoint[1];
+  final guides = <SnapGuideLine>[];
+  final bx = movesX ? best(xs, x) : null, by = movesY ? best(ys, y) : null;
+  if (bx != null) {
+    x = bx;
+    guides.add(SnapGuideLine(category: SnapCategory.edgeToEdge, a: [bx, 0], b: [bx, stageSize.height]));
+  }
+  if (by != null) {
+    y = by;
+    guides.add(SnapGuideLine(category: SnapCategory.edgeToEdge, a: [0, by], b: [stageSize.width, by]));
+  }
+  return (point: [x, y], guides: guides);
+}
+
+/// Cropping several layers at once: the handle dragged on one moves the
+/// same handle of each by the same amount on the stage, and each edge
+/// snaps on its own.
+class GroupCropDragOp implements DragOp {
+  final List<CropDragOp> ops;
+  final List<List<double>> starts;
+  final List<double> grab;
+  GroupCropDragOp._(this.ops, this.starts, this.grab);
+
+  /// `leader` is grabbed at `grabPoint` by `handle`; `others` go with it.
+  factory GroupCropDragOp.grab(Project project, Layer leader, List<Layer> others, String handle, int globalFrame,
+      List<double> grabPoint) {
+    final all = [leader, ...others];
+    final ids = {for (final l in all) l.id};
+    return GroupCropDragOp._(
+      [for (final l in all) CropDragOp(layer: l, handle: handle, exclude: ids)],
+      [for (final l in all) getCropHandles(project, l, globalFrame).screen[handle]!],
+      grabPoint,
+    );
+  }
+
+  @override
+  List<SnapGuideLine> get snapGuides => [for (final o in ops) ...o.snapGuides];
+
+  @override
+  void apply(Project project, int globalFrame, List<double> framePoint) {
+    final d = [framePoint[0] - grab[0], framePoint[1] - grab[1]];
+    for (var i = 0; i < ops.length; i++) {
+      ops[i].apply(project, globalFrame, [starts[i][0] + d[0], starts[i][1] + d[1]]);
+    }
   }
 }
 

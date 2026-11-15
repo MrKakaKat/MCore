@@ -261,7 +261,7 @@ class EffectsView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (inst.effectId == 'corner_pin') _confirmShapeButton(layer, inst, _confirmCornerPinShape),
+        if (isPinEffect(inst.effectId)) _confirmShapeButton(layer, inst, _confirmCornerPinShape),
         if (inst.effectId == 'mesh_warp') _meshWarpControls(layer, inst),
         if (inst.effectId == 'origami_fold') _origamiControls(inst),
         // colours (Outline): not animated, a palette.
@@ -770,7 +770,7 @@ class EffectsView extends StatelessWidget {
       if (range[1] - range[0] >= 360) return ParamScale.degrees;
       return ParamScale.slider(range[0], range[1]);
     }
-    if (inst.effectId == 'corner_pin' || inst.effectId == 'mesh_warp') {
+    if (isPinEffect(inst.effectId) || inst.effectId == 'mesh_warp') {
       return const ParamScale.ruler(unitsPerPixel: 1, minorTick: 10, majorTick: 50, decimals: 1);
     }
     if (inst.effectId == 'rotate_3d' && key == 'pivot') {
@@ -783,7 +783,7 @@ class EffectsView extends StatelessWidget {
   /// text layer turns the text into a vector shape (same as on the stage).
   void _beginEdit(EffectInstance inst) {
     app.pushUndo();
-    if (inst.effectId != 'corner_pin' && inst.effectId != 'mesh_warp') return;
+    if (!isPinEffect(inst.effectId) && inst.effectId != 'mesh_warp') return;
     final layer = findLayer(app.project, app.selection.selectedLayer);
     if (layer != null && layer.content.shape == 'text' && layer.effectStack.contains(inst)) {
       app.convertTextLayer(layer);

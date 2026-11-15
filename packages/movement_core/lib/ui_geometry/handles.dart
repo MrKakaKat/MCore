@@ -19,6 +19,8 @@
 /// ============================================================
 library;
 
+import '../model/prop_links.dart' show linkMovedSide;
+import '../effects/builtins/corner_pin.dart' show isPinEffect, pinEdges;
 import 'dart:math' as math;
 
 import '../core/interpolation.dart';
@@ -72,7 +74,7 @@ List<double> getAnchorLiveHandleScreen(Project project, Layer layer, int globalF
 
 EffectInstance? getCornerPinInstance(Layer layer) {
   for (final i in layer.effectStack) {
-    if (i.effectId == 'corner_pin' && i.enabled) return i;
+    if (isPinEffect(i.effectId) && i.enabled) return i;
   }
   return null;
 }
@@ -88,7 +90,7 @@ EffectInstance? getMeshWarpInstance(Layer layer) {
 /// transform box's scale/rotate corners from fighting the same spots.
 EffectInstance? getActiveMeshOrPinInstance(Layer layer) {
   for (final i in layer.effectStack) {
-    if (i.enabled && (i.effectId == 'corner_pin' || i.effectId == 'mesh_warp')) return i;
+    if (i.enabled && (isPinEffect(i.effectId) || i.effectId == 'mesh_warp')) return i;
   }
   return null;
 }
@@ -152,7 +154,7 @@ List<List<double>> _cornerCandidateVertices(Project project, Layer layer, int gl
     final projected = [for (final p in local) applyAffine(mCanvas, p)];
     return _withMidpoints(projected);
   }
-  if (deform.effectId == 'corner_pin') {
+  if (isPinEffect(deform.effectId)) {
     final corners = getCornerPinHandles(project, layer, deform, globalFrame).screen.values.toList();
     return _withMidpoints(corners);
   }
@@ -319,6 +321,33 @@ CornerPinHandles getCornerPinHandles(Project project, Layer layer, EffectInstanc
     for (final k in keys) k: applyAffine(mCanvas, [natural[k]![0] + off[k]![0], natural[k]![1] + off[k]![1]]),
   };
   return CornerPinHandles(natural: natural, mCanvas: mCanvas, screen: screen, keys: keys);
+}
+
+/// A link on one size handle (`k.to` 'scaleLeft' ...): where that handle
+/// is on `layer` (the middle of the side it moves), frame px. Null: not a
+/// size-handle link.
+List<double>? linkHandlePoint(Project project, Layer layer, PropLink k, int globalFrame) {
+  final n = linkMovedSide(k.to);
+  if (n == null) return null;
+  final c = layer.content;
+  final m = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
+  return applyAffine(m, [c.offset[0] + n[0] * c.size[0] / 2, c.offset[1] + n[1] * c.size[1] / 2]);
+}
+
+/// Edges pin: one handle in the middle of each edge (key "a|b": its two
+/// corners), frame px.
+List<({String key, String a, String b, List<double> screen})> getEdgesPinHandles(
+    Project project, Layer layer, EffectInstance inst, int globalFrame) {
+  final h = getCornerPinHandles(project, layer, inst, globalFrame);
+  return [
+    for (final (a, b) in pinEdges(h.keys))
+      (
+        key: '$a|$b',
+        a: a,
+        b: b,
+        screen: [(h.screen[a]![0] + h.screen[b]![0]) / 2, (h.screen[a]![1] + h.screen[b]![1]) / 2],
+      ),
+  ];
 }
 
 // ===== mesh-warp handles =====

@@ -112,7 +112,7 @@ EffectInstance createEffectInstance(String effectId, String id, Layer? layer) {
       : (shape == 'polygon' && layer?.content.points != null && layer!.content.points!.length <= 4)
           ? layer.content.points!.length
           : 0;
-  if (effectId == 'corner_pin' && exactCount >= 3) {
+  if ((effectId == 'corner_pin' || effectId == 'edges_pin') && exactCount >= 3) {
     for (var i = 0; i < exactCount; i++) {
       params['p$i'] = track([0.0, 0.0]);
     }

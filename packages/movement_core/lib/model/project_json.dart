@@ -754,6 +754,10 @@ Map<String, dynamic> layerToJson(Layer l) => {
         'links': [
           for (final k in l.links)
             {if (!k.enabled) 'enabled': false, 'source': k.sourceId, 'from': k.from, 'to': k.to, 'factor': k.factor, if (k.base != null) 'base': k.base,
+              if (k.mode != 'add') 'mode': k.mode,
+              if (k.baseY != null) 'baseY': k.baseY,
+              if (k.fromFrame != null) 'fromFrame': k.fromFrame,
+              if (k.untilFrame != null) 'untilFrame': k.untilFrame,
               if (k.fromSound) ...{'min': k.min, 'max': k.max, 'smooth': k.smooth}}
         ],
       if (l.cuts.isNotEmpty)
@@ -882,6 +886,10 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
             min: (k['min'] as num?)?.toDouble() ?? 0,
             max: (k['max'] as num?)?.toDouble() ?? 1,
             smooth: (k['smooth'] as num?)?.toDouble() ?? 0.3,
+            mode: k['mode'] as String? ?? 'add',
+            baseY: (k['baseY'] as num?)?.toDouble(),
+            fromFrame: (k['fromFrame'] as num?)?.toInt(),
+            untilFrame: (k['untilFrame'] as num?)?.toInt(),
           )
       ],
       cuts: [
