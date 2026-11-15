@@ -476,28 +476,25 @@ class PathStation {
   PathStation({required this.idx, required this.screen});
 }
 
+/// Where the path is drawn through: the middle of the object's box (on
+/// the stage, at `globalFrame`) - the stops sit on the same point.
+List<double> pathPointAt(Project project, Layer layer, num globalFrame) {
+  final box = pieceBoundingBox(layer);
+  final centre = [(box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2];
+  return applyAffine(toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix), centre);
+}
+
 List<PathStation> getAnchorStationsScreen(Project project, Layer layer, int globalFrame) {
-  // the keys being edited: an animation layer's sit where the object is
-  // at their frame (they add to the base).
+  // each stop where the object really is at its key (on its path: key
+  // layers, parents and all - they used to sit at the bare key value, off
+  // the path once a key layer or a moved centre came in).
   final layered = activeAnimLayerOf(layer.transform.anchor);
-  if (layered != null) {
-    return [
-      for (var idx = 0; idx < layered.track.keyframes.length; idx++)
-        () {
-          final m = getLayerStateAt(project, layer.id, layered.track.keyframes[idx].frame + layer.startFrame).matrix;
-          return PathStation(idx: idx, screen: [m[4] * stageSize.width, m[5] * stageSize.height]);
-        }()
-    ];
-  }
-  final trk = layer.transform.anchor;
-  if (!trk.spatial) return const [];
-  final result = <PathStation>[];
-  for (var idx = 0; idx < trk.keyframes.length; idx++) {
-    final k = trk.keyframes[idx];
-    final m = stationWorldMatrix(project, layer, k.value as List<double>, k.frame + layer.startFrame);
-    result.add(PathStation(idx: idx, screen: [m[4] * stageSize.width, m[5] * stageSize.height]));
-  }
-  return result;
+  final trk = layered?.track ?? layer.transform.anchor;
+  if (layered == null && !trk.spatial) return const [];
+  return [
+    for (var idx = 0; idx < trk.keyframes.length; idx++)
+      PathStation(idx: idx, screen: pathPointAt(project, layer, trk.keyframes[idx].frame + layer.startFrame)),
+  ];
 }
 
 /// The path's other stops (only to see): where the object is at the keys
@@ -513,11 +510,7 @@ List<List<double>> getOtherStationsScreen(Project project, Layer layer) {
   };
   if (active != null) frames.removeAll(active.track.keyframes.map((k) => k.frame));
   return [
-    for (final f in frames.toList()..sort())
-      () {
-        final m = getLayerStateAt(project, layer.id, f + layer.startFrame).matrix;
-        return [m[4] * stageSize.width, m[5] * stageSize.height];
-      }()
+    for (final f in frames.toList()..sort()) pathPointAt(project, layer, f + layer.startFrame)
   ];
 }
 
@@ -541,8 +534,6 @@ List<List<double>> getOtherStationsScreen(Project project, Layer layer) {
 /// whole layer - whatever moves it (keys, animation layers, parents, wiggle,
 /// pendulum,.). Empty when it doesn't move.
 List<List<double>> samplePathScreen(Project project, Layer layer, int steps) {
-  final box = pieceBoundingBox(layer);
-  final centre = [(box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2];
   final from = layer.startFrame, to = layer.startFrame + layer.durationFrames;
   // about every frame, at most 600 points.
   final n = math.max(steps, math.min(600, to - from));
@@ -550,7 +541,7 @@ List<List<double>> samplePathScreen(Project project, Layer layer, int steps) {
   var minX = double.infinity, maxX = -double.infinity, minY = double.infinity, maxY = -double.infinity;
   for (var s = 0; s <= n; s++) {
     final f = from + (to - from) * s / n;
-    final p = applyAffine(toFrameMatrix(getLayerStateAt(project, layer.id, f).matrix), centre);
+    final p = pathPointAt(project, layer, f);
     pts.add(p);
     minX = math.min(minX, p[0]);
     maxX = math.max(maxX, p[0]);

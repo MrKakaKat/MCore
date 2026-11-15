@@ -2814,6 +2814,29 @@ class AppState extends ChangeNotifier {
   /// The stage tool of the Drawing tab: 'none' | 'fill'.
   String drawTool = 'none';
 
+  // ===== multi-keys (Keyframes tab) =====
+
+  /// The selected keys (else all the layer's) made multi-keys: every
+  /// parameter keyed there. One undo step.
+  void makeSelectedMultiKeys() {
+    final l = findLayer(project, selection.selectedLayer);
+    if (l == null) return;
+    final frames = (kfSelectedFrames.isNotEmpty ? kfSelectedFrames : collectVisibleLayerKeyframeFrames(l).toSet())
+        .map((g) => g - l.startFrame)
+        .toList();
+    if (frames.isEmpty) return;
+    pushUndo();
+    final n = makeMultiKeys(project, l, frames);
+    if (n == 0) {
+      undo.discardLastUndoState();
+      _notice('Already multi-keys');
+      return;
+    }
+    _notice('$n ${n == 1 ? 'key' : 'keys'} made multi-keys');
+    clearStateCaches();
+    commitEdit();
+  }
+
   // ===== media library: recently used =====
 
   /// The media files brought in lately, newest first: path, kind ('video'

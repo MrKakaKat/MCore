@@ -195,6 +195,16 @@ class KeyframesEditorView extends StatelessWidget {
             },
             visualDensity: VisualDensity.compact,
           ),
+        // ordinary keys made multi-keys (every parameter keyed there).
+        IconButton(
+          key: const ValueKey('make-multi-keys'),
+          icon: const Icon(Icons.layers_outlined, size: 18),
+          tooltip: kfSelectedFrames.isNotEmpty
+              ? 'make the selected keys multi-keys (all parameters)'
+              : 'make all its keys multi-keys (all parameters)',
+          onPressed: app.makeSelectedMultiKeys,
+          visualDensity: VisualDensity.compact,
+        ),
         IconButton(
           icon: const Icon(Icons.copy, size: 18),
           tooltip: 'copy selected keyframes',

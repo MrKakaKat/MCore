@@ -474,6 +474,33 @@ void keyAllTracks(Project project, Layer layer, int localFrame) {
   if (order && activeAnimLayer > 0) packOrderLayer(layer, activeAnimLayer);
 }
 
+/// Ordinary keys made multi-keys: at each of `localFrames` (local) where
+/// some parameter has a key, every parameter gets one, at the value it
+/// has there - nothing moves at those frames. Returns how many frames
+/// changed. (A parameter keyed on both sides of such a frame now passes
+/// through a key there: its ease is split in two.)
+int makeMultiKeys(Project project, Layer layer, Iterable<int> localFrames) {
+  var made = 0;
+  for (final f in {...localFrames}) {
+    if (allTracksKeyedAt(layer, f)) continue;
+    // the values first (before any key changes another's curve).
+    final values = <Track, dynamic>{};
+    visitActiveLayerTracks(layer, (trk) {
+      if (trk.keyframes.any((k) => k.frame == f)) return;
+      final v = evaluateTrackOwn(project, trk, f.toDouble(), layer);
+      values[trk] = v is List ? List<double>.from(v) : v;
+    });
+    values.forEach((trk, v) {
+      trk.keyframes
+        ..add(Keyframe(frame: f, value: v, temporal: newKeyEasing()))
+        ..sort((a, b) => a.frame.compareTo(b.frame));
+      if (trk.spatial) autoComputeTangents(trk);
+    });
+    made++;
+  }
+  return made;
+}
+
 /// Removes every active track's keyframe at `localFrame`.
 void unkeyAllTracks(Layer layer, int localFrame) {
   visitActiveLayerTracks(layer, (trk) {
