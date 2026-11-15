@@ -80,8 +80,7 @@ class _Frame {
   /// Bends that give under a push (bend's `react`): angle (degrees) and
   /// its speed (degrees per frame), springing back to 0.
   final Map<String, List<double>> bend;
-  _Frame(this.induced, this.keyed, this.armed, this.touching, this.contacts, this.normals, this.sig,
-      [this.velocity = const {}, this.bend = const {}]);
+  _Frame(this.induced, this.keyed, this.armed, this.touching, this.contacts, this.normals, this.sig, [this.velocity = const {}, this.bend = const {}]);
 }
 
 class PhysicsWorld {
@@ -90,8 +89,7 @@ class PhysicsWorld {
 
   /// Where contours come from (the app gives the extracted ones for
   /// pictures); defaults to vector geometry.
-  ContourRingsProvider rings = (p, l, f) =>
-      isNodeLine(l.content) ? lineCollisionRings(l.content, frame: layerLocalFrame(l, f)) : layerVectorRings(p, l, f);
+  ContourRingsProvider rings = (p, l, f) => isNodeLine(l.content) ? lineCollisionRings(l.content, frame: layerLocalFrame(l, f)) : layerVectorRings(p, l, f);
 
   /// Solver iterations per (sub)step.
   int iterations = 8;
@@ -317,7 +315,10 @@ class PhysicsWorld {
           ]
       ]);
 
-  List<Layer> get _colliders => [for (final l in project.layers) if (l.physics.collide) l];
+  List<Layer> get _colliders => [
+        for (final l in project.layers)
+          if (l.physics.collide) l
+      ];
 
   String _frameSig(int f) {
     final b = StringBuffer();
@@ -337,7 +338,8 @@ class PhysicsWorld {
   _Frame _solveFrame(int f) {
     final prev = f > 0 ? _frames[f - 1] : null;
     final induced = <String, List<double>>{
-      if (prev != null) for (final e in prev.induced.entries) e.key: [...e.value],
+      if (prev != null)
+        for (final e in prev.induced.entries) e.key: [...e.value],
     };
     final keyedT = <String, List<double>>{};
     final armed = <String>{};
@@ -399,6 +401,7 @@ class PhysicsWorld {
       b[0] += dAng;
       b[1] += dAng;
     }
+
     // Grows to hold: `b` pressed along `n` (unit, outward from what
     // presses) by `d` at `contact` grows about its pivot so that point
     // moves out by `d`. False when growing can't move it that way (the
@@ -463,8 +466,7 @@ class PhysicsWorld {
           ..[2] = cs * c - sn * d
           ..[3] = sn * c + cs * d;
       }
-      final body = _Body(l, lin, hull, prev?.keyed[l.id] ?? [m[4], m[5]], [m[4], m[5]],
-          prevOffset: prev?.induced[l.id] ?? const [0.0, 0.0], parts: _partsOf(l.id, r));
+      final body = _Body(l, lin, hull, prev?.keyed[l.id] ?? [m[4], m[5]], [m[4], m[5]], prevOffset: prev?.induced[l.id] ?? const [0.0, 0.0], parts: _partsOf(l.id, r));
       // inertia: last frame's push carries on, a little slower.
       final k = l.physics.immovable ? 0.0 : l.physics.inertia.clamp(0.0, 0.99);
       final v = prev?.velocity[l.id];
@@ -566,75 +568,78 @@ class PhysicsWorld {
                 }
                 continue;
               }
-              final hit = _contact(A, offA, B, offB, gap, normals[key], A.layer.id.compareTo(B.layer.id) < 0);
-              if (hit == null) continue;
-              // turning into an Immovable with rotate logic 'size': it
-              // shrinks instead of being pushed off.
-              final shrinkB = A.layer.physics.immovable && B.layer.physics.rotateLogic == 'size' && !B.layer.physics.immovable;
-              final shrinkA = B.layer.physics.immovable && A.layer.physics.rotateLogic == 'size' && !A.layer.physics.immovable;
-              if (shrinkA || shrinkB) {
-                final body = shrinkB ? B : A, off = shrinkB ? offB : offA;
-                // toward the Immovable: -n for B, +n for A.
-                final dir = shrinkB ? [-hit.$1[0], -hit.$1[1]] : hit.$1;
-                final reach = body.reach(dir);
-                if (reach > 1e-6) {
-                  final k = ((reach - hit.$2) / reach).clamp(0.2, 1.0);
-                  body.rescale(k);
-                  off[2] = (off.length > 2 ? off[2] : 1.0) * k;
-                  moved = true;
-                  if (s == steps) {
-                    touching
-                      ..add(A.layer.id)
-                      ..add(B.layer.id);
-                    againstFixed.add(body.layer.id);
-                    contacts.add(PhysicsContact(A.layer.id, B.layer.id, A.support(hit.$1, offA), hit.$1));
+              // one growing to hold: each wall on its own (a U's two walls
+              // both widen it); else the pushes added up (see _contactParts).
+              final aFirst = A.layer.id.compareTo(B.layer.id) < 0;
+              final hits = (A.layer.physics.grows || B.layer.physics.grows) && (A.multi || B.multi)
+                  ? _contactWays(A, offA, B, offB, gap, normals[key], aFirst)
+                  : [_contact(A, offA, B, offB, gap, normals[key], aFirst)].whereType<(List<double>, double)>().toList();
+              for (final hit in hits) {
+                // turning into an Immovable with rotate logic 'size': it
+                // shrinks instead of being pushed off.
+                final shrinkB = A.layer.physics.immovable && B.layer.physics.rotateLogic == 'size' && !B.layer.physics.immovable;
+                final shrinkA = B.layer.physics.immovable && A.layer.physics.rotateLogic == 'size' && !A.layer.physics.immovable;
+                if (shrinkA || shrinkB) {
+                  final body = shrinkB ? B : A, off = shrinkB ? offB : offA;
+                  // toward the Immovable: -n for B, +n for A.
+                  final dir = shrinkB ? [-hit.$1[0], -hit.$1[1]] : hit.$1;
+                  final reach = body.reach(dir);
+                  if (reach > 1e-6) {
+                    final k = ((reach - hit.$2) / reach).clamp(0.2, 1.0);
+                    body.rescale(k);
+                    off[2] = (off.length > 2 ? off[2] : 1.0) * k;
+                    moved = true;
+                    if (s == steps) {
+                      touching
+                        ..add(A.layer.id)
+                        ..add(B.layer.id);
+                      againstFixed.add(body.layer.id);
+                      contacts.add(PhysicsContact(A.layer.id, B.layer.id, A.support(hit.$1, offA), hit.$1));
+                    }
+                    continue;
                   }
-                  continue;
                 }
-              }
-              // soft: a part of the depth each frame (deeper: more), once.
-              final soft = math.max(A.layer.physics.softness, B.layer.physics.softness).clamp(0.0, 0.95);
-              if (soft > 0 && it > 0) continue;
-              // kept for the next steps / frames, from the pair's first id.
-              normals[key] = A.layer.id.compareTo(B.layer.id) < 0 ? hit.$1 : [-hit.$1[0], -hit.$1[1]];
-              // one that grows to hold takes its share by growing - even
-              // Immovable.
-              final wA = A.layer.physics.immovable && !A.layer.physics.grows ? double.infinity : A.layer.physics.weight;
-              final wB = B.layer.physics.immovable && !B.layer.physics.grows ? double.infinity : B.layer.physics.weight;
-              if (wA.isInfinite && wB.isInfinite) continue;
-              // A moves by B's share, B by A's (inverse weight).
-              final shareA = wA.isInfinite ? 0.0 : (wB.isInfinite ? 1.0 : wB / (wA + wB));
-              final shareB = 1 - shareA;
-              final n = hit.$1;
-              var d = hit.$2 * (1 - soft);
-              // soft never lets them pass through: at most a third of the
-              // smaller one stays sunk in.
-              if (soft > 0) {
-                final maxSink = math.min(A.minSize, B.minSize) / 3;
-                if (hit.$2 - d > maxSink) d = hit.$2 - maxSink;
-              }
-              // where they meet: the deepest point of each into the other.
-              final atB = A.support(n, offA), atA = B.support([-n[0], -n[1]], offB);
-              if (shareA > 0 &&
-                  !grow(A, offA, [-n[0], -n[1]], d * shareA, atA) &&
-                  !A.layer.physics.immovable) {
-                push(A.layer.id, offA, -n[0] * d * shareA, -n[1] * d * shareA);
-                spin(A, offA, [-n[0] * d * shareA, -n[1] * d * shareA], atA);
-              }
-              if (shareB > 0 && !grow(B, offB, n, d * shareB, atB) && !B.layer.physics.immovable) {
-                push(B.layer.id, offB, n[0] * d * shareB, n[1] * d * shareB);
-                spin(B, offB, [n[0] * d * shareB, n[1] * d * shareB], atB);
-              }
-              moved = true;
-              if (s == steps) {
-                touching
-                  ..add(A.layer.id)
-                  ..add(B.layer.id);
-                if (A.layer.physics.immovable) againstFixed.add(B.layer.id);
-                if (B.layer.physics.immovable) againstFixed.add(A.layer.id);
-                final blocked = (A.layer.pendulum.enabled && B.layer.physics.immovable) ||
-                    (B.layer.pendulum.enabled && A.layer.physics.immovable);
-                contacts.add(PhysicsContact(A.layer.id, B.layer.id, A.support(n, offA), n, blocked: blocked));
+                // soft: a part of the depth each frame (deeper: more), once.
+                final soft = math.max(A.layer.physics.softness, B.layer.physics.softness).clamp(0.0, 0.95);
+                if (soft > 0 && it > 0) continue;
+                // kept for the next steps / frames, from the pair's first id.
+                normals[key] = A.layer.id.compareTo(B.layer.id) < 0 ? hit.$1 : [-hit.$1[0], -hit.$1[1]];
+                // one that grows to hold takes its share by growing - even
+                // Immovable.
+                final wA = A.layer.physics.immovable && !A.layer.physics.grows ? double.infinity : A.layer.physics.weight;
+                final wB = B.layer.physics.immovable && !B.layer.physics.grows ? double.infinity : B.layer.physics.weight;
+                if (wA.isInfinite && wB.isInfinite) continue;
+                // A moves by B's share, B by A's (inverse weight).
+                final shareA = wA.isInfinite ? 0.0 : (wB.isInfinite ? 1.0 : wB / (wA + wB));
+                final shareB = 1 - shareA;
+                final n = hit.$1;
+                var d = hit.$2 * (1 - soft);
+                // soft never lets them pass through: at most a third of the
+                // smaller one stays sunk in.
+                if (soft > 0) {
+                  final maxSink = math.min(A.minSize, B.minSize) / 3;
+                  if (hit.$2 - d > maxSink) d = hit.$2 - maxSink;
+                }
+                // where they meet: the deepest point of each into the other.
+                final atB = A.support(n, offA), atA = B.support([-n[0], -n[1]], offB);
+                if (shareA > 0 && !grow(A, offA, [-n[0], -n[1]], d * shareA, atA) && !A.layer.physics.immovable) {
+                  push(A.layer.id, offA, -n[0] * d * shareA, -n[1] * d * shareA);
+                  spin(A, offA, [-n[0] * d * shareA, -n[1] * d * shareA], atA);
+                }
+                if (shareB > 0 && !grow(B, offB, n, d * shareB, atB) && !B.layer.physics.immovable) {
+                  push(B.layer.id, offB, n[0] * d * shareB, n[1] * d * shareB);
+                  spin(B, offB, [n[0] * d * shareB, n[1] * d * shareB], atB);
+                }
+                moved = true;
+                if (s == steps) {
+                  touching
+                    ..add(A.layer.id)
+                    ..add(B.layer.id);
+                  if (A.layer.physics.immovable) againstFixed.add(B.layer.id);
+                  if (B.layer.physics.immovable) againstFixed.add(A.layer.id);
+                  final blocked = (A.layer.pendulum.enabled && B.layer.physics.immovable) || (B.layer.pendulum.enabled && A.layer.physics.immovable);
+                  contacts.add(PhysicsContact(A.layer.id, B.layer.id, A.support(n, offA), n, blocked: blocked));
+                }
               }
             }
           }
@@ -649,9 +654,7 @@ class PhysicsWorld {
           if (!armed.contains(_pairKey(A.layer.id, B.layer.id))) continue;
           final gap = math.max(A.layer.physics.gap, B.layer.physics.gap) + 0.5;
           final inner = _innerPair(A, induced[A.layer.id]!, B, induced[B.layer.id]!);
-          final touches = inner != null
-              ? _inner(inner.$1, inner.$2, inner.$3, inner.$4, gap) != null
-              : _sat(A, induced[A.layer.id]!, B, induced[B.layer.id]!, gap) != null;
+          final touches = inner != null ? _inner(inner.$1, inner.$2, inner.$3, inner.$4, gap) != null : _sat(A, induced[A.layer.id]!, B, induced[B.layer.id]!, gap) != null;
           if (touches) {
             touching
               ..add(A.layer.id)
@@ -685,8 +688,7 @@ class PhysicsWorld {
     // pairs stay armed while both exist (the ones not checked this frame
     // - a layer out of range - drop).
     final velocity = <String, List<double>>{
-      for (final e in induced.entries)
-        e.key: [e.value[0] - (prev?.induced[e.key]?[0] ?? 0), e.value[1] - (prev?.induced[e.key]?[1] ?? 0)]
+      for (final e in induced.entries) e.key: [e.value[0] - (prev?.induced[e.key]?[0] ?? 0), e.value[1] - (prev?.induced[e.key]?[1] ?? 0)]
     };
     return _Frame(induced, keyedT, armed, touching, contacts, normals, _frameSig(f), velocity, bend);
   }
@@ -781,14 +783,12 @@ class PhysicsWorld {
   /// the pair was still apart on a frame before, the latest to close
   /// (the face actually hit); exact ties go to the axis closest to the
   /// relative motion, then to x.
-  (List<double>, double)? _contact(
-      _Body a, List<double> offA, _Body b, List<double> offB, double gap, List<double>? stored, bool aFirst) {
+  (List<double>, double)? _contact(_Body a, List<double> offA, _Body b, List<double> offB, double gap, List<double>? stored, bool aFirst) {
     if (a.multi || b.multi) return _contactParts(a, offA, b, offB, gap, stored, aFirst);
     final axes = _overlaps(a.world, offA, b.world, offB, gap);
     if (axes == null) return null;
     final ca = a.centre(offA), cb = b.centre(offB);
-    List<double> orient(List<double> n) =>
-        (cb[0] - ca[0]) * n[0] + (cb[1] - ca[1]) * n[1] < 0 ? [-n[0], -n[1]] : n;
+    List<double> orient(List<double> n) => (cb[0] - ca[0]) * n[0] + (cb[1] - ca[1]) * n[1] < 0 ? [-n[0], -n[1]] : n;
     // the axis of least penetration.
     var least = axes.first;
     for (final x in axes) {
@@ -839,9 +839,7 @@ class PhysicsWorld {
   /// Every separating-axis candidate (edge normals of both hulls) with
   /// its overlap (+ gap); null as soon as one separates them, unless
   /// `all` (then separated axes come back with their negative overlap).
-  static List<(List<double>, double)>? _overlaps(
-      List<List<double>> pa, List<double> offA, List<List<double>> pb, List<double> offB, double gap,
-      {bool all = false}) {
+  static List<(List<double>, double)>? _overlaps(List<List<double>> pa, List<double> offA, List<List<double>> pb, List<double> offB, double gap, {bool all = false}) {
     final out = <(List<double>, double)>[];
     for (final poly in [pa, pb]) {
       for (var i = 0; i < poly.length; i++) {
@@ -902,17 +900,45 @@ class PhysicsWorld {
   /// outline's own edges (never a seam between two parts); a touching
   /// pair keeps its stored normal unless another face is clearly
   /// shallower, as for whole hulls.
-  static (List<double>, double)? _contactParts(
-      _Body a, List<double> offA, _Body b, List<double> offB, double gap, List<double>? stored, bool aFirst) {
-    (List<double>, double)? best;
+  static (List<double>, double)? _contactParts(_Body a, List<double> offA, _Body b, List<double> offB, double gap, List<double>? stored, bool aFirst) {
+    // every place they meet pushes (a U's two walls on what is in its
+    // notch): the pushes add up - from both sides they cancel, so it is
+    // squeezed where it is, never shot out through one wall.
+    final ways = _contactWays(a, offA, b, offB, gap, stored, aFirst);
+    if (ways.isEmpty) return null;
+    if (ways.length == 1) return ways.single;
+    var nx = 0.0, ny = 0.0;
+    for (final w in ways) {
+      nx += w.$1[0] * w.$2;
+      ny += w.$1[1] * w.$2;
+    }
+    final l = math.sqrt(nx * nx + ny * ny);
+    if (l < 1e-6) return null; // squeezed evenly: it stays
+    return ([nx / l, ny / l], l);
+  }
+
+  /// Where two (concave) bodies meet: one contact per way they push
+  /// (the parts of one wall: its deepest).
+  static List<(List<double>, double)> _contactWays(_Body a, List<double> offA, _Body b, List<double> offB, double gap, List<double>? stored, bool aFirst) {
+    final hits = <(List<double>, double)>[];
     for (final pa in a.worldParts) {
       for (final pb in b.worldParts) {
         if (!_boxesMeet(pa.points, offA, pb.points, offB, gap)) continue;
         final hit = _partContact(pa, offA, pb, offB, gap, stored == null ? null : (aFirst ? stored : [-stored[0], -stored[1]]));
-        if (hit != null && (best == null || hit.$2 > best.$2)) best = hit;
+        if (hit != null) hits.add(hit);
       }
     }
-    return best;
+    // the same wall split in parts: its deepest.
+    final ways = <(List<double>, double)>[];
+    for (final h in hits) {
+      final i = ways.indexWhere((w) => w.$1[0] * h.$1[0] + w.$1[1] * h.$1[1] > 0.999);
+      if (i < 0) {
+        ways.add(h);
+      } else if (h.$2 > ways[i].$2) {
+        ways[i] = h;
+      }
+    }
+    return ways;
   }
 
   static (List<double>, double)? _satParts(_Body a, List<double> offA, _Body b, List<double> offB, double gap) {
@@ -937,8 +963,7 @@ class PhysicsWorld {
   /// SAT between two convex parts: null when apart, else the normal
   /// (A to B) and depth - least penetration over the outline's edges
   /// (seams only if nothing else), or the stored normal while it holds.
-  static (List<double>, double)? _partContact(
-      ConvexPart pa, List<double> offA, ConvexPart pb, List<double> offB, double gap, List<double>? stored) {
+  static (List<double>, double)? _partContact(ConvexPart pa, List<double> offA, ConvexPart pb, List<double> offB, double gap, List<double>? stored) {
     (List<double>, double)? least, leastAny;
     for (final (poly, edges) in [(pa.points, pa.boundary), (pb.points, pb.boundary)]) {
       for (var i = 0; i < poly.length; i++) {
@@ -956,14 +981,16 @@ class PhysicsWorld {
       }
     }
     var hit = least ?? leastAny!;
-    if (stored != null) {
+    // from A's part toward B's.
+    double cx(List<List<double>> poly, int k) => poly.map((p) => p[k]).reduce((a, b) => a + b) / poly.length;
+    final dx = cx(pb.points, 0) + offB[0] - cx(pa.points, 0) - offA[0], dy = cx(pb.points, 1) + offB[1] - cx(pa.points, 1) - offA[1];
+    // the pair's kept normal - only where it points from this part toward
+    // the other (a U's other wall pushes the other way).
+    if (stored != null && dx * stored[0] + dy * stored[1] > 0) {
       final x = _project(pa.points, stored[0], stored[1], offA), y = _project(pb.points, stored[0], stored[1], offB);
       final keep = math.min(x.$2, y.$2) - math.max(x.$1, y.$1) + gap;
       if (keep > 1e-9 && !(hit.$2 < 0.8 * keep)) return (stored, keep);
     }
-    // from A's part toward B's.
-    double cx(List<List<double>> poly, int k) => poly.map((p) => p[k]).reduce((a, b) => a + b) / poly.length;
-    final dx = cx(pb.points, 0) + offB[0] - cx(pa.points, 0) - offA[0], dy = cx(pb.points, 1) + offB[1] - cx(pa.points, 1) - offA[1];
     if (dx * hit.$1[0] + dy * hit.$1[1] < 0) hit = ([-hit.$1[0], -hit.$1[1]], hit.$2);
     return hit;
   }
@@ -1083,16 +1110,14 @@ class _Body {
       worldParts = [
         for (final p in ps)
           ConvexPart([
-            for (final q in p.points)
-              [linear[0] * q[0] + linear[2] * q[1] + t[0], linear[1] * q[0] + linear[3] * q[1] + t[1]]
+            for (final q in p.points) [linear[0] * q[0] + linear[2] * q[1] + t[0], linear[1] * q[0] + linear[3] * q[1] + t[1]]
           ], p.boundary)
       ];
     }
   }
 
   List<List<double>> placedAt(List<double> t) => [
-        for (final p in hull)
-          [linear[0] * p[0] + linear[2] * p[1] + t[0], linear[1] * p[0] + linear[3] * p[1] + t[1]]
+        for (final p in hull) [linear[0] * p[0] + linear[2] * p[1] + t[0], linear[1] * p[0] + linear[3] * p[1] + t[1]]
       ];
 
   List<double> centre(List<double> off) {
@@ -1124,8 +1149,7 @@ class _Body {
 List<List<double>> convexHull(List<List<double>> points) {
   final pts = [...points]..sort((a, b) => a[0] != b[0] ? a[0].compareTo(b[0]) : a[1].compareTo(b[1]));
   if (pts.length < 3) return pts;
-  double cross(List<double> o, List<double> a, List<double> b) =>
-      (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  double cross(List<double> o, List<double> a, List<double> b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
   final lower = <List<double>>[], upper = <List<double>>[];
   for (final p in pts) {
     while (lower.length >= 2 && cross(lower[lower.length - 2], lower.last, p) <= 0) {
@@ -1149,8 +1173,7 @@ PhysicsWorld physicsWorldOf(Project project) => _worlds[project] ??= PhysicsWorl
 
 /// Wires the state evaluation to the physics offsets (once).
 void enablePhysicsOffsets() {
-  bendCollisionLookup ??= (project, layer, frame) =>
-      layer.physics.collide ? (_worlds[project]?.bendAt(layer.id, frame) ?? 0) : 0;
+  bendCollisionLookup ??= (project, layer, frame) => layer.physics.collide ? (_worlds[project]?.bendAt(layer.id, frame) ?? 0) : 0;
   physicsOffsetLookup ??= (project, layerId, frame) {
     final layer = findLayer(project, layerId);
     if (layer == null || !layer.physics.collide) return null;
