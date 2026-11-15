@@ -722,6 +722,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.mirrorProbe) 'mirrorProbe': true,
       if (l.dig) 'dig': true,
       if (l.lens.enabled) 'lens': l.lens.toJson(),
+      if (l.stackKeys.isNotEmpty) 'stackKeys': [for (final k in l.stackKeys) [k.frame, k.position]],
       if (l.editAll) 'editAll': true,
       if (l.inheritRounding) 'inheritRounding': true,
       if (l.pathOffset[0] != 0 || l.pathOffset[1] != 0) 'pathOffset': l.pathOffset,
@@ -932,6 +933,10 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
       ..mirrorProbe = j['mirrorProbe'] == true
       ..dig = j['dig'] == true
       ..lens = j['lens'] is Map ? LensSettings.fromJson(j['lens'] as Map<String, dynamic>) : LensSettings()
+      ..stackKeys = [
+        for (final k in (j['stackKeys'] as List? ?? const []))
+          StackKey(((k as List)[0] as num).toInt(), (k[1] as num).toInt())
+      ]
       ..editAll = j['editAll'] as bool? ?? false
       ..inheritRounding = j['inheritRounding'] as bool? ?? false
       ..pathOffset = (j['pathOffset'] as List?)?.map((v) => (v as num).toDouble()).toList() ?? [0, 0]

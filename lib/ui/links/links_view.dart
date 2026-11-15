@@ -58,12 +58,26 @@ class LinksView extends StatelessWidget {
                 label: const Text('Add'),
                 onPressed: () => set(() => layer.links.add(PropLink())),
               ),
+              // a copied link: onto this layer.
+              if (app.copiedLink != null && !app.copiedLink!.fromSound)
+                IconButton(
+                  key: const ValueKey('link-paste'),
+                  icon: const Icon(Icons.content_paste, size: 18),
+                  tooltip: 'paste the copied link',
+                  onPressed: () {
+                    if (!app.pasteLink(layer.id)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('This would make layers depend on each other in a circle')));
+                    }
+                  },
+                ),
             ]),
             const Hint('One property of this layer moves with one property of another layer - its change since '
                 'this layer starts, times the factor. A linked layer can drive the next one: a chain. '
                 '"Follows it": like parenting for one property - it moves as far as the other object does, '
                 'along its own axis only. "Works": the time it works in.'),
-            for (var i = 0; i < layer.links.length; i++)
+            // the newest first.
+            for (var i = layer.links.length - 1; i >= 0; i--)
               if (!layer.links[i].fromSound) () {
               final k = layer.links[i];
               return Card(
@@ -102,6 +116,12 @@ class LinksView extends StatelessWidget {
                             });
                           },
                         ),
+                      ),
+                      IconButton(
+                        key: ValueKey('link-copy-$i'),
+                        icon: const Icon(Icons.copy, size: 16),
+                        tooltip: 'copy this link',
+                        onPressed: () => app.copyLink(k),
                       ),
                       IconButton(
                         icon: const Icon(Icons.close, size: 16),
@@ -241,11 +261,18 @@ class LinksView extends StatelessWidget {
               : () => set(() => layer.links.add(PropLink(
                   from: 'sound', to: 'scaleX', sourceId: sounds.first.id, min: defaults['scaleX']!.$1, max: defaults['scaleX']!.$2))),
         ),
+        if (app.copiedLink != null && app.copiedLink!.fromSound)
+          IconButton(
+            key: const ValueKey('sound-link-paste'),
+            icon: const Icon(Icons.content_paste, size: 18),
+            tooltip: 'paste the copied link',
+            onPressed: () => app.pasteLink(layer.id),
+          ),
       ]),
       Hint(sounds.isEmpty
           ? 'Add a sound to the project first.'
           : 'How loud the sound is moves a property: silent gives "quiet", loudest gives "loud" (added to its own value).'),
-      for (var i = 0; i < layer.links.length; i++)
+      for (var i = layer.links.length - 1; i >= 0; i--)
         if (layer.links[i].fromSound) () {
           final k = layer.links[i];
           return Card(
@@ -265,6 +292,12 @@ class LinksView extends StatelessWidget {
                       items: [for (final l in sounds) DropdownMenuItem<String?>(value: l.id, child: Text(l.name, overflow: TextOverflow.ellipsis))],
                       onChanged: (id) => set(() => k.sourceId = id),
                     ),
+                  ),
+                  IconButton(
+                    key: ValueKey('sound-link-copy-$i'),
+                    icon: const Icon(Icons.copy, size: 16),
+                    tooltip: 'copy this link',
+                    onPressed: () => app.copyLink(k),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, size: 16),

@@ -36,9 +36,29 @@ double _own(Project project, Layer l, String prop, num globalFrame) {
 double linkedPropAt(Project project, Layer l, String prop, num globalFrame, [Set<String>? seen]) =>
     _own(project, l, prop, globalFrame) + linkOffset(project, l, prop, globalFrame, seen);
 
+/// While true, links work at every frame (their from / until left out) -
+/// for linkPreviewOutline.
+bool _ignoreLinkRanges = false;
+
+/// Whether one of `layer`'s links is outside its time at `globalFrame`.
+bool linkOutOfRange(Layer layer, num globalFrame) => layer.links.any((k) =>
+    k.enabled &&
+    k.sourceId != null &&
+    ((k.fromFrame != null && globalFrame < k.fromFrame!) || (k.untilFrame != null && globalFrame > k.untilFrame!)));
+
+/// What `layer`'s links would add to `prop` at `globalFrame` if each
+/// worked then (outside its time too), minus what they add now.
+double linkOffsetIfWorking(Project project, Layer layer, String prop, num globalFrame) {
+  _ignoreLinkRanges = true;
+  final would = linkOffset(project, layer, prop, globalFrame);
+  _ignoreLinkRanges = false;
+  return would - linkOffset(project, layer, prop, globalFrame);
+}
+
 /// What `layer`'s links add to `prop` at `globalFrame` (0 without any).
 double linkOffset(Project project, Layer layer, String prop, num globalFrame, [Set<String>? seen]) {
   if (layer.links.isEmpty) return 0;
+  final ignoreRange = _ignoreLinkRanges;
   final s = seen ?? <String>{};
   if (!s.add(layer.id)) return 0; // a circle (refused when made)
   var sum = 0.0;
@@ -48,7 +68,7 @@ double linkOffset(Project project, Layer layer, String prop, num globalFrame, [S
     if (src == null) continue;
     // its time: before it nothing, after it what it added at its end.
     num t = globalFrame;
-    final a = k.fromFrame, b = k.untilFrame;
+    final a = ignoreRange ? null : k.fromFrame, b = ignoreRange ? null : k.untilFrame;
     if (a != null && t < a) {
       if (k.fromSound) continue;
       t = a;
@@ -76,7 +96,7 @@ double linkOffset(Project project, Layer layer, String prop, num globalFrame, [S
 /// start, else the base pinned when it was made, else the layer's start.
 double _change(Project project, Layer layer, PropLink k, Layer src, String prop, double? base, num t, Set<String> seen) {
   final now = linkedPropAt(project, src, prop, t, {...seen});
-  final a = k.fromFrame;
+  final a = _ignoreLinkRanges ? null : k.fromFrame;
   final then = a != null
       ? linkedPropAt(project, src, prop, a, {...seen})
       : base ?? linkedPropAt(project, src, prop, layer.startFrame, {...seen});

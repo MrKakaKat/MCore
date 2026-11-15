@@ -143,10 +143,42 @@ Map<String, List<KeySpan>> keyDetailSpans(Layer layer) {
     if (frames.length < 2) return;
     final row = out.putIfAbsent(keyDetailTabOf(name), () => []);
     for (var i = 0; i < frames.length - 1; i++) {
+      // nothing changes between them: no line joins them.
+      if (!keysChangeBetween(trk, frames[i], frames[i + 1])) continue;
       row.add(KeySpan(name, frames[i], frames[i + 1]));
     }
   });
   return out;
+}
+
+/// Whether `trk` changes between its keys at local frames `a` and `b`:
+/// a key there (its own or a free move's point) holds another value, or
+/// the way between them bends (a path's handles).
+bool keysChangeBetween(Track trk, int a, int b) {
+  final ks = trk.keyframes.where((k) => k.frame >= a && k.frame <= b).toList();
+  if (ks.length < 2) return false;
+  final v0 = ks.first.value;
+  for (final k in ks) {
+    if (!_sameValue(k.value, v0)) return true;
+    final t = k.spatialTangent;
+    // only the handles pointing into the stretch count.
+    if ((k.frame > a && t.inTan.any((x) => x.abs() > 1e-9)) || (k.frame < b && t.outTan.any((x) => x.abs() > 1e-9))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool _sameValue(Object? x, Object? y) {
+  if (x is num && y is num) return (x - y).abs() < 1e-9;
+  if (x is List && y is List) {
+    if (x.length != y.length) return false;
+    for (var i = 0; i < x.length; i++) {
+      if (!_sameValue(x[i], y[i])) return false;
+    }
+    return true;
+  }
+  return x == y;
 }
 
 /// Deletes the keys at local frames `a` and `b` (the two ends of a

@@ -758,6 +758,17 @@ void _paintPropLinks(ui.Canvas canvas, Project project, int globalFrame, double 
     ..style = ui.PaintingStyle.stroke
     ..strokeWidth = 1.5 * inv;
   ui.Offset at(LayerState st) => ui.Offset(st.matrix[4] * stageSize.width, st.matrix[5] * stageSize.height);
+  // a link outside its time: an area where the layer would be (and its
+  // size) if it worked, following its source as it is now - as masks
+  // show their areas.
+  for (final layer in project.layers) {
+    if (layer.links.isEmpty) continue;
+    final pts = linkPreviewOutline(project, layer, globalFrame);
+    if (pts == null) continue;
+    final area = ui.Path()..addPolygon([for (final p in pts) ui.Offset(p[0], p[1])], true);
+    canvas.drawPath(area, ui.Paint()..color = _propLinkColor.withOpacity(0.18));
+    canvas.drawPath(area, ring);
+  }
   for (final layer in project.layers) {
     for (final k in layer.links) {
       if (!k.enabled || k.sourceId == null) continue;
@@ -782,7 +793,8 @@ void _paintPropLinks(ui.Canvas canvas, Project project, int globalFrame, double 
       if (h != null) {
         final hp = ui.Offset(h[0], h[1]);
         _dashedLine(canvas, p, hp, line, inv);
-        canvas.drawRect(ui.Rect.fromCenter(center: hp, width: 8 * inv, height: 8 * inv), ring);
+        // around the handle's circle (radius 5), touching its outline.
+        canvas.drawRect(ui.Rect.fromCenter(center: hp, width: 14 * inv, height: 14 * inv), ring);
       }
     }
   }

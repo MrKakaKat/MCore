@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
+import 'stack_order_folder.dart';
 import 'add_layer_dialog.dart';
 import 'project_ref_ui.dart';
 
@@ -97,6 +98,8 @@ class LayerPanelView extends StatelessWidget {
                 ]),
               ),
             ),
+            // keys of the order on the stage (a layer jumps above / below).
+            StackOrderFolder(app: app),
             ],
           ),
           // (drag-to-reorder via the colored circle) - onReorder converts

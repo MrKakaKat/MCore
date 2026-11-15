@@ -73,6 +73,8 @@ export 'model/layer_edit.dart';
 export 'model/layer_ops.dart';
 export 'model/project.dart';
 export 'model/prop_links.dart';
+export 'model/stack_order.dart';
+export 'model/link_preview.dart';
 export 'model/project_json.dart';
 export 'model/project_ref.dart';
 export 'model/line_path.dart';

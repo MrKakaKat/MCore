@@ -491,6 +491,23 @@ class CanvasRenderer implements Renderer {
   @override
   void renderFrame(dynamic projectArg, int frame, {bool clipToFrame = true, void Function(ui.Canvas canvas)? underlay}) {
     final project = projectArg as Project;
+    // order on the stage keyed (a layer jumps above / below others): drawn
+    // in that order this frame; the list itself stays as it is.
+    final order = stackOrderAt(project, frame);
+    if (identical(order, project.layers)) {
+      _renderFrame(project, frame, clipToFrame: clipToFrame, underlay: underlay);
+      return;
+    }
+    final list = project.layers;
+    project.layers = order;
+    try {
+      _renderFrame(project, frame, clipToFrame: clipToFrame, underlay: underlay);
+    } finally {
+      project.layers = list;
+    }
+  }
+
+  void _renderFrame(Project project, int frame, {bool clipToFrame = true, void Function(ui.Canvas canvas)? underlay}) {
     _radiiProject = project;
     _radiiFrame = frame;
     // contour physics: baked up to this frame, a little per render (the

@@ -2407,6 +2407,48 @@ class AppState extends ChangeNotifier {
   }
 
   /// The copy-effect clipboard (one Effects-list entry as JSON).
+  /// Order on the stage: layer `layerId` stands at `position` (1: on top)
+  /// from the playhead on - a key. One undo step.
+  void addStackKey(String layerId, int position) {
+    final l = findLayer(project, layerId);
+    if (l == null) return;
+    pushUndo();
+    setStackKey(l, currentFrame - l.startFrame, position.clamp(1, project.layers.length));
+    commitEdit();
+  }
+
+  /// Takes away layer `layerId`'s order key at local frame `frame`.
+  void removeStackKey(String layerId, int frame) {
+    final l = findLayer(project, layerId);
+    if (l == null) return;
+    pushUndo();
+    l.stackKeys.removeWhere((k) => k.frame == frame);
+    commitEdit();
+  }
+
+  /// Links tab: a link's settings copied (source, what, kind, factor,
+  /// time) to paste onto another layer.
+  PropLink? copiedLink;
+
+  void copyLink(PropLink k) {
+    copiedLink = k.copy();
+    notifyListeners();
+  }
+
+  /// Pastes the copied link onto layer `layerId` (as a new link). False:
+  /// nothing copied, or it would make the layers depend on each other in
+  /// a circle (or on itself).
+  bool pasteLink(String layerId) {
+    final l = findLayer(project, layerId), c = copiedLink;
+    if (l == null || c == null) return false;
+    final src = c.sourceId;
+    if (src != null && (src == l.id || linkWouldCycle(project, l, src))) return false;
+    pushUndo();
+    l.links.add(c.copy());
+    commitEdit();
+    return true;
+  }
+
   Map<String, dynamic>? copiedEffect;
 
   void copyEffectEntry(String layerId, String entryId) {

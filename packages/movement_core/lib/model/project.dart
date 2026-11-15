@@ -1622,6 +1622,14 @@ class PropLink {
       untilFrame: untilFrame);
 }
 
+/// A key of a layer's order on the stage: from local frame `frame` it
+/// stands at `position` (1: the top of the Layers list).
+class StackKey {
+  int frame;
+  int position;
+  StackKey(this.frame, this.position);
+}
+
 /// What a 'follow' link can move: a position axis or one size handle.
 const followTargets = ['x', 'y', 'scaleLeft', 'scaleRight', 'scaleTop', 'scaleBottom'];
 
@@ -2089,6 +2097,11 @@ class Layer {
   /// Masks tab: the layer as a lens over what is under it.
   LensSettings lens = LensSettings();
 
+  /// Order on the stage, keyed: from each key's (local) frame on the
+  /// layer stands at that place in the Layers list (1: on top) - a jump,
+  /// no in-between. Before its first key it stands where the list puts it.
+  List<StackKey> stackKeys = [];
+
   /// Keyframes tab, "Edit the whole object": while it is selected, an edit
   /// moves every key of the parameter by the same amount - the object
   /// changes over its whole animation, the animation itself doesn't.
@@ -2514,6 +2527,7 @@ Layer cloneLayer(Layer src) {
     ..mirrorProbe = src.mirrorProbe
     ..dig = src.dig
     ..lens = src.lens.copy()
+    ..stackKeys = [for (final k in src.stackKeys) StackKey(k.frame, k.position)]
     ..editAll = src.editAll
     ..inheritRounding = src.inheritRounding
     ..pathOffset = [...src.pathOffset]
