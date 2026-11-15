@@ -788,6 +788,16 @@ void _paintPropLinks(ui.Canvas canvas, Project project, int globalFrame, double 
       canvas.drawCircle(p, 9 * inv, ring); // source: a circle in a circle
       canvas.drawCircle(p, 5 * inv, ring);
       canvas.drawCircle(c, 7 * inv, ring); // follower: a bigger hollow one
+      // chasing one of the source's size handles: a dashed line from it.
+      if (k.follows && k.from != 'position') {
+        final src = findLayer(project, k.sourceId);
+        if (src != null) {
+          final sp = linkFollowPoint(project, src, k.from, globalFrame);
+          final so = ui.Offset(sp[0], sp[1]);
+          _dashedLine(canvas, so, c, line, inv);
+          canvas.drawRect(ui.Rect.fromCenter(center: so, width: 14 * inv, height: 14 * inv), ring);
+        }
+      }
       // on one size handle: a second, dashed line to that handle.
       final h = linkHandlePoint(project, layer, k, globalFrame);
       if (h != null) {

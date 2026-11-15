@@ -19,8 +19,9 @@ List<List<double>>? linkPreviewOutline(Project project, Layer layer, int globalF
   if (!linkOutOfRange(layer, globalFrame)) return null;
   final st = getLayerStateAt(project, layer.id, globalFrame);
   if (!st.inRange) return null;
-  double d(String prop) => layer.links.any((k) => k.to == prop) ? linkOffsetIfWorking(project, layer, prop, globalFrame) : 0;
-  final dx = d('x'), dy = d('y'), dr = d('rotation'), dsx = d('scaleX'), dsy = d('scaleY');
+  double d(String prop) => layer.links.any((k) => linkHits(k.to, prop)) ? linkOffsetIfWorking(project, layer, prop, globalFrame) : 0;
+  final dx = d('x'), dy = d('y'), dr = d('rotation');
+  final dsx = d('scaleX') + d('scale.x'), dsy = d('scaleY') + d('scale.y');
   final dL = d('scaleLeft'), dR = d('scaleRight'), dT = d('scaleTop'), dB = d('scaleBottom');
   if ([dx, dy, dr, dsx, dsy, dL, dR, dT, dB].every((v) => v.abs() < 1e-9)) return null;
   final base = getLayerBaseStateAt(project, layer.id, globalFrame);

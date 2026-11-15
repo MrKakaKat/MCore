@@ -9,6 +9,7 @@ import '../common/no_layer.dart';
 
 const _propNames = {
   'x': 'X', 'y': 'Y', 'rotation': 'Rotation', 'scaleX': 'Scale X', 'scaleY': 'Scale Y', 'opacity': 'Opacity',
+  'scale': 'whole size (both scales)', 'position': 'position',
   'scaleLeft': 'left size handle', 'scaleRight': 'right size handle',
   'scaleTop': 'top size handle', 'scaleBottom': 'bottom size handle',
   'round': 'rounding (all corners)', 'round0': 'rounding: top left', 'round1': 'rounding: top right',
@@ -140,13 +141,27 @@ class LinksView extends StatelessWidget {
                           onSelected: (_) => set(() {
                             k.mode = mode;
                             if (k.follows && !followTargets.contains(k.to)) k.to = 'y';
+                            // what it reads: a place / handle to follow, or a property.
+                            if (k.follows && !followSources.contains(k.from)) k.from = 'position';
+                            if (!k.follows && !linkProps.contains(k.from)) k.from = 'x';
                             pinLinkBase(app.project, k, app.currentFrame);
                           }),
                         ),
                     ]),
                     Wrap(spacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
                       if (k.follows)
-                        const Text('its position')
+                        // its place, or one of its size handles to chase.
+                        DropdownButton<String>(
+                          key: ValueKey('link-follow-from-$i'),
+                          value: followSources.contains(k.from) ? k.from : 'position',
+                          items: [
+                            for (final p in followSources) DropdownMenuItem(value: p, child: Text('its ${_propNames[p]}')),
+                          ],
+                          onChanged: (v) => set(() {
+                            k.from = v ?? k.from;
+                            pinLinkBase(app.project, k, app.currentFrame);
+                          }),
+                        )
                       else
                         DropdownButton<String>(
                           key: ValueKey('link-from-$i'),
@@ -240,7 +255,7 @@ class LinksView extends StatelessWidget {
     final sounds = [for (final l in app.project.layers) if (isAudioShape(l.content.shape)) l];
     const defaults = {
       'x': (0.0, 30.0), 'y': (0.0, -30.0), 'rotation': (0.0, 15.0),
-      'scaleX': (0.0, 0.3), 'scaleY': (0.0, 0.3), 'opacity': (-0.6, 0.0),
+      'scaleX': (0.0, 0.3), 'scaleY': (0.0, 0.3), 'scale': (0.0, 0.3), 'opacity': (-0.6, 0.0),
       'scaleLeft': (0.0, 0.3), 'scaleRight': (0.0, 0.3), 'scaleTop': (0.0, 0.3), 'scaleBottom': (0.0, 0.3),
       'round': (0.0, 30.0), 'round0': (0.0, 30.0), 'round1': (0.0, 30.0), 'round2': (0.0, 30.0), 'round3': (0.0, 30.0),
     };

@@ -1631,14 +1631,18 @@ class StackKey {
 }
 
 /// What a 'follow' link can move: a position axis or one size handle.
-const followTargets = ['x', 'y', 'scaleLeft', 'scaleRight', 'scaleTop', 'scaleBottom'];
+const followTargets = ['x', 'y', 'scale', 'scaleLeft', 'scaleRight', 'scaleTop', 'scaleBottom'];
 
-const linkProps = ['x', 'y', 'rotation', 'scaleX', 'scaleY', 'opacity'];
+/// What a 'follow' link can follow on its source: its place, or one of
+/// its size handles.
+const followSources = ['position', 'scaleLeft', 'scaleRight', 'scaleTop', 'scaleBottom'];
+
+const linkProps = ['x', 'y', 'rotation', 'scale', 'scaleX', 'scaleY', 'opacity'];
 
 /// What a link can move: the properties above, one size handle (its side
 /// grows, the one across stays) and a rect's rounding (all corners or one).
 const linkTargets = [
-  ...linkProps,
+  ...linkProps, // 'scale': the whole size, both sides at once
   'scaleLeft', 'scaleRight', 'scaleTop', 'scaleBottom',
   'round', 'round0', 'round1', 'round2', 'round3',
 ];

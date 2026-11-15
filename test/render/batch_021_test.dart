@@ -7,6 +7,7 @@ import 'package:movement_mobile/app_state.dart';
 import 'package:movement_mobile/render/canvas_renderer.dart';
 import 'package:movement_mobile/ui/layer_panel/layer_panel_view.dart';
 import 'package:movement_mobile/ui/links/links_view.dart';
+import 'package:movement_mobile/ui/stage/stage_view.dart';
 
 void main() {
   test('a copied link pastes onto another layer; never onto its own source', () {
@@ -104,5 +105,55 @@ void main() {
     expect(await centre(10), 255, reason: 'blue on top before the key');
     expect(await centre(30), 0, reason: 'red jumps on top');
     expect(p.layers, [red, blue]);
+  });
+
+  testWidgets('crop on the stage: Done in the corner ends it', (tester) async {
+    final app = AppState();
+    app.project.layers.clear();
+    app.addLayer('rect');
+    app.selectLayer(app.project.layers.single.id);
+    cropEditing = false;
+    addTearDown(() => cropEditing = false);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SizedBox(width: 400, height: 400, child: StageView(app: app)))));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('stage-crop-done')), findsNothing);
+    app.toggleCropEditing();
+    await tester.pump();
+    final done = find.byKey(const ValueKey('stage-crop-done'));
+    expect(done, findsOneWidget);
+    final r = tester.getRect(done);
+    expect(r.right, greaterThan(300), reason: 'bottom right');
+    expect(r.bottom, greaterThan(300));
+    await tester.tap(done);
+    await tester.pump();
+    expect(cropEditing, isFalse);
+  });
+
+  testWidgets('follows it: its place or one of its size handles; the whole size in the lists', (tester) async {
+    final app = AppState();
+    app.project.layers.clear();
+    app.addLayer('rect');
+    app.addLayer('rect');
+    final a = app.project.layers[0], b = app.project.layers[1];
+    b.links.add(PropLink(sourceId: a.id, from: 'x', to: 'x'));
+    app.selectLayer(b.id);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: LinksView(app: app))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('link-to-0')));
+    await tester.pumpAndSettle();
+    expect(find.text('my whole size (both scales)'), findsWidgets);
+    await tester.tap(find.text('my whole size (both scales)').last);
+    await tester.pumpAndSettle();
+    expect(b.links.single.to, 'scale');
+    await tester.tap(find.byKey(const ValueKey('link-mode-0-follow')));
+    await tester.pumpAndSettle();
+    expect(b.links.single.from, 'position');
+    await tester.tap(find.byKey(const ValueKey('link-follow-from-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('its right size handle').last);
+    await tester.pumpAndSettle();
+    final k = b.links.single;
+    expect([k.mode, k.from, k.to], ['follow', 'scaleRight', 'scale']);
+    expect(k.base, isNotNull);
   });
 }

@@ -27,11 +27,19 @@ double _own(Project project, Layer l, String prop, num globalFrame) {
     case 'scaleY':
       final s = evaluateTrack(project, l.transform.scale, f, l) as List;
       return ((prop == 'scaleX' ? s[0] : s[1]) as num).toDouble();
+    case 'scale':
+      // the whole size: both sides together (their mean).
+      final s = evaluateTrack(project, l.transform.scale, f, l) as List;
+      return (((s[0] as num) + (s[1] as num)) / 2).toDouble();
     case 'opacity':
       return (evaluateTrack(project, l.transform.opacity, f, l) as num).toDouble();
   }
   return 0;
 }
+
+/// Whether a link on `to` acts on `prop`: its own name, or - the whole
+/// size ('scale') - each of its sides ('scale.x', 'scale.y').
+bool linkHits(String to, String prop) => to == prop || (to == 'scale' && (prop == 'scale.x' || prop == 'scale.y'));
 
 /// A property's value with its links (what a layer linked to it sees).
 ///
@@ -111,7 +119,7 @@ double _linkSum(Project project, Layer layer, String prop, num globalFrame, Set<
   final ignoreRange = _ignoreLinkRanges;
   var sum = 0.0;
   for (final k in layer.links) {
-    if (!k.enabled || k.to != prop || k.sourceId == null) continue;
+    if (!k.enabled || !linkHits(k.to, prop) || k.sourceId == null) continue;
     final src = findLayer(project, k.sourceId);
     if (src == null) continue;
     // its time: before it nothing, after it what it added at its end.
@@ -132,7 +140,7 @@ double _linkSum(Project project, Layer layer, String prop, num globalFrame, Set<
       continue;
     }
     if (k.follows) {
-      sum += k.factor * _followAmount(project, layer, k, src, t, s);
+      sum += k.factor * _followAmount(project, layer, k, src, t, s, prop);
       continue;
     }
     sum += k.factor * _change(project, layer, k, src, k.from, k.base, t, s);
@@ -151,23 +159,64 @@ double _change(Project project, Layer layer, PropLink k, Layer src, String prop,
   return now - then;
 }
 
-/// A 'follow' link: how far the source has moved since the link's start
-/// (px), along `k.to`'s own axis - in that property's units.
-double _followAmount(Project project, Layer layer, PropLink k, Layer src, num t, Set<String> seen) {
+/// A 'follow' link: how far what it follows has moved since the link's
+/// start (px) - the source's place, or one of its size handles - along
+/// `prop`'s own axis, in that property's units.
+double _followAmount(Project project, Layer layer, PropLink k, Layer src, num t, Set<String> seen, String prop) {
   if (!followTargets.contains(k.to)) return _change(project, layer, k, src, k.from, k.base, t, seen);
-  final dx = _change(project, layer, k, src, 'x', k.base, t, seen);
-  final dy = _change(project, layer, k, src, 'y', k.baseY, t, seen);
-  if (k.to == 'x') return dx;
-  if (k.to == 'y') return dy;
+  final now = linkFollowPoint(project, src, k.from, t, seen);
+  final a = _ignoreLinkRanges ? null : k.fromFrame;
+  final then = a != null
+      ? linkFollowPoint(project, src, k.from, a, seen)
+      : (k.base != null && k.baseY != null ? [k.base!, k.baseY!] : linkFollowPoint(project, src, k.from, layer.startFrame, seen));
+  final dx = now[0] - then[0], dy = now[1] - then[1];
+  if (prop == 'x') return dx;
+  if (prop == 'y') return dy;
+  final rot = _own(project, layer, 'rotation', t) * math.pi / 180;
+  final c = math.cos(rot), sn = math.sin(rot);
+  // the whole size: it grows by the move on each of its own axes.
+  if (prop == 'scale.x' || prop == 'scale.y') {
+    final alongX = dx * c + dy * sn, alongY = -dx * sn + dy * c;
+    final size = prop == 'scale.x' ? layer.content.size[0] : layer.content.size[1];
+    return size <= 0 ? 0 : (prop == 'scale.x' ? alongX : alongY) / size;
+  }
   // a size handle: the way the side it moves grows (see linkMovedSide),
   // turned with the layer.
-  final n = linkMovedSide(k.to)!;
-  final rot = _own(project, layer, 'rotation', t) * math.pi / 180;
-  final nx = n[0] * math.cos(rot) - n[1] * math.sin(rot), ny = n[0] * math.sin(rot) + n[1] * math.cos(rot);
+  final n = linkMovedSide(k.to);
+  if (n == null) return 0;
+  final nx = n[0] * c - n[1] * sn, ny = n[0] * sn + n[1] * c;
   final along = dx * nx + dy * ny;
   // a handle moves by (its scale change) x (the size on its axis).
   final size = n[0] != 0 ? layer.content.size[0] : layer.content.size[1];
   return size <= 0 ? 0 : along / size;
+}
+
+/// What a 'follow' link follows on its source (`from`): 'position' (or
+/// any plain property): where the source is; 'scaleLeft' / 'scaleRight' /
+/// 'scaleTop' / 'scaleBottom': that size handle of its box - the middle
+/// of that side, as it moves and grows. Frame px.
+List<double> linkFollowPoint(Project project, Layer src, String from, num t, [Set<String>? seen]) {
+  final side = switch (from) {
+    'scaleLeft' => const [-1.0, 0.0],
+    'scaleRight' => const [1.0, 0.0],
+    'scaleTop' => const [0.0, -1.0],
+    'scaleBottom' => const [0.0, 1.0],
+    _ => null,
+  };
+  if (side != null) {
+    try {
+      final m = getLayerStateAt(project, src.id, t).matrix;
+      final c = src.content;
+      final p = [c.offset[0] + side[0] * c.size[0] / 2, c.offset[1] + side[1] * c.size[1] / 2];
+      return [
+        (m[0] * p[0] + m[2] * p[1]) + m[4] * stageSize.width,
+        (m[1] * p[0] + m[3] * p[1]) + m[5] * stageSize.height,
+      ];
+    } on _LinkLoop {
+      // hangs on the layer being worked out: its place instead.
+    }
+  }
+  return [linkedPropAt(project, src, 'x', t, {...?seen}), linkedPropAt(project, src, 'y', t, {...?seen})];
 }
 
 /// The side a size-handle link moves, as its outward direction in the
@@ -188,8 +237,9 @@ List<double>? linkMovedSide(String to) => switch (to) {
 void pinLinkBase(Project project, PropLink k, num globalFrame) {
   final src = findLayer(project, k.sourceId);
   if (k.follows) {
-    k.base = src == null ? null : linkedPropAt(project, src, 'x', globalFrame);
-    k.baseY = src == null ? null : linkedPropAt(project, src, 'y', globalFrame);
+    final p = src == null ? null : linkFollowPoint(project, src, k.from, globalFrame);
+    k.base = p?[0];
+    k.baseY = p?[1];
     return;
   }
   k.base = src == null ? null : linkedPropAt(project, src, k.from, globalFrame);

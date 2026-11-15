@@ -227,6 +227,18 @@ class _StageViewState extends State<StageView> {
             label: const Text('Detach this part'),
           ),
         ),
+      // editing the crop on the stage: done, from here.
+      if (cropEditing && pieceInsets == null && widget.app.cropLine == null)
+        Positioned(
+          right: 8,
+          bottom: 8,
+          child: FilledButton.icon(
+            key: const ValueKey('stage-crop-done'),
+            onPressed: widget.app.toggleCropEditing,
+            icon: const Icon(Icons.check, size: 18),
+            label: const Text('Done'),
+          ),
+        ),
       // crop lines: their controls over the stage while drawing.
       if (widget.app.cropLine != null && selectedLayer != null)
         Positioned(
@@ -256,7 +268,7 @@ class _StageViewState extends State<StageView> {
         ),
       // a new shape / picture: fill the frame with it in one tap (the
       // Crop tab's Fill) - only until it is let go.
-      if (selectedLayer != null && widget.app.freshFillLayerId == selectedLayer.id && pieceInsets == null)
+      if (selectedLayer != null && widget.app.freshFillLayerId == selectedLayer.id && pieceInsets == null && !cropEditing)
         Positioned(
           right: 8,
           bottom: widget.app.drawTool == 'fill' ? 56 : 8,

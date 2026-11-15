@@ -138,4 +138,55 @@ void main() {
       expect(() => getLayerStateAt(p, 'a', 10), returnsNormally);
     });
   });
+
+  group('follow a size handle; the whole size', () {
+    Layer rect(String id, double x, double y, double w, double h) => createLayer('rect')
+      ..id = id
+      ..durationFrames = 100
+      ..content.size = [w, h]
+      ..transform.anchor.defaultValue = [x, y];
+
+    test("chasing the source's right size handle: it moves when the source grows, not only when it moves", () {
+      final a = rect('a', 0.2, 0.5, 100, 100), c = rect('c', 0.7, 0.5, 50, 50);
+      final k = PropLink(sourceId: 'a', from: 'scaleRight', to: 'x', mode: 'follow');
+      c.links.add(k);
+      final p = Project(layers: [a, c]);
+      pinLinkBase(p, k, 0);
+      expect(k.base, closeTo(250, 1e-9), reason: "the handle: a's right side middle");
+      // a grows from its right side by 60 px (the left stays): the handle +60.
+      a.transform.scale.defaultValue = [1.6, 1.0];
+      a.transform.anchor.defaultValue = [0.23, 0.5];
+      clearStateCaches();
+      expect(getLayerStateAt(p, 'c', 0).matrix[4] * 1000, closeTo(760, 1e-6));
+    });
+
+    test('the whole size: add mode grows both scales at once', () {
+      final a = rect('a', 0.2, 0.5, 100, 100), c = rect('c', 0.7, 0.5, 50, 50);
+      final k = PropLink(sourceId: 'a', from: 'x', to: 'scale', factor: 0.01);
+      c.links.add(k);
+      final p = Project(layers: [a, c]);
+      pinLinkBase(p, k, 0);
+      a.transform.anchor.defaultValue = [0.25, 0.5]; // +50 px
+      clearStateCaches();
+      expect(getLayerStateAt(p, 'c', 0).scale, [closeTo(1.5, 1e-9), closeTo(1.5, 1e-9)]);
+    });
+
+    test('the whole size, following: it grows by the move on each of its axes', () {
+      final a = rect('a', 0.2, 0.2, 10, 10), c = rect('c', 0.5, 0.5, 100, 50);
+      final k = PropLink(sourceId: 'a', to: 'scale', mode: 'follow');
+      c.links.add(k);
+      final p = Project(layers: [a, c]);
+      pinLinkBase(p, k, 0);
+      a.transform.anchor.defaultValue = [0.25, 0.23]; // +50, +30 px
+      clearStateCaches();
+      final st = getLayerStateAt(p, 'c', 0);
+      expect(st.scale[0] * 100, closeTo(150, 1e-6), reason: 'width +50');
+      expect(st.scale[1] * 50, closeTo(80, 1e-6), reason: 'height +30');
+    });
+
+    test('a source read as its whole size', () {
+      final a = rect('a', 0.2, 0.5, 10, 10)..transform.scale.defaultValue = [2.0, 4.0];
+      expect(linkedPropAt(Project(layers: [a]), a, 'scale', 0), closeTo(3, 1e-9));
+    });
+  });
 }

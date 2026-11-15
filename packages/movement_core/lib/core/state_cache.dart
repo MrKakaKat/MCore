@@ -179,8 +179,9 @@ LayerBaseState getLayerBaseStateAt(Project project, String layerId, num globalFr
   var scale = evaluateTrack(project, layer.transform.scale, clamped, layer) as List<double>;
   if (layer.links.isNotEmpty) {
     scale = [
-      scale[0] + linkOffset(project, layer, 'scaleX', globalFrame),
-      scale[1] + linkOffset(project, layer, 'scaleY', globalFrame),
+      // its sides, and its whole size (both at once).
+      scale[0] + linkOffset(project, layer, 'scaleX', globalFrame) + linkOffset(project, layer, 'scale.x', globalFrame),
+      scale[1] + linkOffset(project, layer, 'scaleY', globalFrame) + linkOffset(project, layer, 'scale.y', globalFrame),
     ];
   }
   // dependencies on one size handle: that side grows, the one across
