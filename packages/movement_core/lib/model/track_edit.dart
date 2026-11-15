@@ -84,8 +84,8 @@ int packOrderLayer(Layer layer, int n) {
 
 /// Moves animation layer `from`'s keys into layer `into` (their key spans
 /// must not overlap) and removes `from`, the movement unchanged: the
-/// earlier part's keys take on what the later part holds before it
-/// starts, the later part's keys what the earlier holds after it ends.
+/// later part's keys take on what the earlier holds after it ends (a
+/// layer does nothing before its first key).
 void mergeAnimLayerInto(Layer layer, int into, int from) {
   for (final t in [layer.transform.anchor, layer.transform.rotation, layer.transform.scale, layer.transform.opacity]) {
     if (t.animLayers.length < math.max(into, from)) continue;
@@ -103,16 +103,27 @@ void mergeAnimLayerInto(Layer layer, int into, int from) {
     } else if (ak.isEmpty) {
       a.track.keyframes = [for (final k in bk) k..value = shift(k.value, ad)];
     } else {
+      // (a layer does nothing before its first key: the earlier part
+      // stays as it is, the later goes on from where the earlier ends)
       final aFirst = ak.first.frame < bk.first.frame;
       final early = aFirst ? ak : bk, late = aFirst ? bk : ak;
-      final lateStart = late.first.value, earlyEnd = early.last.value;
-      for (final k in early) {
-        k.value = shift(k.value, lateStart);
-      }
+      final earlyEnd = early.last.value;
+      // the later one starting off its neutral value jumped there: held
+      // until the frame before it, so the merged keys don't slide into it.
+      final neutral = mul ? 1.0 : 0.0;
+      final startsOff = late.first.value is List
+          ? (late.first.value as List).any((v) => ((v as num) - neutral).abs() > 1e-12)
+          : ((late.first.value as num) - neutral).abs() > 1e-12;
+      final hold = startsOff && late.first.frame - 1 > early.last.frame
+          ? Keyframe(
+              frame: late.first.frame - 1,
+              value: earlyEnd is List ? List<double>.from(earlyEnd) : earlyEnd,
+              temporal: easingPresets['linear'])
+          : null;
       for (final k in late) {
         k.value = shift(k.value, earlyEnd);
       }
-      a.track.keyframes = [...early, ...late];
+      a.track.keyframes = [...early, if (hold != null) hold, ...late];
     }
     if (a.track.spatial) autoComputeTangents(a.track);
   }

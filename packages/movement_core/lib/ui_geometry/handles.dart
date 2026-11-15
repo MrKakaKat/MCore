@@ -500,6 +500,27 @@ List<PathStation> getAnchorStationsScreen(Project project, Layer layer, int glob
   return result;
 }
 
+/// The path's other stops (only to see): where the object is at the keys
+/// of the position tracks not being edited - the base keys while a key
+/// layer is edited, the other key layers' keys. Frame px.
+List<List<double>> getOtherStationsScreen(Project project, Layer layer) {
+  final anchor = layer.transform.anchor;
+  final active = activeAnimLayerOf(anchor);
+  final frames = <int>{
+    if (active != null) ...anchor.keyframes.map((k) => k.frame),
+    for (final a in anchor.animLayers)
+      if (!identical(a, active) && a.enabled) ...a.track.keyframes.where((k) => !k.passive).map((k) => k.frame),
+  };
+  if (active != null) frames.removeAll(active.track.keyframes.map((k) => k.frame));
+  return [
+    for (final f in frames.toList()..sort())
+      () {
+        final m = getLayerStateAt(project, layer.id, f + layer.startFrame).matrix;
+        return [m[4] * stageSize.width, m[5] * stageSize.height];
+      }()
+  ];
+}
+
 /// dotted-path polyline: samples the ACTUAL composed world position
 /// (through the full parent matrix chain) at each step, not the raw
 /// local anchor curve - stays correct if a parent is ever animated.

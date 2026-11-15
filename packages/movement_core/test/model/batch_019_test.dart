@@ -78,4 +78,40 @@ void main() {
       expect(rx * 2, closeTo(ry * 1, 1e-6));
     });
   });
+
+  group('key layers', () {
+    test('a key layer does nothing before its first key', () {
+      final l = createLayer('rect')..durationFrames = 60;
+      l.transform.anchor.defaultValue = [0.5, 0.5];
+      final n = addTransformAnimLayer(l);
+      l.transform.anchor.animLayers[n - 1].track.keyframes = [Keyframe(frame: 30, value: [0.1, 0.0])];
+      List<double> at(double f) => evaluateTrack(null, l.transform.anchor, f, l) as List<double>;
+      expect(at(10), [0.5, 0.5]);
+      expect(at(30)[0], closeTo(0.6, 1e-9));
+      expect(at(50)[0], closeTo(0.6, 1e-9));
+    });
+
+    test('merging two ranges keeps the movement', () {
+      final l = createLayer('rect')..durationFrames = 60;
+      final a = addTransformAnimLayer(l), b = addTransformAnimLayer(l);
+      final al = l.transform.anchor.animLayers;
+      al[a - 1].track.keyframes = [
+        Keyframe(frame: 0, value: [0.0, 0.0]),
+        Keyframe(frame: 10, value: [0.2, 0.0]),
+      ];
+      al[b - 1].track.keyframes = [
+        Keyframe(frame: 20, value: [0.0, 0.0]),
+        Keyframe(frame: 30, value: [0.0, 0.3]),
+      ];
+      List<double> at(double f) => evaluateTrack(null, l.transform.anchor, f, l) as List<double>;
+      final before = [for (final f in [0.0, 5.0, 15.0, 25.0, 40.0]) at(f)];
+      mergeAnimLayerInto(l, a, b);
+      expect(l.transform.anchor.animLayers, hasLength(1));
+      final after = [for (final f in [0.0, 5.0, 15.0, 25.0, 40.0]) at(f)];
+      for (var i = 0; i < before.length; i++) {
+        expect(after[i][0], closeTo(before[i][0], 1e-9));
+        expect(after[i][1], closeTo(before[i][1], 1e-9));
+      }
+    });
+  });
 }

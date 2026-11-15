@@ -593,9 +593,20 @@ class StageGestureController {
 
     if (_activeDrag != null && event.pointer == _primaryPointerId) {
       final op = _activeDrag!.op;
+      // picking several: a press on a handle that never moved is a tap -
+      // it picks what is under the finger (a small object under the
+      // selected one's handles couldn't be picked).
+      final down = _primaryDownScreen;
+      final still = down != null && (event.localPosition - down).distance <= 8;
       _activeDrag = null;
       app.endGroupTransform();
       _primaryPointerId = null;
+      if (still && app.stageMultiSelect && op is! ChromaPickDragOp && op is! ChromaRegionDragOp) {
+        _primaryDownScreen = null;
+        _handleTap(event.localPosition);
+        onNeedsRepaint();
+        return;
+      }
       if (op is ChromaRegionDragOp) app.setChromaRegion(op.layer.id, op.points);
       if (op is ChromaPickDragOp && chromaTool == 'stagePick') {
         app.finishStageColorPick(op.framePoint);

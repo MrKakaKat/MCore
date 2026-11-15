@@ -255,9 +255,23 @@ dynamic combineAnimLayers(Project? project, Track trk, dynamic base, double loca
   var v = base;
   for (final a in trk.animLayers) {
     if (!a.enabled || identical(a, skip)) continue;
+    // a layer acts from its first key on - before it, nothing (it used to
+    // hold its first key's value back to the start: an order range's
+    // opening key moved the whole animation, its past too).
+    if (animLayerNotStarted(a.track, localFrame)) continue;
     v = combineValues(v, _evaluateOwn(project, a.track, localFrame, layer), a.multiply);
   }
   return v;
+}
+
+/// An animation layer's keys start after `localFrame` (it does nothing yet).
+bool animLayerNotStarted(Track t, double localFrame) {
+  if (t.keyframes.isEmpty) return false;
+  var first = t.keyframes.first.frame;
+  for (final k in t.keyframes) {
+    if (k.frame < first) first = k.frame;
+  }
+  return localFrame < first;
 }
 
 /// v + d (or v * d), number or per component.

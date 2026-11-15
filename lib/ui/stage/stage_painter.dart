@@ -858,6 +858,9 @@ void _paintPathVisual(ui.Canvas canvas, Project project, Layer layer,
   }
   final samples = samplePathScreen(project, layer, 60);
   final stations = getAnchorStationsScreen(project, layer, globalFrame);
+  // the path's other stops (another key layer's, or the base's while a key
+  // layer is edited): to see where they are, not to drag.
+  final others = getOtherStationsScreen(project, layer);
   if (collide) {
     _paintPushedPath(canvas, project, layer, inv);
     physicsSuspended = wasSuspended;
@@ -875,6 +878,15 @@ void _paintPathVisual(ui.Canvas canvas, Project project, Layer layer,
         ..style = ui.PaintingStyle.stroke
         ..strokeWidth = inv,
     );
+  }
+  for (final o in others) {
+    canvas.drawCircle(
+        ui.Offset(o[0], o[1]),
+        3.5 * inv,
+        ui.Paint()
+          ..color = _stationStroke.withOpacity(0.5)
+          ..style = ui.PaintingStyle.stroke
+          ..strokeWidth = 1.2 * inv);
   }
   for (final st in stations) {
     final p = ui.Offset(st.screen[0], st.screen[1]);

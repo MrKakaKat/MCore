@@ -41,9 +41,14 @@ Layer? splitLayer(Project project, Layer layer, int globalFrame, String newId) {
   // copies are fine as they are.
 
   // left part: keep keys up to the cut, pin the value at the cut.
+  // animation layers' tracks: nothing before their first key.
+  final layered = <Track>{
+    for (final t in [layer.transform.anchor, layer.transform.rotation, layer.transform.scale, layer.transform.opacity])
+      for (final a in t.animLayers) a.track
+  };
   visitLayerTracks(layer, (trk) {
     if (trk.keyframes.isEmpty) return;
-    _splitLeft(trk, s, _copy(evaluateTrackOwn(project, trk, s.toDouble(), layer)));
+    _splitLeft(trk, s, _copy(evaluateTrackOwn(project, trk, s.toDouble(), layer)), layered: layered.contains(trk));
   });
 
   // right part: shift keys left by the cut, pin the value at its start.
@@ -69,15 +74,16 @@ bool _loops(Track trk) => trk.loop && trk.keyframes.length >= 2 && trk.keyframes
 
 /// The part before the cut at local frame `s` (`value`: the track's own
 /// value there). A key at the cut only where keys lie on both sides.
-void _splitLeft(Track trk, int s, dynamic value) {
+void _splitLeft(Track trk, int s, dynamic value, {bool layered = false}) {
   final ks = trk.keyframes;
   // a loop: everything before the cut stays exactly as it was.
   if (_loops(trk)) return;
   if (ks.every((k) => k.frame < s)) return;
   if (ks.every((k) => k.frame >= s)) {
-    // not started yet: it holds its first value - no keys to show.
+    // not started yet: it holds its first value - no keys to show (an
+    // animation layer's does nothing yet: its plain value stays).
     trk.keyframes = [];
-    trk.defaultValue = value;
+    if (!layered) trk.defaultValue = value;
     return;
   }
   final before = ks.where((k) => k.frame < s).toList();
