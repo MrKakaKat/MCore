@@ -11,6 +11,7 @@ import '../core/stage_size.dart';
 import '../core/state_cache.dart';
 import '../geometry/contour_layer.dart' show layerVectorRings, layerDrawnRings;
 import '../geometry/shapes.dart';
+import '../geometry/polygon_boolean.dart' show polygonBoolean, BoolOp;
 import '../ui_geometry/handles.dart' show toFrameMatrix;
 import '../ui_geometry/keyframe_strip.dart' show visitLayerTracks;
 import '../core/interpolation.dart' show evaluateTrack;
@@ -116,13 +117,51 @@ int _insideCount(List<double> p, List<List<List<double>>> rings) {
   return n;
 }
 
+/// Cuts `dig` (frame px rings) out of the merged outlines so far: each
+/// shape (an outline with the holes joined to it) loses what is under the
+/// hole - one it covers wholly goes.
+void _digInto(List<List<List<double>>> polys, List<String?> colors, List<bool> join, List<List<List<double>>> dig) {
+  final outPolys = <List<List<double>>>[], outColors = <String?>[], outJoin = <bool>[];
+  var i = 0;
+  while (i < polys.length) {
+    var j = i + 1;
+    while (j < polys.length && join[j]) {
+      j++;
+    }
+    final group = polys.sublist(i, j);
+    final cut = polygonBoolean(group, dig, BoolOp.subtract);
+    var first = true;
+    for (final r in cut) {
+      if (r.length < 3) continue;
+      outPolys.add(r);
+      outColors.add(colors[i]);
+      // the pieces of one shape (and its holes) stay one shape.
+      outJoin.add(!first);
+      first = false;
+    }
+    i = j;
+  }
+  polys
+    ..clear()
+    ..addAll(outPolys);
+  colors
+    ..clear()
+    ..addAll(outColors);
+  join
+    ..clear()
+    ..addAll(outJoin);
+}
+
 /// Merges `layers` (all mergeable, at least two) into a new layer `newId`
 /// in their topmost one's place; returns it. Children of the merged
 /// layers follow the new one.
 Layer? mergeLayers(Project project, List<Layer> layers, String newId, int globalFrame) {
   if (layers.length < 2 || layers.any((l) => mergeBlocker(l) != null)) return null;
   final ordered = [...layers]..sort((a, b) => project.layers.indexOf(a).compareTo(project.layers.indexOf(b)));
-  final top = ordered.last;
+  // the merged layer takes after the topmost shape (a hole-digging layer
+  // only cuts).
+  final top = ordered.lastWhere((l) => !l.dig, orElse: () => ordered.last);
+  if (ordered.every((l) => l.dig)) return null;
   clearStateCaches();
   // every outline in frame space (px), all wound the same way so the
   // non-zero fill unites them.
@@ -151,6 +190,16 @@ Layer? mergeLayers(Project project, List<Layer> layers, String newId, int global
             : isNodeLine(c)
                 ? lineOutlineRings(c, frame: layerLocalFrame(l, globalFrame))
                 : [getContentOutline(c, l, globalFrame, project: project)];
+    // a hole-digging layer: its hole is cut out of the shapes merged
+    // under it (it stays a hole, never becomes a shape of its own).
+    if (l.dig) {
+      final digRings = [
+        for (final poly in locals)
+          if (poly.length >= 3) [for (final p in poly) applyAffine(m, p)]
+      ];
+      if (digRings.isNotEmpty) _digInto(framePolys, colors, join, digRings);
+      continue;
+    }
     var first = true;
     for (var li = 0; li < locals.length; li++) {
       final poly = locals[li];

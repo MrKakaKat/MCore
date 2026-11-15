@@ -218,8 +218,11 @@ void paintStage({
     if (showMaskViz && selectedLayer != null && selectedLayer.masks.isNotEmpty) {
       _paintMaskSteps(canvas, project, selectedLayer, globalFrame, inv);
     }
-    // "Show contour": outers orange, holes cyan, points as dots.
-    for (final r in contourOverlay) {
+    // "Show contour": outers orange, holes cyan, points as dots - drawn a
+    // little inside the shape (into its body), so it never lies on the
+    // handles' outline.
+    for (final r0 in contourOverlay) {
+      final r = (points: _insetRing(r0.points, 4 * inv, r0.hole), hole: r0.hole);
       final color = r.hole ? const ui.Color(0xFF4DD0E1) : const ui.Color(0xFFFF9800);
       canvas.drawPath(
           ui.Path()..addPolygon([for (final q in r.points) ui.Offset(q[0], q[1])], true),
@@ -808,6 +811,42 @@ void _paintPropLinks(ui.Canvas canvas, Project project, int globalFrame, double 
       }
     }
   }
+}
+
+/// `ring` moved `d` into the shape's body: inward for an outer ring,
+/// outward for a hole (the body is around it). Each point along its two
+/// edges' normals (corners held to 2 x `d`).
+List<List<double>> _insetRing(List<List<double>> ring, double d, bool hole) {
+  final n = ring.length;
+  if (n < 3 || d <= 0) return ring;
+  var area = 0.0;
+  for (var i = 0; i < n; i++) {
+    area += ring[i][0] * ring[(i + 1) % n][1] - ring[(i + 1) % n][0] * ring[i][1];
+  }
+  // y down: a positive area runs clockwise on screen, its inside on the
+  // right (the normal (-dy, dx) points in).
+  final s = (area > 0 ? 1.0 : -1.0) * (hole ? -1.0 : 1.0);
+  List<double> normal(List<double> a, List<double> b) {
+    final dx = b[0] - a[0], dy = b[1] - a[1];
+    final l = math.sqrt(dx * dx + dy * dy);
+    return l < 1e-9 ? const [0.0, 0.0] : [-dy / l * s, dx / l * s];
+  }
+
+  return [
+    for (var i = 0; i < n; i++)
+      () {
+        final p = ring[i], a = normal(ring[(i - 1 + n) % n], p), b = normal(p, ring[(i + 1) % n]);
+        var mx = a[0] + b[0], my = a[1] + b[1];
+        final ml = math.sqrt(mx * mx + my * my);
+        if (ml < 1e-9) return p;
+        mx /= ml;
+        my /= ml;
+        // how far along the bisector to be d from both edges.
+        final cosHalf = (mx * b[0] + my * b[1]).abs();
+        final k = d / math.max(0.5, cosHalf);
+        return [p[0] + mx * k, p[1] + my * k];
+      }(),
+  ];
 }
 
 /// A dashed line from `a` to `b` (dashes of 6, gaps of 4 screen px).
