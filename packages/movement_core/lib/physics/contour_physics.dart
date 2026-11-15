@@ -44,6 +44,7 @@ import '../model/line_path.dart' show isNodeLine, lineCollisionRings;
 import '../core/state_cache.dart';
 import '../geometry/contour_layer.dart' show layerVectorRings;
 import '../model/project.dart';
+import '../model/extend_box.dart' show withExtendedBoxes;
 import '../model/project_json.dart' show trackToJson, pendulumToJson, swingToJson, wiggleToJson, effectInstanceToJson;
 import '../ui_geometry/handles.dart' show toFrameMatrix;
 import '../ui_geometry/keyframe_strip.dart' show visitLayerTracks;
@@ -183,7 +184,18 @@ class PhysicsWorld {
       was = now;
     }
     if (was && n >= last) out.add(last);
-    return out;
+    // a touch that flickers (resting right at the gap, squeezed): breaks
+    // of a frame or two are one touch - no pairs of squares side by side.
+    final merged = <int>[];
+    for (var i = 0; i + 1 < out.length; i += 2) {
+      if (merged.isNotEmpty && out[i] - merged.last <= 2) {
+        merged.last = out[i + 1];
+      } else {
+        merged.addAll([out[i], out[i + 1]]);
+      }
+    }
+    if (out.length.isOdd) merged.add(out.last);
+    return merged;
   }
 
   // the last keyed frame (project time) of any layer; null without keys.
@@ -320,7 +332,10 @@ class PhysicsWorld {
           if (l.physics.collide) l
       ];
 
-  String _frameSig(int f) {
+  // lengthened rects laid out as at that frame (their contour there).
+  String _frameSig(int f) => withExtendedBoxes(project, f, () => _frameSigAt(f));
+
+  String _frameSigAt(int f) {
     final b = StringBuffer();
     for (final l in _colliders) {
       final s = getLayerStateAt(project, l.id, f);
@@ -335,7 +350,9 @@ class PhysicsWorld {
     return b.toString();
   }
 
-  _Frame _solveFrame(int f) {
+  _Frame _solveFrame(int f) => withExtendedBoxes(project, f, () => _solveFrameAt(f));
+
+  _Frame _solveFrameAt(int f) {
     final prev = f > 0 ? _frames[f - 1] : null;
     final induced = <String, List<double>>{
       if (prev != null)

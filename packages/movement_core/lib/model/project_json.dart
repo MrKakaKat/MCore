@@ -136,6 +136,7 @@ Map<String, dynamic> transformToJson(Transform t) => {
       'rotation': trackToJson(t.rotation),
       'opacity': trackToJson(t.opacity),
       'pathFollow': pathFollowToJson(t.pathFollow),
+      if (t.extend.keyframes.isNotEmpty || (t.extend.defaultValue as List).any((v) => v != 0)) 'extend': trackToJson(t.extend),
     };
 Transform transformFromJson(Map<String, dynamic> j) => Transform(
       anchor: trackFromJson(j['anchor'] as Map<String, dynamic>),
@@ -145,6 +146,7 @@ Transform transformFromJson(Map<String, dynamic> j) => Transform(
       pathFollow: j['pathFollow'] != null
           ? pathFollowFromJson(j['pathFollow'] as Map<String, dynamic>)
           : null,
+      extend: j['extend'] is Map ? trackFromJson(j['extend'] as Map<String, dynamic>) : null,
     );
 
 Map<String, dynamic> contentToJson(Content c) => {

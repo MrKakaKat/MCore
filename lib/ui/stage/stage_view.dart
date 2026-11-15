@@ -684,7 +684,9 @@ class _StageCustomPainter extends CustomPainter {
   });
 
   @override
-  void paint(Canvas canvas, Size size) {
+  void paint(Canvas canvas, Size size) => withExtendedBoxes(project, globalFrame, () => _paint(canvas, size));
+
+  void _paint(Canvas canvas, Size size) {
     paintStage(
       canvas: canvas,
       size: size,

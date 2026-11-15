@@ -12,9 +12,18 @@ const _propNames = {
   'scale': 'whole size (both scales)', 'position': 'position',
   'scaleLeft': 'left size handle', 'scaleRight': 'right size handle',
   'scaleTop': 'top size handle', 'scaleBottom': 'bottom size handle',
+  'growLeft': 'grow left (lengthened)', 'growTop': 'grow top (lengthened)',
+  'growRight': 'grow right (lengthened)', 'growBottom': 'grow bottom (lengthened)',
   'round': 'rounding (all corners)', 'round0': 'rounding: top left', 'round1': 'rounding: top right',
   'round2': 'rounding: bottom right', 'round3': 'rounding: bottom left',
 };
+
+/// A size-handle target, said as what moves (and what stays).
+const _targetNames = {
+  'scaleLeft': 'left side (right held)', 'scaleRight': 'right side (left held)',
+  'scaleTop': 'bottom side (top held)', 'scaleBottom': 'top side (bottom held)',
+};
+String _target(String p) => _targetNames[p] ?? _propNames[p] ?? p;
 
 /// Links: dependencies - one property of this layer follows one property
 /// of another (like parenting, but just that one), and they chain.
@@ -97,7 +106,7 @@ class LinksView extends StatelessWidget {
                   Checkbox(value: k.enabled, onChanged: (v) => set(() => k.enabled = v ?? true)),
                   Expanded(
                     child: Text(
-                      '${srcName ?? 'no source'} · $what → my ${_propNames[k.to] ?? k.to}'
+                      '${srcName ?? 'no source'} · $what → my ${_target(k.to)}'
                       '${k.factor != 1 ? ' ×${k.factor}' : ''}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -183,9 +192,9 @@ class LinksView extends StatelessWidget {
                       else
                         DropdownButton<String>(
                           key: ValueKey('link-from-$i'),
-                          value: k.from,
+                          value: linkSources.contains(k.from) ? k.from : 'x',
                           items: [
-                            for (final p in linkProps) DropdownMenuItem(value: p, child: Text('its ${_propNames[p]}')),
+                            for (final p in linkSources) DropdownMenuItem(value: p, child: Text('its ${_propNames[p]}')),
                           ],
                           onChanged: (v) => set(() {
                             k.from = v ?? k.from;
@@ -198,7 +207,7 @@ class LinksView extends StatelessWidget {
                         value: k.to,
                         items: [
                           for (final p in k.follows ? followTargets : linkTargets)
-                            DropdownMenuItem(value: p, child: Text('my ${_propNames[p]}')),
+                            DropdownMenuItem(value: p, child: Text('my ${_target(p)}')),
                         ],
                         onChanged: (v) => set(() => k.to = v ?? k.to),
                       ),
@@ -321,7 +330,7 @@ class LinksView extends StatelessWidget {
               const Icon(Icons.music_note, size: 16),
               const SizedBox(width: 6),
               Expanded(
-                child: Text('${soundName ?? 'no sound'} → changes ${_propNames[k.to] ?? k.to}',
+                child: Text('${soundName ?? 'no sound'} → changes ${_target(k.to)}',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 13, color: k.enabled ? null : Colors.white38)),
@@ -352,7 +361,7 @@ class LinksView extends StatelessWidget {
                   DropdownButton<String>(
                     key: ValueKey('sound-link-to-$i'),
                     value: k.to,
-                    items: [for (final p in linkTargets) DropdownMenuItem(value: p, child: Text('changes ${_propNames[p]}'))],
+                    items: [for (final p in linkTargets) DropdownMenuItem(value: p, child: Text('changes ${_target(p)}'))],
                     onChanged: (v) => set(() {
                       if (v == null || v == k.to) return;
                       k.to = v;

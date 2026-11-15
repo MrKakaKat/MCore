@@ -50,6 +50,7 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
     }
   }
   fn('path', layer.transform.pathFollow.t);
+  fn('extend', layer.transform.extend);
   for (var i = 0; i < layer.masks.length; i++) {
     fn('mask ${i + 1} feather', layer.masks[i].feather);
   }
@@ -126,6 +127,7 @@ void visitLayerTracks(Layer layer, void Function(Track track) fn) {
     }
   }
   fn(layer.transform.pathFollow.t);
+  fn(layer.transform.extend);
   for (final mask in layer.masks) {
     fn(mask.feather);
   }

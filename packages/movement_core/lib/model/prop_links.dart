@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import '../core/interpolation.dart' show evaluateTrack;
 import '../core/stage_size.dart';
 import '../core/state_cache.dart' show getLayerStateAt;
+import 'extend_box.dart' show layerExtendAt;
 import 'audio.dart' show mediaSourceTime, peakBetween;
 import 'project.dart';
 
@@ -33,8 +34,29 @@ double _own(Project project, Layer l, String prop, num globalFrame) {
       return (((s[0] as num) + (s[1] as num)) / 2).toDouble();
     case 'opacity':
       return (evaluateTrack(project, l.transform.opacity, f, l) as num).toDouble();
+    case 'growLeft':
+    case 'growTop':
+    case 'growRight':
+    case 'growBottom':
+      // a lengthened rect: how far that side has grown (px).
+      return layerExtendAt(l, globalFrame)[const ['growLeft', 'growTop', 'growRight', 'growBottom'].indexOf(prop)];
   }
   return 0;
+}
+
+/// A grown side (px) read into a size property of `layer`: as the scale
+/// that grows it by as many px (a picture following a lengthened rect
+/// grows the same way). 1 for anything else.
+double _growToScale(Layer layer, String from, String prop) {
+  if (!from.startsWith('grow')) return 1;
+  final axis = switch (prop) {
+    'scaleLeft' || 'scaleRight' || 'scaleX' || 'scale.x' => 0,
+    'scaleTop' || 'scaleBottom' || 'scaleY' || 'scale.y' => 1,
+    _ => -1,
+  };
+  if (axis < 0) return 1;
+  final size = layer.content.size[axis].abs();
+  return size < 1e-9 ? 0 : 1 / size;
 }
 
 /// Whether a link on `to` acts on `prop`: its own name, or - the whole
@@ -143,7 +165,7 @@ double _linkSum(Project project, Layer layer, String prop, num globalFrame, Set<
       sum += k.factor * _followAmount(project, layer, k, src, t, s, prop);
       continue;
     }
-    sum += k.factor * _change(project, layer, k, src, k.from, k.base, t, s);
+    sum += k.factor * _change(project, layer, k, src, k.from, k.base, t, s) * _growToScale(layer, k.from, prop);
   }
   return sum;
 }

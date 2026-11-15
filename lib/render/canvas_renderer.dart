@@ -493,6 +493,11 @@ class CanvasRenderer implements Renderer {
     final project = projectArg as Project;
     // order on the stage keyed (a layer jumps above / below others): drawn
     // in that order this frame; the list itself stays as it is.
+    // lengthened rects (keyed) laid out as at this frame.
+    withExtendedBoxes(project, frame, () => _renderOrdered(project, frame, clipToFrame: clipToFrame, underlay: underlay));
+  }
+
+  void _renderOrdered(Project project, int frame, {bool clipToFrame = true, void Function(ui.Canvas canvas)? underlay}) {
     final order = stackOrderAt(project, frame);
     if (identical(order, project.layers)) {
       _renderFrame(project, frame, clipToFrame: clipToFrame, underlay: underlay);

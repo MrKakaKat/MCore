@@ -352,13 +352,20 @@ class Transform {
   Track rotation;
   Track opacity;
   PathFollow pathFollow;
+
+  /// Lengthened (rects, "Size handles lengthen it"): px added on each side
+  /// [left, top, right, bottom] - more surface, corners and outline as
+  /// they are, the side across in place. Keyable like scale.
+  Track extend;
   Transform({
     required this.anchor,
     required this.scale,
     required this.rotation,
     required this.opacity,
     PathFollow? pathFollow,
-  }) : pathFollow = pathFollow ?? PathFollow();
+    Track? extend,
+  })  : pathFollow = pathFollow ?? PathFollow(),
+        extend = extend ?? Track(<double>[0, 0, 0, 0], false);
 }
 
 /// A text layer's shadow: a copy of the text behind it.
@@ -1658,7 +1665,7 @@ class PropLink {
       if (!followTargets.contains(to)) to = 'y';
       if (!followSources.contains(from)) from = 'position';
     } else {
-      if (!linkProps.contains(from)) from = 'x';
+      if (!linkSources.contains(from)) from = 'x';
     }
   }
 }
@@ -1679,6 +1686,10 @@ const followTargets = ['x', 'y', 'scale', 'scaleLeft', 'scaleRight', 'scaleTop',
 const followSources = ['position', 'scaleLeft', 'scaleRight', 'scaleTop', 'scaleBottom'];
 
 const linkProps = ['x', 'y', 'rotation', 'scale', 'scaleX', 'scaleY', 'opacity'];
+
+/// What an 'add' link can read: the properties above, and how far a
+/// lengthened rect grows on each side ("Size handles lengthen it", px).
+const linkSources = [...linkProps, 'growLeft', 'growTop', 'growRight', 'growBottom'];
 
 /// What a link can move: the properties above, one size handle (its side
 /// grows, the one across stays) and a rect's rounding (all corners or one).
@@ -2431,6 +2442,7 @@ Layer cloneLayer(Layer src) {
       scale: cloneTrack(src.transform.scale),
       rotation: cloneTrack(src.transform.rotation),
       opacity: cloneTrack(src.transform.opacity),
+      extend: cloneTrack(src.transform.extend),
       pathFollow: PathFollow(
         enabled: src.transform.pathFollow.enabled,
         sourceLayerId: src.transform.pathFollow.sourceLayerId,

@@ -222,7 +222,7 @@ void paintStage({
     // little inside the shape (into its body), so it never lies on the
     // handles' outline.
     for (final r0 in contourOverlay) {
-      final r = (points: _insetRing(r0.points, 4 * inv, r0.hole), hole: r0.hole);
+      final r = (points: _insetRing(r0.points, 1.5 * inv, r0.hole), hole: r0.hole);
       final color = r.hole ? const ui.Color(0xFF4DD0E1) : const ui.Color(0xFFFF9800);
       canvas.drawPath(
           ui.Path()..addPolygon([for (final q in r.points) ui.Offset(q[0], q[1])], true),
@@ -1016,15 +1016,26 @@ void _paintPushedPath(ui.Canvas canvas, Project project, Layer layer, double inv
   if (rings == null) return;
   final m = toFrameMatrix(getLayerStateAt(project, layer.id, end).matrix);
   final off = world.completeOffsetAt(layer.id, end) ?? const [0.0, 0.0];
+  final f = pushedEndMatrix(m, off);
   for (final r in rings) {
     canvas.drawPath(
-        ui.Path()
-          ..addPolygon([
-            for (final q in r)
-              ui.Offset(m[0] * q[0] + m[2] * q[1] + m[4] + off[0], m[1] * q[0] + m[3] * q[1] + m[5] + off[1])
-          ], true),
+        ui.Path()..addPolygon([for (final q in r) ui.Offset(f[0] * q[0] + f[2] * q[1] + f[4], f[1] * q[0] + f[3] * q[1] + f[5])], true),
         stroke);
   }
+}
+
+/// The keyed pose `m` (frame px) as physics leaves it (`off`: the push,
+/// then its size - grown to hold, shrunk to turn - and how far hits
+/// turned it, both about its pivot).
+List<double> pushedEndMatrix(List<double> m, List<double> off) {
+  final k = off.length > 2 ? off[2] : 1.0;
+  final turn = off.length > 3 ? off[3] * math.pi / 180 : 0.0;
+  var a = m[0] * k, b = m[1] * k, c = m[2] * k, d = m[3] * k;
+  if (turn != 0) {
+    final cs = math.cos(turn), sn = math.sin(turn);
+    (a, b, c, d) = (cs * a - sn * b, sn * a + cs * b, cs * c - sn * d, sn * c + cs * d);
+  }
+  return [a, b, c, d, m[4] + off[0], m[5] + off[1]];
 }
 
 void _paintEffectDeformationGrid(ui.Canvas canvas, Project project, Layer layer,

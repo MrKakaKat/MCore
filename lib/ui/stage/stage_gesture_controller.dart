@@ -68,7 +68,12 @@ class StageGestureController {
   bool get marqueeActive => marqueeA != null;
   bool get anyDragActive => _activeDrag != null;
 
-  void onPointerDown(PointerDownEvent event) {
+  // lengthened rects (keyed) laid out as at the playhead while a finger
+  // works on the stage.
+  void onPointerDown(PointerDownEvent event) =>
+      withExtendedBoxes(app.project, app.currentFrame, () => _onPointerDown(event));
+
+  void _onPointerDown(PointerDownEvent event) {
     if (_activeDrag != null) {
       // a second finger during the Chroma eyedropper left the loupe frozen on
       // the stage and blocked zooming. The chroma stage tools now give way:
@@ -535,7 +540,12 @@ class StageGestureController {
     return null;
   }
 
-  void onPointerMove(PointerMoveEvent event) {
+  // lengthened rects (keyed) laid out as at the playhead while a finger
+  // works on the stage.
+  void onPointerMove(PointerMoveEvent event) =>
+      withExtendedBoxes(app.project, app.currentFrame, () => _onPointerMove(event));
+
+  void _onPointerMove(PointerMoveEvent event) {
     if (!_pointers.containsKey(event.pointer)) return; // an ignored (3rd+, or mid-drag 2nd) pointer
     _pointers[event.pointer] = event.localPosition;
 
@@ -615,7 +625,12 @@ class StageGestureController {
     }
   }
 
-  void onPointerUp(PointerUpEvent event) {
+  // lengthened rects (keyed) laid out as at the playhead while a finger
+  // works on the stage.
+  void onPointerUp(PointerUpEvent event) =>
+      withExtendedBoxes(app.project, app.currentFrame, () => _onPointerUp(event));
+
+  void _onPointerUp(PointerUpEvent event) {
     _pointers.remove(event.pointer);
 
     if (_activeDrag != null && event.pointer == _primaryPointerId) {
@@ -724,7 +739,12 @@ class StageGestureController {
     }
   }
 
-  void onPointerCancel(PointerCancelEvent event) {
+  // lengthened rects (keyed) laid out as at the playhead while a finger
+  // works on the stage.
+  void onPointerCancel(PointerCancelEvent event) =>
+      withExtendedBoxes(app.project, app.currentFrame, () => _onPointerCancel(event));
+
+  void _onPointerCancel(PointerCancelEvent event) {
     _pointers.remove(event.pointer);
     if (event.pointer == _primaryPointerId) {
       chromaPickScreen = null;

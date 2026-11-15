@@ -98,7 +98,7 @@ String keyDetailTabOf(String trackName) {
   if (trackName == 'shadow echo fade') return 'Figures';
   if (trackName == 'text' || trackName.startsWith('text ')) return 'Text';
   if (trackName.startsWith('line ')) return 'Line';
-  if (const {'anchor', 'rotation', 'scale', 'opacity', 'path'}.contains(trackName.split(' ').first)) return 'Movement';
+  if (const {'anchor', 'rotation', 'scale', 'opacity', 'path', 'extend'}.contains(trackName.split(' ').first)) return 'Movement';
   return 'Effects'; // effect params, the pendulum grip
 }
 

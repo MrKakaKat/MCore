@@ -33,6 +33,7 @@ import '../model/track_edit.dart';
 import '../effects/motion/pendulum.dart' show pendulumWeightPoint;
 import 'handles.dart';
 import 'snapping.dart';
+import '../model/extend_box.dart';
 
 // which keyframe an edit changes (exact / boundary / static default) is
 // decided by track_edit.dart's keyframeToEdit - one rule for every op
@@ -561,7 +562,7 @@ class ScaleDragOp implements DragOp {
     final current =
         trackValueToEdit(trk, localFrameOf(layer, globalFrame)) as List<double>;
     if (rectExtendMode && layer.content.shape == 'rect') {
-      _applyExtend(localPt, current);
+      _applyExtend(localPt, current, globalFrame);
       return;
     }
     if (scaleKeepsOppositeEdge) {
@@ -616,24 +617,29 @@ class ScaleDragOp implements DragOp {
   /// minX, minY, maxX, maxY) - the stage shows what grew and what went.
   List<double>? extendStart;
 
-  void _applyExtend(List<double> localPt, List<double> current) {
+  void _applyExtend(List<double> localPt, List<double> current, int globalFrame) {
     final c = layer.content;
-    extendStart ??= [c.offset[0] - c.size[0] / 2, c.offset[1] - c.size[1] / 2, c.offset[0] + c.size[0] / 2, c.offset[1] + c.size[1] / 2];
+    // the rect's own box (the stage may show it lengthened right now).
+    final e = layerExtendAt(layer, globalFrame);
+    final out = extendedBoxesOut && hasExtend(layer);
+    final ownMinX = c.offset[0] - c.size[0] / 2 + (out ? e[0] : 0), ownMaxX = c.offset[0] + c.size[0] / 2 - (out ? e[2] : 0);
+    final ownMinY = c.offset[1] - c.size[1] / 2 + (out ? e[1] : 0), ownMaxY = c.offset[1] + c.size[1] / 2 - (out ? e[3] : 0);
+    var minX = ownMinX - e[0], maxX = ownMaxX + e[2], minY = ownMinY - e[1], maxY = ownMaxY + e[3];
+    extendStart ??= [minX, minY, maxX, maxY];
     final sx = current[0].abs() < 1e-9 ? 1.0 : current[0], sy = current[1].abs() < 1e-9 ? 1.0 : current[1];
     final q = [localPt[0] / sx, localPt[1] / sy];
-    var minX = c.offset[0] - c.size[0] / 2, maxX = c.offset[0] + c.size[0] / 2;
-    var minY = c.offset[1] - c.size[1] / 2, maxY = c.offset[1] + c.size[1] / 2;
-    final left = handle == 'left' || (handle == 'scaleCorner' && q[0] < c.offset[0]);
-    final right = handle == 'right' || (handle == 'scaleCorner' && q[0] >= c.offset[0]);
-    final top = handle == 'top' || (handle == 'scaleCorner' && q[1] < c.offset[1]);
-    final bottom = handle == 'bottom' || (handle == 'scaleCorner' && q[1] >= c.offset[1]);
+    final cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    final left = handle == 'left' || (handle == 'scaleCorner' && q[0] < cx);
+    final right = handle == 'right' || (handle == 'scaleCorner' && q[0] >= cx);
+    final top = handle == 'top' || (handle == 'scaleCorner' && q[1] < cy);
+    final bottom = handle == 'bottom' || (handle == 'scaleCorner' && q[1] >= cy);
     if (left) minX = math.min(q[0], maxX - 1);
     if (right) maxX = math.max(q[0], minX + 1);
     if (top) minY = math.min(q[1], maxY - 1);
     if (bottom) maxY = math.max(q[1], minY + 1);
-    c
-      ..size = [maxX - minX, maxY - minY]
-      ..offset = [(minX + maxX) / 2, (minY + maxY) / 2];
+    // what each side adds to the own box - a key, as the scale's.
+    setTrackValueAt(layer.transform.extend, localFrameOf(layer, globalFrame),
+        <double>[ownMinX - minX, ownMinY - minY, maxX - ownMaxX, maxY - ownMaxY]);
     _snapGuide = null;
   }
 

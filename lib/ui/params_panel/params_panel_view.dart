@@ -92,6 +92,8 @@ class ParamsPanelView extends StatelessWidget {
             _pathControls(context, layer.transform.anchor),
             _vecParam(context, 'scale', layer.transform.scale, localFrame, [1.0, 1.0],
                 const ParamScale.ruler(unitsPerPixel: 0.005, minorTick: 0.1, majorTick: 0.5)),
+            // "Size handles lengthen it": what each side adds (keyed).
+            if (rectExtendMode && layer.content.shape == 'rect') ..._extendRulers(context, layer, localFrame),
             _scaleSwitches(layer),
             _scalarParam(context, 'rotation', layer.transform.rotation, localFrame, 0.0, ParamScale.degrees),
             _scalarParam(context, 'opacity', layer.transform.opacity, localFrame, 1.0, const ParamScale.slider(0, 1)),
@@ -405,6 +407,32 @@ class ParamsPanelView extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Lengthening (rects): four rulers - how many px each side adds
+  /// (left, top, right, bottom); keys like the scale's.
+  List<Widget> _extendRulers(BuildContext context, Layer layer, double localFrame) {
+    final trk = layer.transform.extend;
+    final v = (evaluateTrack(app.project, trk, localFrame, layer) as List).cast<num>();
+    List<double> withSide(int i, double x) => [for (var j = 0; j < 4; j++) j == i ? x : (j < v.length ? v[j].toDouble() : 0.0)];
+    const names = ['left', 'top', 'right', 'bottom'];
+    return [
+      for (var i = 0; i < 4; i++)
+        Padding(
+          key: ValueKey('extend-${names[i]}'),
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: ParamEditor(
+            prefKey: 'movement.extend.${names[i]}',
+            label: 'lengthen ${names[i]}',
+            values: [i < v.length ? v[i].toDouble() : 0.0],
+            scale: const ParamScale.ruler(unitsPerPixel: 0.5, minorTick: 10, majorTick: 50, decimals: 1),
+            onEditStart: app.pushUndo,
+            onChanged: (x) => _live(trk, localFrame, withSide(i, x.first)),
+            onCommit: (x) => _commit(trk, localFrame, withSide(i, x.first)),
+            trailing: _paramIcons(context, trk, localFrame, 4, () => _commit(trk, localFrame, <double>[0, 0, 0, 0])),
+          ),
+        ),
+    ];
   }
 
   /// Under scale: the size handles keep the far side in place; a stretched

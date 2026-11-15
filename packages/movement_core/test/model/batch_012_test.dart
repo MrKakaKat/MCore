@@ -42,8 +42,12 @@ void main() {
     addTearDown(() => rectExtendMode = false);
     final m = getTransformBoxHandles(p, l, 0).mCanvas;
     ScaleDragOp(layer: l, handle: 'right').apply(p, 0, applyAffine(m, const [100, 0]));
-    expect(l.content.size[0], closeTo(150, 1e-6));
-    expect(l.content.offset[0] - l.content.size[0] / 2, closeTo(-50, 1e-6), reason: 'the left side where it was');
+    // a key of how far it is lengthened; laid out, the box is 150 wide.
+    expect(layerExtendAt(l, 0)[2], closeTo(50, 1e-6));
+    withExtendedBoxes(p, 0, () {
+      expect(l.content.size[0], closeTo(150, 1e-6));
+      expect(l.content.offset[0] - l.content.size[0] / 2, closeTo(-50, 1e-6), reason: 'the left side where it was');
+    });
     expect((l.transform.scale.defaultValue as List)[0], 1.0, reason: 'not stretched');
   });
 
