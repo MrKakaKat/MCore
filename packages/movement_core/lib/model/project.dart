@@ -1313,6 +1313,14 @@ class PhysicsSettings {
   /// Turns when hit: a push off its middle turns it as well (the lighter,
   /// the more). It stays turned.
   bool spin = false;
+
+  /// Falls: the project's gravity pulls it (it gathers speed until
+  /// something holds it - an Immovable, the frame's edges with walls on).
+  bool falls = false;
+
+  /// How much of its speed it keeps bouncing off what stops it, 0..1 (0:
+  /// it just lands).
+  double bounce = 0;
   PhysicsSettings(
       {this.collide = false,
       this.group = '1',
@@ -1343,7 +1351,9 @@ class PhysicsSettings {
     ..rotateLogic = rotateLogic
     ..rotateReturn = rotateReturn
     ..grows = grows
-    ..spin = spin;
+    ..spin = spin
+    ..falls = falls
+    ..bounce = bounce;
   Map<String, dynamic> toJson() => {
         'collide': collide,
         'group': group,
@@ -1358,6 +1368,8 @@ class PhysicsSettings {
         if (!rotateReturn) 'rotateReturn': false,
         if (grows) 'grows': true,
         if (spin) 'spin': true,
+        if (falls) 'falls': true,
+        if (bounce != 0) 'bounce': bounce,
       };
   static PhysicsSettings fromJson(Map<String, dynamic> j) {
     final l = j['leash'] as Map?;
@@ -1378,7 +1390,9 @@ class PhysicsSettings {
       ..rotateLogic = j['rotateLogic'] as String? ?? 'none'
       ..rotateReturn = j['rotateReturn'] != false
       ..grows = j['grows'] == true
-      ..spin = j['spin'] == true;
+      ..spin = j['spin'] == true
+      ..falls = j['falls'] == true
+      ..bounce = (j['bounce'] as num?)?.toDouble() ?? 0;
   }
 }
 
@@ -2346,7 +2360,14 @@ class Project {
 
   /// Collide: the frame's edges are walls for every colliding object.
   bool stageWalls;
-  Project({this.fps = 60, List<Layer>? layers, this.stageWalls = false}) : layers = layers ?? [];
+
+  /// Gravity for the layers that fall (Collide, "Falls"): how strong (frame
+  /// px per second each second; 0: none) and which way (degrees: 90 down,
+  /// 0 right, 180 left, 270 up).
+  double gravity;
+  double gravityAngle;
+  Project({this.fps = 60, List<Layer>? layers, this.stageWalls = false, this.gravity = 0, this.gravityAngle = 90})
+      : layers = layers ?? [];
 }
 
 Transform _defaultTransform(List<double> anchorDefault,

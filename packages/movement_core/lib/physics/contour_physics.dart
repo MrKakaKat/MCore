@@ -316,6 +316,8 @@ class PhysicsWorld {
   // what physics depends on, cheap enough to compare every render.
   String _wholeSig() => jsonEncode([
         project.stageWalls,
+        project.gravity,
+        project.gravityAngle,
         for (final l in project.layers)
           [
             l.id, l.parentId, l.startFrame, l.durationFrames, l.physics.toJson(),
@@ -454,6 +456,9 @@ class PhysicsWorld {
       off[3] += dth * 180 / math.pi;
     }
 
+    // the layers falling this frame: the move gravity and their speed
+    // asked for, and the frame's gravity step.
+    final falling = <String, (List<double>, double)>{};
     for (final l in _colliders) {
       induced[l.id] ??= [0, 0];
       final s = getLayerStateAt(project, l.id, f);
@@ -484,13 +489,23 @@ class PhysicsWorld {
           ..[3] = sn * c + cs * d;
       }
       final body = _Body(l, lin, hull, prev?.keyed[l.id] ?? [m[4], m[5]], [m[4], m[5]], prevOffset: prev?.induced[l.id] ?? const [0.0, 0.0], parts: _partsOf(l.id, r));
-      // inertia: last frame's push carries on, a little slower.
-      final k = l.physics.immovable ? 0.0 : l.physics.inertia.clamp(0.0, 0.99);
+      // inertia: last frame's push carries on, a little slower. Falling:
+      // its speed carries on (barely slowed by the air) and gravity adds
+      // to it - never more a frame than half its own size (it can't jump
+      // through what it lands on).
+      final falls = l.physics.falls && !l.physics.immovable && project.gravity > 0;
+      final k = l.physics.immovable ? 0.0 : (falls ? 0.995 : l.physics.inertia.clamp(0.0, 0.99));
       final v = prev?.velocity[l.id];
-      if (k > 0 && v != null) {
-        induced[l.id]![0] += v[0] * k;
-        induced[l.id]![1] += v[1] * k;
+      var step = [k > 0 && v != null ? v[0] * k : 0.0, k > 0 && v != null ? v[1] * k : 0.0];
+      if (falls) {
+        final g = project.gravity / (fps * fps), a = project.gravityAngle * math.pi / 180;
+        step = [step[0] + g * math.cos(a), step[1] + g * math.sin(a)];
+        final len = math.sqrt(step[0] * step[0] + step[1] * step[1]), most = math.max(1.0, body.minSize / 2);
+        if (len > most) step = [step[0] / len * most, step[1] / len * most];
+        falling[l.id] = (step, g);
       }
+      induced[l.id]![0] += step[0];
+      induced[l.id]![1] += step[1];
       // leash: pulled toward its point once past the leash's length (a
       // spring: with inertia it swings back and settles).
       final ph = l.physics;
@@ -707,6 +722,18 @@ class PhysicsWorld {
     final velocity = <String, List<double>>{
       for (final e in induced.entries) e.key: [e.value[0] - (prev?.induced[e.key]?[0] ?? 0), e.value[1] - (prev?.induced[e.key]?[1] ?? 0)]
     };
+    // falling and stopped by something: what was held back bounces back
+    // (its bounce share of it); resting, nothing does.
+    for (final e in falling.entries) {
+      final l = findLayer(project, e.key);
+      final b = l?.physics.bounce.clamp(0.0, 1.0) ?? 0.0;
+      final moved = velocity[e.key];
+      if (b <= 0 || moved == null) continue;
+      final (asked, g) = e.value;
+      final hx = asked[0] - moved[0], hy = asked[1] - moved[1];
+      if (math.sqrt(hx * hx + hy * hy) <= 2 * g) continue;
+      velocity[e.key] = [moved[0] - b * hx, moved[1] - b * hy];
+    }
     return _Frame(induced, keyedT, armed, touching, contacts, normals, _frameSig(f), velocity, bend);
   }
 

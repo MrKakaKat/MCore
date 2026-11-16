@@ -4689,6 +4689,8 @@ class AppState extends ChangeNotifier {
   String _contentSignature() => jsonEncode([
         projectLayersToJson(project),
         project.stageWalls,
+        project.gravity,
+        project.gravityAngle,
         maxFrame,
         playbackSpeed,
         projectName,

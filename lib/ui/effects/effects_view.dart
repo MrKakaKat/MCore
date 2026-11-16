@@ -1003,6 +1003,72 @@ class EffectsView extends StatelessWidget {
                 ),
               ),
             ]),
+          // gravity: this layer falls; the project's pull (how strong,
+          // which way) and how it bounces.
+          if (!ph.immovable)
+            SwitchListTile(
+              key: const ValueKey('physics-falls'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Falls (gravity)', style: TextStyle(fontSize: 13)),
+              subtitle: hint('Gravity pulls it, faster and faster, until something holds it: an Immovable, or the '
+                  'frame\'s edges with "Frame edges collide" on.'),
+              value: ph.falls,
+              onChanged: (v) {
+                app.pushUndo();
+                ph.falls = v;
+                if (v && app.project.gravity <= 0) app.project.gravity = 1500;
+                app.commitEdit();
+              },
+            ),
+          if (ph.falls && !ph.immovable) ...[
+            Row(children: [
+              SizedBox(width: 80, child: Text('Bounce ${(ph.bounce * 100).round()}%')),
+              Expanded(
+                child: Slider(
+                  key: const ValueKey('physics-bounce'),
+                  value: ph.bounce.clamp(0.0, 1.0),
+                  onChangeStart: (_) => app.pushUndo(),
+                  onChanged: (v) {
+                    ph.bounce = (v * 100).round() / 100;
+                    app.commitEdit();
+                  },
+                ),
+              ),
+            ]),
+            Row(children: [
+              SizedBox(width: 120, child: Text('Gravity ${app.project.gravity.round()}', style: const TextStyle(fontSize: 13))),
+              Expanded(
+                child: Slider(
+                  key: const ValueKey('physics-gravity'),
+                  value: app.project.gravity.clamp(0.0, 6000.0),
+                  max: 6000,
+                  onChangeStart: (_) => app.pushUndo(),
+                  onChanged: (v) {
+                    app.project.gravity = v.roundToDouble();
+                    app.commitEdit();
+                  },
+                ),
+              ),
+            ]),
+            hint('For the whole project: px per second, each second.') ?? const SizedBox.shrink(),
+            SegmentedButton<double>(
+              key: const ValueKey('physics-gravity-way'),
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 90, icon: Icon(Icons.south, size: 16), tooltip: 'down'),
+                ButtonSegment(value: 270, icon: Icon(Icons.north, size: 16), tooltip: 'up'),
+                ButtonSegment(value: 180, icon: Icon(Icons.west, size: 16), tooltip: 'left'),
+                ButtonSegment(value: 0, icon: Icon(Icons.east, size: 16), tooltip: 'right'),
+              ],
+              selected: {app.project.gravityAngle},
+              onSelectionChanged: (v) {
+                app.pushUndo();
+                app.project.gravityAngle = v.first;
+                app.commitEdit();
+              },
+            ),
+          ],
           SwitchListTile(
             key: const ValueKey('physics-stage-walls'),
             dense: true,
