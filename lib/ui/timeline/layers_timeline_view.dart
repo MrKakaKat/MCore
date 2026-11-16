@@ -181,6 +181,22 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
   double? _kfDragStartX;
   bool _kfDragStarted = false;
 
+  /// A key on the layer's edge: its hit area reaches further out past the
+  /// layer (the edge's trim handle is there too - the key wins nearby).
+  static const double _edgeKeyReach = 14;
+
+  /// A key column's left and width: on the layer's start / end it reaches
+  /// further out.
+  (double, double) _keyHit(Layer layer, int f, double ppf) {
+    var left = f * ppf - _keyHitWidth / 2, width = _keyHitWidth;
+    if (f <= layer.startFrame) {
+      left -= _edgeKeyReach;
+      width += _edgeKeyReach;
+    }
+    if (f >= layer.startFrame + layer.durationFrames) width += _edgeKeyReach;
+    return (_edgeSlack + left, width);
+  }
+
   List<Widget> _keyframeColumns(Layer layer, double ppf, double height) {
     final selected = kfSelectedFrames.toList()..sort();
     return [
@@ -188,9 +204,9 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
         if (!kfSelectedFrames.contains(f))
           Positioned(
             key: ValueKey('kf-$f'),
-            left: _edgeSlack + f * ppf - _keyHitWidth / 2,
+            left: _keyHit(layer, f, ppf).$1,
             top: 0,
-            width: _keyHitWidth,
+            width: _keyHit(layer, f, ppf).$2,
             height: height,
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
@@ -202,9 +218,9 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
       for (var i = 0; i < selected.length; i++)
         Positioned(
           key: ValueKey('kf-selected-$i'),
-          left: _edgeSlack + selected[i] * ppf - _keyHitWidth / 2,
+          left: _keyHit(layer, selected[i], ppf).$1,
           top: 0,
-          width: _keyHitWidth,
+          width: _keyHit(layer, selected[i], ppf).$2,
           height: height,
           child: Listener(
             behavior: HitTestBehavior.opaque,
@@ -240,9 +256,10 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
               if (_kfDragStarted) widget.app.endKeyframeDrag();
               _endKfPointer();
             },
+            // the line on the key itself (an edge key's area reaches out).
             child: CustomPaint(
-                painter:
-                    _MarkerLinePainter(color: _keyColor, x: _keyHitWidth / 2)),
+                painter: _MarkerLinePainter(
+                    color: _keyColor, x: _edgeSlack + selected[i] * ppf - _keyHit(layer, selected[i], ppf).$1)),
           ),
         ),
     ];

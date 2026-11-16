@@ -201,6 +201,17 @@ LayerBaseState getLayerBaseStateAt(Project project, String layerId, num globalFr
       anchor = [anchor[0] + fx / stageSize.width, anchor[1] + fy / stageSize.height];
     }
   }
+  // scaling round a point of its own (a side kept in place): that point
+  // stays where it is at scale 1 - turned with the layer.
+  final so = layer.scaleOrigin;
+  if (so != null) {
+    final vx = so[0] * (1 - scale[0]), vy = so[1] * (1 - scale[1]);
+    final a = baseRot * math.pi / 180;
+    anchor = [
+      anchor[0] + (vx * math.cos(a) - vy * math.sin(a)) / stageSize.width,
+      anchor[1] + (vx * math.sin(a) + vy * math.cos(a)) / stageSize.height,
+    ];
+  }
   if (layer.parentKeepDifference && layer.inheritScale && layer.parentId != null) {
     scale = keepDifferenceScale(project, layer, globalFrame, scale);
   }

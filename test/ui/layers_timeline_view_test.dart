@@ -1134,4 +1134,24 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(ValueKey(child.id)), findsOneWidget);
   });
+
+  testWidgets('a key on the layer\'s edge wins near the edge: its area reaches out past the layer', (tester) async {
+    child.startFrame = 20;
+    child.durationFrames = 60;
+    child.transform.rotation.keyframes
+      ..clear()
+      ..addAll([Keyframe(frame: 0, value: 0.0), Keyframe(frame: 30, value: 90.0)]);
+    await pump(tester, width: 600, height: 200);
+    await tester.tap(moveAreas().at(1)); // focus child
+    await tester.pump();
+    final key = tester.getRect(find.byKey(const ValueKey('kf-20')));
+    final inner = tester.getRect(find.byKey(const ValueKey('kf-50')));
+    expect(key.width, greaterThan(inner.width), reason: 'the edge key reaches further');
+    // a touch 20 px outside the layer's start: the key, not the trim.
+    final edgeX = key.right - inner.width / 2;
+    await tester.tapAt(Offset(edgeX - 20, key.center.dy));
+    await tester.pump();
+    expect(kfSelectedFrames, equals({20}));
+    expect(child.startFrame, 20, reason: 'not trimmed');
+  });
 }

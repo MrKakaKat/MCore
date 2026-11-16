@@ -34,6 +34,7 @@ import '../effects/motion/pendulum.dart' show pendulumWeightPoint;
 import 'handles.dart';
 import 'snapping.dart';
 import '../model/extend_box.dart';
+import '../model/pivot.dart' show setScaleOrigin;
 
 // which keyframe an edit changes (exact / boundary / static default) is
 // decided by track_edit.dart's keyframeToEdit - one rule for every op
@@ -462,11 +463,27 @@ class RotateDragOp implements DragOp {
   List<SnapGuideLine> get snapGuides =>
       _snapGuide == null ? const [] : [_snapGuide!];
 
+  // the finger's angle a step ago and how far it has turned in all: each
+  // step the short way round (crossing the left of the pivot no longer
+  // jumps a whole turn the other way), the steps added up (several turns
+  // stay possible).
+  double? _last;
+  double _turned = 0;
+
   @override
   void apply(Project project, int globalFrame, List<double> framePoint) {
     final angleNow = math.atan2(
         framePoint[1] - anchorScreen[1], framePoint[0] - anchorScreen[0]);
-    final deltaDeg = (angleNow - startAngle) * 180 / math.pi;
+    var step = angleNow - (_last ?? startAngle);
+    while (step > math.pi) {
+      step -= 2 * math.pi;
+    }
+    while (step < -math.pi) {
+      step += 2 * math.pi;
+    }
+    _last = angleNow;
+    _turned += step;
+    final deltaDeg = _turned * 180 / math.pi;
     final trk = layer.transform.rotation;
     final snap = computeRotationSnap(
         project: project,
@@ -569,6 +586,12 @@ class ScaleDragOp implements DragOp {
       _applyFromOppositeEdge(project, globalFrame, tb, localPt, current);
       return;
     }
+    // scaled about its centre again: no side kept in place (its keys too).
+    if (layer.scaleOrigin != null) {
+      setScaleOrigin(project, layer, null, globalFrame);
+      apply(project, globalFrame, framePoint);
+      return;
+    }
     List<double> newScale;
     if (handle == 'scaleCorner') {
       // keeps the current aspect ratio a non-uniformly scaled object snapped
@@ -667,6 +690,9 @@ class ScaleDragOp implements DragOp {
         here = scaleCornerLocal(b);
         opp = [b.minX + b.maxX - here[0], b.minY + b.maxY - here[1]];
     }
+    // the side across is where it scales round - its scale keys keep it
+    // in place too (set once; the layer doesn't move for it).
+    setScaleOrigin(project, layer, opp, globalFrame);
     final before = applyAffine(tb.mCanvas, opp);
     // the finger and the handle, measured from the fixed side (scaled).
     final fx = localPt[0] - opp[0] * current[0], fy = localPt[1] - opp[1] * current[1];

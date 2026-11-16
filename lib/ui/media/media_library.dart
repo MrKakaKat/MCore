@@ -111,9 +111,19 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
     if (!mounted) return;
     setState(() {
       _albums = albums;
-      _album = albums.where((a) => a.isAll).firstOrNull ?? albums.firstOrNull;
+      // a pinned album opens first (the first pinned one there is).
+      final pinned = _sorted(albums).where((a) => widget.app.pinnedAlbums.contains(a.id));
+      _album = pinned.firstOrNull ?? albums.where((a) => a.isAll).firstOrNull ?? albums.firstOrNull;
     });
     await _reload();
+  }
+
+  /// The albums with the pinned ones first (in the order they were
+  /// pinned), the rest as the phone lists them.
+  List<AssetPathEntity> _sorted(List<AssetPathEntity> albums) {
+    final pins = widget.app.pinnedAlbums;
+    final pinned = [...albums.where((a) => pins.contains(a.id))]..sort((a, b) => pins.indexOf(a.id).compareTo(pins.indexOf(b.id)));
+    return [...pinned, ...albums.where((a) => !pins.contains(a.id))];
   }
 
   Future<void> _reload() async {
@@ -236,6 +246,14 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
           ]),
         ),
         actions: [
+          // pin the album shown to the front of the albums row (or unpin it).
+          if (_section != 'recent' && _album != null && !_album!.isAll)
+            IconButton(
+              key: const ValueKey('media-album-pin'),
+              tooltip: widget.app.pinnedAlbums.contains(_album!.id) ? 'Unpin this album' : 'Pin this album first',
+              icon: Icon(widget.app.pinnedAlbums.contains(_album!.id) ? Icons.push_pin : Icons.push_pin_outlined),
+              onPressed: () => setState(() => widget.app.togglePinnedAlbum(_album!.id)),
+            ),
           // the system's own picker, for files elsewhere.
           TextButton(
             key: const ValueKey('media-from-files'),
@@ -297,10 +315,12 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
         SizedBox(
           height: 44,
           child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 8), children: [
-            for (final a in _albums)
+            for (final a in _sorted(_albums))
               Padding(
                 padding: const EdgeInsets.only(right: 6),
                 child: ChoiceChip(
+                  key: ValueKey('media-album-${a.id}'),
+                  avatar: widget.app.pinnedAlbums.contains(a.id) ? const Icon(Icons.push_pin, size: 14) : null,
                   label: Text(a.isAll ? 'All' : a.name),
                   selected: identical(a, _album),
                   onSelected: (_) {

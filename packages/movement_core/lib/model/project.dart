@@ -2153,6 +2153,11 @@ class Layer {
   /// Masks tab: the layer as a lens over what is under it.
   LensSettings lens = LensSettings();
 
+  /// The point it scales round (content-local, null: its centre) - set by
+  /// the size handles keeping the far side in place, so its scale keys
+  /// keep that side in place too. It turns round its centre all the same.
+  List<double>? scaleOrigin;
+
   /// Order on the stage: from each border's (local) frame on the layer
   /// stands at that place, numbered as in the Layers list (1: the bottom) -
   /// a jump, no in-between. Before its first border it stands where the
@@ -2586,6 +2591,7 @@ Layer cloneLayer(Layer src) {
     ..dig = src.dig
     ..lens = src.lens.copy()
     ..stackKeys = [for (final k in src.stackKeys) StackKey(k.frame, k.position)]
+    ..scaleOrigin = src.scaleOrigin == null ? null : [...src.scaleOrigin!]
     ..editAll = src.editAll
     ..inheritRounding = src.inheritRounding
     ..pathOffset = [...src.pathOffset]

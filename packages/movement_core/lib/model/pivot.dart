@@ -10,6 +10,7 @@ import '../ui_geometry/handles.dart' show toFrameMatrix;
 import '../ui_geometry/snapping.dart' show frameDeltaToLocal;
 import 'line_path.dart' show syncLineBox;
 import 'project.dart';
+import 'track_edit.dart' show setTrackValueAt;
 
 /// Moves `layer`'s centre to content-local point `p` (its current centre
 /// is 0, 0): its position keys move by where that point is at each key's
@@ -63,4 +64,24 @@ void setLayerPivot(Project project, Layer layer, List<double> p, int globalFrame
 List<double> layerBoxPoint(Layer layer, double fx, double fy) {
   final b = shapeBoundingBox(layer.content);
   return [b.minX + (b.maxX - b.minX) * fx, b.minY + (b.maxY - b.minY) * fy];
+}
+
+/// Sets the point `layer` scales round (content-local; null: its centre)
+/// - see `Layer.scaleOrigin`. It stays where it is on the stage now (its
+/// position at this frame makes up for the change).
+void setScaleOrigin(Project project, Layer layer, List<double>? o, int globalFrame) {
+  final was = layer.scaleOrigin;
+  if (was == null && o == null) return;
+  if (was != null && o != null && (was[0] - o[0]).abs() < 1e-9 && (was[1] - o[1]).abs() < 1e-9) return;
+  final before = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
+  layer.scaleOrigin = o == null ? null : [o[0], o[1]];
+  clearStateCaches();
+  final after = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
+  final b = applyAffine(before, const [0, 0]), a = applyAffine(after, const [0, 0]);
+  final d = frameDeltaToLocal(project, layer, globalFrame, a, [b[0] - a[0], b[1] - a[1]]);
+  if (d[0].abs() < 1e-12 && d[1].abs() < 1e-12) return;
+  final lf = layerLocalFrame(layer, globalFrame).round();
+  final cur = (evaluateTrack(project, layer.transform.anchor, lf.toDouble(), layer) as List).cast<num>();
+  setTrackValueAt(layer.transform.anchor, lf, <double>[cur[0] + d[0], cur[1] + d[1]]);
+  clearStateCaches();
 }

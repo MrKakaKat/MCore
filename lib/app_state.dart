@@ -2920,6 +2920,25 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Media library: the albums pinned to the front of the albums row (ids).
+  /// Kept between runs.
+  List<String> pinnedAlbums = [];
+
+  void togglePinnedAlbum(String id) {
+    pinnedAlbums = pinnedAlbums.contains(id) ? [for (final a in pinnedAlbums) if (a != id) a] : [...pinnedAlbums, id];
+    _persistAppUi();
+    notifyListeners();
+  }
+
+  String get _pinnedAlbumsJson => jsonEncode(pinnedAlbums);
+  set _pinnedAlbumsJson(String v) {
+    try {
+      pinnedAlbums = [for (final e in jsonDecode(v) as List) e as String];
+    } catch (_) {
+      pinnedAlbums = [];
+    }
+  }
+
   // ===== media speed (Audio tab) =====
 
   /// A video's / sound's speed (its length follows: twice as fast, half as
@@ -4766,6 +4785,7 @@ class AppState extends ChangeNotifier {
     'mirrorMovesLayer': (() => mirrorMovesLayer, (v) => mirrorMovesLayer = v as bool, false),
     'snapEdgeMid': (() => snapEdgeMidpointsEnabled, (v) => snapEdgeMidpointsEnabled = v as bool, true),
     'recentMedia': (() => _recentMediaJson, (v) => _recentMediaJson = v as String, '[]'),
+    'pinnedAlbums': (() => _pinnedAlbumsJson, (v) => _pinnedAlbumsJson = v as String, '[]'),
     'freeMoveAsDrawn': (() => freeMoveAsDrawn, (v) => freeMoveAsDrawn = v as bool, false),
     'freeMoveSmoothing': (() => freeMoveSmoothing, (v) => freeMoveSmoothing = (v as num).toDouble(), 0.0),
     'snapTextCenters': (() => snapTextCentersEnabled, (v) => snapTextCentersEnabled = v as bool, true),
