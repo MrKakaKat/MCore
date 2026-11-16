@@ -463,6 +463,20 @@ class AppState extends ChangeNotifier {
   int _playSession = 0;
   bool _audioClock = false;
 
+  /// Play was pressed with sound and the player hasn't started yet: the
+  /// picture waits on the start frame for it, so the first sound and the
+  /// first moving frame come together.
+  bool _audioPending = false;
+
+  /// Real time the frames spent waiting for the player (subtracted when the
+  /// sound turns out not to come and real time counts again).
+  Duration? _pendingSince;
+  Duration _pendingWaited = Duration.zero;
+
+  void _releaseAudioWait() {
+    _audioPending = false;
+  }
+
   /// While the preview plays with sound, the frames follow the player's
   /// position (the sound is the clock), so picture and sound can't drift.
   bool get playingWithSound => _audioClock;
@@ -515,7 +529,10 @@ class AppState extends ChangeNotifier {
     try {
       final p = _playback ??= audioPlaybackFactory();
       if (_loadedMixKey != _audioMixKey()) {
-        if (!await _loadMix(session)) return;
+        if (!await _loadMix(session)) {
+          if (session == _playSession) _releaseAudioWait();
+          return;
+        }
       }
       if (session != _playSession) return;
       // starts where the frame clock has got to while the mix was made.
@@ -525,8 +542,10 @@ class AppState extends ChangeNotifier {
         return;
       }
       _audioClock = true;
+      _audioPending = false;
       audioError = null;
     } catch (e) {
+      if (session == _playSession) _releaseAudioWait();
       audioError = '$e';
       notifyListeners();
     }
@@ -542,11 +561,21 @@ class AppState extends ChangeNotifier {
       return;
     }
     final total = maxFrame + 1;
+    if (_audioPending && !_audioClock) {
+      // the sound is about to start: hold the start frame for it.
+      _pendingSince ??= elapsed;
+      _pendingWaited = elapsed - _pendingSince!;
+      // (a mix that takes ages to make doesn't freeze the picture: after a
+      // few seconds the frames go on, the sound joins where they are.)
+      if (_pendingWaited < const Duration(seconds: 3)) return;
+      _audioPending = false;
+    }
     final int raw;
     if (_audioClock) {
       raw = (_playback!.position.inMicroseconds * fps / 1e6).floor();
     } else {
-      final framesElapsed = (elapsed.inMicroseconds * fps * playbackSpeed / 1e6).floor();
+      final counted = elapsed - _pendingWaited;
+      final framesElapsed = (counted.inMicroseconds * fps * playbackSpeed / 1e6).floor();
       raw = startFrame + framesElapsed;
     }
     if (!loopPlayback && raw >= maxFrame) {
@@ -1731,11 +1760,24 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Puts a red mark on the ruler at `frame`, or takes the one there away.
+  void toggleMarker(int frame) {
+    final m = project.markers;
+    if (!m.remove(frame)) {
+      m.add(frame);
+      m.sort();
+    }
+    notifyListeners();
+  }
+
   void togglePlay() {
     if (!playing && !canPlay) return;
     playing = !playing;
     _playSession++;
     _audioClock = false;
+    _audioPending = false;
+    _pendingSince = null;
+    _pendingWaited = Duration.zero;
     if (perfInstrumentation) {
       playing ? PerfMonitor.instance.playbackStarted() : PerfMonitor.instance.playbackStopped();
       renderer.videoFrames.resetStats();
@@ -1747,7 +1789,10 @@ class AppState extends ChangeNotifier {
       // with sound the player becomes the clock once it has started
       // (playTick); until then - and without sound - frames are counted
       // from real time as before.
-      if (hasAudio && audioStore != null) unawaited(_startAudioClock(_playSession));
+      if (hasAudio && audioStore != null) {
+        _audioPending = true;
+        unawaited(_startAudioClock(_playSession));
+      }
       // vsync-synced via a Ticker, replacing a fixed-period Timer.periodic -
       // the playhead visibly "teleported" unevenly during playback (0, 1, or
       // occasionally 2 steps per rendered frame) because the old ~17ms timer
@@ -4709,6 +4754,7 @@ class AppState extends ChangeNotifier {
         project.stageWalls,
         project.gravity,
         project.gravityAngle,
+        project.markers,
         maxFrame,
         playbackSpeed,
         projectName,

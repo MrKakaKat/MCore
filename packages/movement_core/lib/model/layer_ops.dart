@@ -451,6 +451,7 @@ void retimeProject(Project project, int newFps) {
   }
   final k = newFps / oldFps;
   int t(int f) => (f * k).round();
+  project.markers = ({for (final m in project.markers) t(m)}.toList()..sort());
   for (final layer in project.layers) {
     layer.startFrame = t(layer.startFrame);
     layer.durationFrames = math.max(1, t(layer.durationFrames));

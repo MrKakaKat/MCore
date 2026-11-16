@@ -108,6 +108,26 @@ void main() {
     expect(playback.paused, isTrue);
   });
 
+  testWidgets('with sound the picture holds the start frame until the sound starts', (tester) async {
+    await tester.runAsync(() async {
+      await app.importAudio(await sourceFile());
+      app.setFrame(30);
+      app.togglePlay();
+      // the player hasn't started yet: real time passing doesn't move it.
+      app.playTick(const Duration(milliseconds: 500), 30);
+      expect(app.currentFrame, 30, reason: 'waits for the first sound');
+      for (var i = 0; i < 100 && !app.playingWithSound; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    });
+    expect(app.playingWithSound, isTrue);
+    expect(playback.startedAt, const Duration(milliseconds: 500), reason: 'starts where the picture waited');
+    playback.position = const Duration(milliseconds: 600);
+    app.playTick(const Duration(milliseconds: 700), 30);
+    expect(app.currentFrame, 36);
+    app.togglePlay();
+  });
+
   testWidgets('without sound playback counts real time as before', (tester) async {
     app.project.layers.add(createLayer('rect')..id = 'r');
     app.setMaxFrame(179);

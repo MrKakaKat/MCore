@@ -39,8 +39,15 @@ class JustAudioPlayback implements AudioPlayback {
     if (_player.speed != speed) await _player.setSpeed(speed);
     // already standing there (primed): no seek - it starts at once.
     if ((_player.position - from).inMilliseconds.abs() > 25) await _player.seek(from);
+    final asked = DateTime.now();
+    // the player's own report that it is really playing (its position is
+    // anchored there): until then the picture holds the start frame.
+    final reallyPlaying = _player.playbackEventStream
+        .firstWhere((e) => e.processingState == ProcessingState.ready && !e.updateTime.isBefore(asked))
+        .timeout(const Duration(milliseconds: 400), onTimeout: () => _player.playbackEvent);
     // play() completes only when playback stops - don't wait for it.
     _player.play();
+    await reallyPlaying;
   }
 
   @override

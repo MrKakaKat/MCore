@@ -2373,8 +2373,12 @@ class Project {
   /// 0 right, 180 left, 270 up).
   double gravity;
   double gravityAngle;
-  Project({this.fps = 60, List<Layer>? layers, this.stageWalls = false, this.gravity = 0, this.gravityAngle = 90})
-      : layers = layers ?? [];
+
+  /// Red marks on the timeline ruler (frames, sorted): places to jump to.
+  List<int> markers;
+  Project({this.fps = 60, List<Layer>? layers, this.stageWalls = false, this.gravity = 0, this.gravityAngle = 90, List<int>? markers})
+      : layers = layers ?? [],
+        markers = markers ?? [];
 }
 
 Transform _defaultTransform(List<double> anchorDefault,

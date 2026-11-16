@@ -1217,9 +1217,10 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                   Positioned(
                                     key: const ValueKey('timeline-volume'),
                                     left: _edgeSlack,
-                                    top: _rulerHeight,
+                                    // from the very top: under the ruler's numbers.
+                                    top: 0,
                                     width: contentWidth,
-                                    height: _rowHeight * 3.5,
+                                    height: _rulerHeight + _rowHeight * 3.5,
                                     child: IgnorePointer(
                                       child: CustomPaint(
                                         painter: TimelineVolumePainter(
@@ -1551,6 +1552,27 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                 if (focusedLayer != null && !widget.app.timelineHandlesLocked)
                                   ..._keyframeColumns(focusedLayer,
                                       pixelsPerFrame, effectiveHeight),
+                                // red marks on the ruler, over every other
+                                // indicator: tap - the playhead goes there;
+                                // hold - the mark goes away.
+                                for (final m in widget.app.project.markers)
+                                  if (m <= widget.app.maxFrame)
+                                    Positioned(
+                                      key: ValueKey('ruler-marker-$m'),
+                                      left: _edgeSlack + m * pixelsPerFrame - 8,
+                                      top: 0,
+                                      width: 16,
+                                      height: 14,
+                                      child: GestureDetector(
+                                        behavior: HitTestBehavior.opaque,
+                                        onTap: () {
+                                          widget.app.setFrame(m);
+                                          widget.app.frameSettled();
+                                        },
+                                        onLongPress: () => widget.app.toggleMarker(m),
+                                        child: const CustomPaint(painter: RulerMarkerPainter()),
+                                      ),
+                                    ),
                               ],
                             ),
                           );
@@ -1794,8 +1816,9 @@ void paintTimelineRuler(Canvas canvas, Size size,
     for (var f = 0; f <= maxFrame; f += every) {
       final x = f * pixelsPerFrame;
       canvas.drawLine(Offset(x, size.height - 6), Offset(x, size.height), tickPaint);
-      (TextPainter(text: TextSpan(text: '$f', style: textStyle), textDirection: TextDirection.ltr)..layout())
-          .paint(canvas, Offset(x + 2, 2));
+      final tp = TextPainter(text: TextSpan(text: '$f', style: textStyle), textDirection: TextDirection.ltr)..layout();
+      // centred over its tick.
+      tp.paint(canvas, Offset(x - tp.width / 2, 2));
     }
   }
   // zoomed out the seconds crowd: numbers every 5, 10, 30... seconds (a
@@ -1816,7 +1839,8 @@ void paintTimelineRuler(Canvas canvas, Size size,
     if (!labelled) continue;
     final textStyle = TextStyle(fontSize: 9, color: const Color(0xFF8A8A8A).withOpacity(o));
     final tp = TextPainter(text: TextSpan(text: '$sec', style: textStyle), textDirection: TextDirection.ltr)..layout();
-    tp.paint(canvas, Offset(x + 2, 2));
+    // centred over its tick.
+    tp.paint(canvas, Offset(x - tp.width / 2, 2));
   }
 
   // zoomed in: half seconds get a tick like the seconds' (no label).
@@ -2764,6 +2788,16 @@ class _PlayheadState extends State<_Playhead>
   // (letting the auto-scroll Timer re-apply the drag on a stationary finger).
   Offset? _lastGlobalPosition;
 
+  // holding the playhead still puts a ruler mark at its frame (or takes
+  // the one there away).
+  Timer? _holdTimer;
+  Offset? _downAt;
+
+  void _endHold() {
+    _holdTimer?.cancel();
+    _holdTimer = null;
+  }
+
   @override
   ScrollController get autoScrollController => widget.hScrollController;
   @override
@@ -2784,6 +2818,7 @@ class _PlayheadState extends State<_Playhead>
 
   @override
   void dispose() {
+    _endHold();
     disposeAutoScroll();
     super.dispose();
   }
@@ -2823,6 +2858,12 @@ class _PlayheadState extends State<_Playhead>
             _dragStartGlobalX = d.position.dx;
             _dragStartFrame = widget.app.currentFrame;
             _lastGlobalPosition = d.position;
+            _downAt = d.position;
+            _endHold();
+            _holdTimer = Timer(kLongPressTimeout, () {
+              _holdTimer = null;
+              widget.app.toggleMarker(widget.app.currentFrame);
+            });
             widget.onDragActiveChanged(true);
           },
           onPointerMove: (d) {
@@ -2831,12 +2872,14 @@ class _PlayheadState extends State<_Playhead>
               return;
             }
             _lastGlobalPosition = d.position;
+            if (_downAt != null && (d.position - _downAt!).distance > kTouchSlop) _endHold();
             final dxFrames =
                 ((d.position.dx - startX) / widget.pixelsPerFrame).round();
             widget.app.setFrame(startFrame + dxFrames, quiet: true);
             updateAutoScroll(d.position);
           },
           onPointerUp: (_) {
+            _endHold();
             _dragStartGlobalX = null;
             _dragStartFrame = null;
             _lastGlobalPosition = null;
@@ -2845,6 +2888,7 @@ class _PlayheadState extends State<_Playhead>
             widget.app.frameSettled();
           },
           onPointerCancel: (_) {
+            _endHold();
             _dragStartGlobalX = null;
             _dragStartFrame = null;
             _lastGlobalPosition = null;
@@ -2856,6 +2900,25 @@ class _PlayheadState extends State<_Playhead>
         ),
     );
   }
+}
+
+/// A ruler mark: the playhead's top triangle, in red.
+class RulerMarkerPainter extends CustomPainter {
+  const RulerMarkerPainter();
+  @override
+  void paint(Canvas canvas, Size size) {
+    final x = size.width / 2;
+    canvas.drawPath(
+        Path()
+          ..moveTo(x - 5, 0)
+          ..lineTo(x + 5, 0)
+          ..lineTo(x, 7)
+          ..close(),
+        Paint()..color = const Color(0xFFE53935));
+  }
+
+  @override
+  bool shouldRepaint(covariant RulerMarkerPainter oldDelegate) => false;
 }
 
 class _PlayheadPainter extends CustomPainter {
