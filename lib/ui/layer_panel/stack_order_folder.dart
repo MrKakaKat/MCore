@@ -18,11 +18,12 @@ class StackOrderFolder extends StatefulWidget {
 class _StackOrderFolderState extends State<StackOrderFolder> {
   int? _place;
 
-  /// "from 1 to 4, now at 1" (places counted from the top), or "now
+  /// "from 5 to 2, now at 2" (places as the Layers list numbers them, 1:
+  /// the bottom; from: its own place, before its first border), or "now
   /// absent" while the layer isn't there.
   static String summary(Project project, Layer l, int globalFrame) {
     final keys = [...l.stackKeys]..sort((a, b) => a.frame.compareTo(b.frame));
-    final from = keys.first.position, to = keys.last.position;
+    final from = listPlaceOf(project, l), to = keys.last.position;
     final here = getLayerStateAt(project, l.id, globalFrame).inRange;
     final now = here ? 'now at ${stackPlaceOf(project, l, globalFrame)}' : 'now absent';
     return 'from $from to $to, $now';
@@ -45,19 +46,20 @@ class _StackOrderFolderState extends State<StackOrderFolder> {
       children: [
         if (layer != null)
           Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 6, children: [
-            Text('From here "${layer.name}" stands', style: const TextStyle(fontSize: 12)),
+            Text('From here "${layer.name}" stands at', style: const TextStyle(fontSize: 12)),
             NumField(
               key: const ValueKey('stack-place'),
               width: 44,
               integer: true,
               value: place.toDouble(),
-              onCommit: (v) => setState(() => _place = v.round().clamp(1, app.project.layers.length)),
+              onCommit: (v) => setState(() => _place = v.round().clamp(1, timelineRows(app.project).length)),
             ),
-            const Text('from the top', style: TextStyle(fontSize: 12)),
+            Text('(now ${stackPlaceOf(app.project, layer, app.currentFrame)}; the list\'s numbers, 1: the bottom)',
+                style: const TextStyle(fontSize: 12)),
             OutlinedButton.icon(
               key: const ValueKey('stack-key-add'),
               icon: const Icon(Icons.diamond_outlined, size: 14),
-              label: const Text('Key'),
+              label: const Text('Border here'),
               onPressed: () {
                 app.addStackKey(layer.id, place);
                 setState(() => _place = null);
@@ -77,8 +79,9 @@ class _StackOrderFolderState extends State<StackOrderFolder> {
         if (keyed.isEmpty)
           const Padding(
             padding: EdgeInsets.only(top: 4),
-            child: Text('No layer changes its order yet: pick a place and set a key at the playhead - from that '
-                'frame the layer jumps there (above or below the others).',
+            child: Text('No layer changes its order yet: type the place (the number the Layers list shows) and set '
+                'a border at the playhead - from that frame the layer jumps there: from 5 to 2 it goes behind the '
+                'layers at 2, 3 and 4.',
                 style: TextStyle(fontSize: 12, color: Colors.white60)),
           ),
         for (final l in keyed)

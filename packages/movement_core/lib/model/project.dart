@@ -1670,8 +1670,8 @@ class PropLink {
   }
 }
 
-/// A key of a layer's order on the stage: from local frame `frame` it
-/// stands at `position` (1: the top of the Layers list).
+/// A border of a layer's order on the stage: from local frame `frame` it
+/// stands at `position` (numbered as in the Layers list, 1: the bottom).
 class StackKey {
   int frame;
   int position;
@@ -2153,9 +2153,10 @@ class Layer {
   /// Masks tab: the layer as a lens over what is under it.
   LensSettings lens = LensSettings();
 
-  /// Order on the stage, keyed: from each key's (local) frame on the
-  /// layer stands at that place in the Layers list (1: on top) - a jump,
-  /// no in-between. Before its first key it stands where the list puts it.
+  /// Order on the stage: from each border's (local) frame on the layer
+  /// stands at that place, numbered as in the Layers list (1: the bottom) -
+  /// a jump, no in-between. Before its first border it stands where the
+  /// list puts it.
   List<StackKey> stackKeys = [];
 
   /// Keyframes tab, "Edit the whole object": while it is selected, an edit

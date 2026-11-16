@@ -102,4 +102,28 @@ void main() {
     final m = physicsWorldOf(p).contactMarkers('A');
     expect(m.length, 2, reason: 'one start, one end: $m');
   });
+
+  test("handle to handle, no keys anywhere: B's left side goes exactly as far as A's right handle is dragged", () {
+    final a = rect('A', 300, 500, 100, 100), b = rect('B', 600, 500, 100, 100);
+    final k = PropLink(sourceId: 'A', from: 'scaleRight', to: 'scaleLeft', mode: 'follow');
+    b.links.add(k);
+    final p = Project(layers: [a, b]);
+    pinLinkBase(p, k, 0);
+    double edge(Layer l, double x) {
+      clearStateCaches();
+      return applyAffine(toFrameMatrix(getLayerStateAt(p, l.id, 0).matrix), [x, 0])[0];
+    }
+
+    for (final keep in [false, true]) {
+      scaleKeepsOppositeEdge = keep;
+      final a0 = edge(a, 50), b0 = edge(b, -50);
+      final h = applyAffine(getTransformBoxHandles(p, a, 0).mCanvas, [50, 0]);
+      ScaleDragOp(layer: a, handle: 'right').apply(p, 0, [h[0] + 40, h[1]]);
+      expect(edge(b, -50) - b0, closeTo(edge(a, 50) - a0, 1e-6), reason: 'keep opposite edge: $keep');
+      expect(edge(b, 50), closeTo(650, 1e-6), reason: "B's right side held");
+    }
+    scaleKeepsOppositeEdge = false;
+    expect(a.transform.scale.keyframes, isEmpty);
+    expect(b.transform.scale.keyframes, isEmpty);
+  });
 }

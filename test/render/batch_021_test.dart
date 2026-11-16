@@ -8,6 +8,7 @@ import 'package:movement_mobile/render/canvas_renderer.dart';
 import 'package:movement_mobile/ui/layer_panel/layer_panel_view.dart';
 import 'package:movement_mobile/ui/links/links_view.dart';
 import 'package:movement_mobile/ui/stage/stage_view.dart';
+import 'package:movement_mobile/ui/timeline/layers_timeline_view.dart';
 
 void main() {
   test('a copied link pastes onto another layer; never onto its own source', () {
@@ -46,7 +47,7 @@ void main() {
     expect(first, lessThan(second));
   });
 
-  testWidgets('order on stage: a key from the folder; only keyed layers listed with "from .. to .., now at .."', (tester) async {
+  testWidgets('order on stage: one border from the folder, the list\'s numbers; only those layers listed', (tester) async {
     tester.view.physicalSize = const Size(800, 1600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -55,8 +56,8 @@ void main() {
     app.addLayer('rect');
     app.addLayer('rect');
     app.addLayer('rect');
-    final bottom = app.project.layers.first;
-    app.selectLayer(bottom.id);
+    final top = app.project.layers.last; // 3 in the list
+    app.selectLayer(top.id);
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: LayerPanelView(app: app))));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('stack-order-folder')));
@@ -67,17 +68,30 @@ void main() {
     app.setFrame(10);
     await tester.tap(find.byKey(const ValueKey('stack-key-add')));
     await tester.pumpAndSettle();
-    expect(findLayer(app.project, bottom.id)!.stackKeys.single.position, 1);
-    expect(find.byKey(ValueKey('stack-layer-${bottom.id}')), findsOneWidget);
-    expect(find.byKey(ValueKey('stack-layer-${app.project.layers[1].id}')), findsNothing, reason: 'only the keyed ones');
-    expect(find.text('from 1 to 1, now at 1'), findsOneWidget);
+    expect(findLayer(app.project, top.id)!.stackKeys.single.position, 1);
+    expect(find.byKey(ValueKey('stack-layer-${top.id}')), findsOneWidget);
+    expect(find.byKey(ValueKey('stack-layer-${app.project.layers[1].id}')), findsNothing, reason: 'only the ones with borders');
+    expect(find.text('from 3 to 1, now at 1'), findsOneWidget);
     app.setFrame(0);
     await tester.pumpAndSettle();
-    expect(find.text('from 1 to 1, now at 3'), findsOneWidget);
-    findLayer(app.project, bottom.id)!.startFrame = 500;
+    expect(find.text('from 3 to 1, now at 3'), findsOneWidget);
+    findLayer(app.project, top.id)!.startFrame = 500;
     app.setFrame(0);
     await tester.pumpAndSettle();
-    expect(find.text('from 1 to 1, now absent'), findsOneWidget);
+    expect(find.text('from 3 to 1, now absent'), findsOneWidget);
+  });
+
+  testWidgets('a border shows on the layer\'s line as a hollow square', (tester) async {
+    final app = AppState();
+    app.project.layers.clear();
+    app.addLayer('rect');
+    app.addLayer('rect');
+    final l = app.project.layers.last;
+    setStackKey(l, 20, 1);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(body: SizedBox(width: 600, height: 300, child: LayersTimelineView(app: app)))));
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('stack-border-${l.id}-20')), findsOneWidget);
   });
 
   test('order keys change what is drawn on top (the list stays)', () async {
@@ -90,7 +104,7 @@ void main() {
       ..transform.anchor.defaultValue = [0.5, 0.5];
     final red = sq('r', '#ff0000'), blue = sq('b', '#0000ff');
     final p = Project(layers: [red, blue]);
-    setStackKey(red, 20, 1);
+    setStackKey(blue, 20, 1); // blue (2) goes to 1: behind red
     final r = CanvasRenderer()
       ..setSize(100, 100)
       ..backgroundColor = null;
@@ -102,8 +116,8 @@ void main() {
       return b.getUint8((50 * 100 + 50) * 4 + 2);
     }
 
-    expect(await centre(10), 255, reason: 'blue on top before the key');
-    expect(await centre(30), 0, reason: 'red jumps on top');
+    expect(await centre(10), 255, reason: 'blue on top before its border');
+    expect(await centre(30), 0, reason: 'blue drops behind red');
     expect(p.layers, [red, blue]);
   });
 

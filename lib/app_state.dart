@@ -2413,7 +2413,7 @@ class AppState extends ChangeNotifier {
     final l = findLayer(project, layerId);
     if (l == null) return;
     pushUndo();
-    setStackKey(l, currentFrame - l.startFrame, position.clamp(1, project.layers.length));
+    setStackKey(l, currentFrame - l.startFrame, position.clamp(1, timelineRows(project).length));
     commitEdit();
   }
 

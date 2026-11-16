@@ -31,21 +31,21 @@ void main() {
   group('order on the stage', () {
     Layer named(String id) => createLayer('rect')..id = id;
 
-    test('a key jumps a layer to its place from that frame on; saved', () {
-      final a = named('a'), b = named('b'), c = named('c'), d = named('d');
-      final p = Project(layers: [a, b, c, d]); // list top first: d c b a
-      setStackKey(a, 10, 1); // a on top from frame 10
-      setStackKey(a, 20, 3);
-      List<String> top(int f) => [for (final l in stackOrderAt(p, f).reversed) l.id];
-      expect(top(5), ['d', 'c', 'b', 'a'], reason: 'before its first key: where the list puts it');
-      expect(top(10), ['a', 'd', 'c', 'b']);
-      expect(top(25), ['d', 'c', 'a', 'b']);
-      expect(stackPlaceOf(p, a, 15), 1);
-      expect(stackPlaceOf(p, a, 25), 3);
-      expect([for (final l in p.layers) l.id], ['a', 'b', 'c', 'd'], reason: 'the list stays');
-      final back = layerFromJson(jsonDecode(jsonEncode(layerToJson(a))) as Map<String, dynamic>);
-      expect([for (final k in back.stackKeys) (k.frame, k.position)], [(10, 1), (20, 3)]);
-      expect(cloneLayer(a).stackKeys, hasLength(2));
+    test('one border: from 5 to 2 it drops behind the three layers at 2, 3, 4 (the list stays); saved', () {
+      final ls = [for (var i = 1; i <= 5; i++) named('L$i')]; // the list: L1 at 1 (bottom) .. L5 at 5
+      final p = Project(layers: ls);
+      final top = ls.last;
+      expect(stackPlaceOf(p, top, 0), 5);
+      setStackKey(top, 10, 2);
+      List<String> bottomUp(int f) => [for (final l in stackOrderAt(p, f)) l.id];
+      expect(bottomUp(5), ['L1', 'L2', 'L3', 'L4', 'L5'], reason: 'before its border: its own place');
+      expect(bottomUp(10), ['L1', 'L5', 'L2', 'L3', 'L4']);
+      expect(stackPlaceOf(p, top, 5), 5);
+      expect(stackPlaceOf(p, top, 15), 2);
+      expect([for (final l in p.layers) l.id], ['L1', 'L2', 'L3', 'L4', 'L5'], reason: 'the list stays');
+      final back = layerFromJson(jsonDecode(jsonEncode(layerToJson(top))) as Map<String, dynamic>);
+      expect([for (final k in back.stackKeys) (k.frame, k.position)], [(10, 2)]);
+      expect(cloneLayer(top).stackKeys, hasLength(1));
     });
   });
 

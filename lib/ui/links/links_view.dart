@@ -89,7 +89,8 @@ class LinksView extends StatelessWidget {
             const Hint('One property of this layer moves with one property of another layer - its change since '
                 'this layer starts, times the factor. A linked layer can drive the next one: a chain. '
                 '"Follows it": like parenting for one property - it moves as far as the other object does, '
-                'along its own axis only. "Works": the time it works in.'),
+                'along its own axis only. Handle to handle: "Follows it", its size handle -> my side - each '
+                'handle is a point of its own, no keys needed. "Works": the time it works in.'),
             // the newest first.
             for (var i = layer.links.length - 1; i >= 0; i--)
               if (!layer.links[i].fromSound) () {

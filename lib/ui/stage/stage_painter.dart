@@ -778,36 +778,36 @@ void _paintPropLinks(ui.Canvas canvas, Project project, int globalFrame, double 
       final ts = getLayerStateAt(project, layer.id, globalFrame);
       final ss = getLayerStateAt(project, k.sourceId!, globalFrame);
       if (!ts.inRange || !ss.inRange) continue;
-      final p = at(ss), c = at(ts);
+      // where it ties on each side: a size handle itself (handle to
+      // handle, straight - no object in between), else the object.
+      final src = findLayer(project, k.sourceId);
+      final fromHandle = k.follows && k.from != 'position' && followSources.contains(k.from) && src != null;
+      final sp = fromHandle ? linkFollowPoint(project, src, k.from, globalFrame) : null;
+      final th = linkHandlePoint(project, layer, k, globalFrame);
+      final p = sp == null ? at(ss) : ui.Offset(sp[0], sp[1]);
+      final c = th == null ? at(ts) : ui.Offset(th[0], th[1]);
+      final gapP = (sp == null ? 9 : 7) * inv, gapC = 7 * inv;
       final d = c - p;
       final len = d.distance;
-      if (len > 18 * inv) {
+      if (len > gapP + gapC + 2 * inv) {
         final u = d / len;
         final n = ui.Offset(-u.dy, u.dx) * (3 * inv);
-        final a = p + u * (9 * inv), b = c - u * (7 * inv);
+        final a = p + u * gapP, b = c - u * gapC;
         canvas.drawLine(a + n, b + n, line);
         canvas.drawLine(a - n, b - n, line);
       }
-      canvas.drawCircle(p, 9 * inv, ring); // source: a circle in a circle
-      canvas.drawCircle(p, 5 * inv, ring);
-      canvas.drawCircle(c, 7 * inv, ring); // follower: a bigger hollow one
-      // chasing one of the source's size handles: a dashed line from it.
-      if (k.follows && k.from != 'position') {
-        final src = findLayer(project, k.sourceId);
-        if (src != null) {
-          final sp = linkFollowPoint(project, src, k.from, globalFrame);
-          final so = ui.Offset(sp[0], sp[1]);
-          _dashedLine(canvas, so, c, line, inv);
-          canvas.drawRect(ui.Rect.fromCenter(center: so, width: 14 * inv, height: 14 * inv), ring);
-        }
+      // a handle: a square around it (touching the handle's circle).
+      void handleMark(ui.Offset o) => canvas.drawRect(ui.Rect.fromCenter(center: o, width: 14 * inv, height: 14 * inv), ring);
+      if (sp != null) {
+        handleMark(p);
+      } else {
+        canvas.drawCircle(p, 9 * inv, ring); // source: a circle in a circle
+        canvas.drawCircle(p, 5 * inv, ring);
       }
-      // on one size handle: a second, dashed line to that handle.
-      final h = linkHandlePoint(project, layer, k, globalFrame);
-      if (h != null) {
-        final hp = ui.Offset(h[0], h[1]);
-        _dashedLine(canvas, p, hp, line, inv);
-        // around the handle's circle (radius 5), touching its outline.
-        canvas.drawRect(ui.Rect.fromCenter(center: hp, width: 14 * inv, height: 14 * inv), ring);
+      if (th != null) {
+        handleMark(c);
+      } else {
+        canvas.drawCircle(c, 7 * inv, ring); // follower: a bigger hollow one
       }
     }
   }
@@ -847,18 +847,6 @@ List<List<double>> _insetRing(List<List<double>> ring, double d, bool hole) {
         return [p[0] + mx * k, p[1] + my * k];
       }(),
   ];
-}
-
-/// A dashed line from `a` to `b` (dashes of 6, gaps of 4 screen px).
-void _dashedLine(ui.Canvas canvas, ui.Offset a, ui.Offset b, ui.Paint paint, double inv) {
-  final d = b - a;
-  final len = d.distance;
-  if (len < 1e-6) return;
-  final u = d / len;
-  final dash = 6 * inv, gap = 4 * inv;
-  for (var t = 0.0; t < len; t += dash + gap) {
-    canvas.drawLine(a + u * t, a + u * math.min(len, t + dash), paint);
-  }
 }
 
 void _paintParentLinks(ui.Canvas canvas, Project project, int globalFrame,

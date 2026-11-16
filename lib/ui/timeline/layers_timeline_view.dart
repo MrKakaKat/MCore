@@ -2228,6 +2228,19 @@ class _LayerLaneState extends State<_LayerLane>
                 height: 8,
                 child: IgnorePointer(child: CustomPaint(painter: _InertiaPainter(color))),
               ),
+          // order on the stage: a hollow square of the layer's colour
+          // where it jumps to its other place (a border, not a key).
+          for (final k in widget.layer.stackKeys)
+            Positioned(
+              key: ValueKey('stack-border-${widget.layer.id}-${k.frame}'),
+              left: _frameToX(widget.layer.startFrame + k.frame) - 6.5,
+              top: widget.height / 2 - 6.5,
+              width: 13,
+              height: 13,
+              child: IgnorePointer(
+                child: DecoratedBox(decoration: BoxDecoration(border: Border.all(color: color, width: 1.2))),
+              ),
+            ),
           // contour physics: a square where a push starts and where it
           // ends (not keys: nothing to drag or ease).
           if (widget.layer.physics.collide)

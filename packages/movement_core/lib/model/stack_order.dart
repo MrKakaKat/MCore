@@ -1,9 +1,12 @@
 /// Order on the stage, keyed: a layer jumps above or below others at its
 /// keys (see `Layer.stackKeys`) - the draw order changes, the Layers list
-/// stays as it is.
+/// stays as it is. Places are counted as the Layers list numbers them (1:
+/// the bottom). A key is a border: before it the layer is at its own
+/// place, from it at the key's.
 library;
 
 import 'project.dart';
+import 'timeline_rows.dart' show timelineRows, timelineRowOf;
 
 /// The place `l`'s keys put it at `globalFrame` (1: on top), or null:
 /// no key yet (before its first one, or none).
@@ -21,33 +24,43 @@ int? stackPositionAt(Layer l, num globalFrame) {
   return out;
 }
 
+/// A layer's place in the Layers list: its timeline row, counted from
+/// the bottom (1: the bottom; layers sharing a row share it).
+int listPlaceOf(Project project, Layer l) => timelineRowOf(project, l.id) + 1;
+
 /// The layers in draw order at `globalFrame` (first drawn first, as in
-/// `project.layers`): the list's order, with every keyed layer moved to
-/// its place (counted from the top).
+/// `project.layers`): each at its place in the list - a keyed one at the
+/// place its key says, under the layers already there (going from 5 to
+/// 2 puts it behind the layers at 2, 3 and 4).
 List<Layer> stackOrderAt(Project project, num globalFrame) {
   if (!project.layers.any((l) => l.stackKeys.isNotEmpty)) return project.layers;
-  final top = project.layers.reversed.toList(); // the Layers list: top first
-  final moved = <(Layer, int)>[];
+  final rows = timelineRows(project);
+  final level = <Layer, double>{};
+  for (var r = 0; r < rows.length; r++) {
+    for (final l in rows[r]) {
+      level[l] = r + 1.0;
+    }
+  }
+  var moved = false;
   for (final l in project.layers) {
     final p = stackPositionAt(l, globalFrame);
-    if (p != null) moved.add((l, p));
+    if (p != null) {
+      level[l] = p - 0.5;
+      moved = true;
+    }
   }
-  if (moved.isEmpty) return project.layers;
-  top.removeWhere((l) => moved.any((m) => identical(m.$1, l)));
-  // the higher places first, so each lands where it asks to.
-  moved.sort((a, b) => a.$2.compareTo(b.$2));
-  for (final (l, p) in moved) {
-    top.insert((p - 1).clamp(0, top.length), l);
-  }
-  return top.reversed.toList();
+  if (!moved) return project.layers;
+  final index = {for (var i = 0; i < project.layers.length; i++) project.layers[i]: i};
+  return [...project.layers]..sort((a, b) {
+      final c = (level[a] ?? 0).compareTo(level[b] ?? 0);
+      return c != 0 ? c : index[a]!.compareTo(index[b]!);
+    });
 }
 
-/// Where `l` stands on the stage at `globalFrame` (1: on top), among
-/// all the layers.
-int stackPlaceOf(Project project, Layer l, num globalFrame) {
-  final order = stackOrderAt(project, globalFrame);
-  return order.length - order.indexOf(l);
-}
+/// Where `l` stands at `globalFrame`, as the list counts (1: the bottom):
+/// its key's place, else its own.
+int stackPlaceOf(Project project, Layer l, num globalFrame) =>
+    stackPositionAt(l, globalFrame) ?? listPlaceOf(project, l);
 
 /// Sets (or replaces) `l`'s key at local frame `frame`.
 void setStackKey(Layer l, int frame, int position) {

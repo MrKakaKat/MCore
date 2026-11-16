@@ -56,6 +56,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('extend-right')), findsNothing);
     app.setAppPreference('rectExtendMode', true);
+    // an app preference (saved): back as it was for the other tests.
+    addTearDown(() => app.setAppPreference('rectExtendMode', false));
     await tester.pumpAndSettle();
     for (final s in ['left', 'top', 'right', 'bottom']) {
       expect(find.byKey(ValueKey('extend-$s')), findsOneWidget);
