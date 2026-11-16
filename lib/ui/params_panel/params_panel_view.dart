@@ -90,11 +90,12 @@ class ParamsPanelView extends StatelessWidget {
             _vecParam(context, 'anchor', layer.transform.anchor, localFrame, [0.5, 0.5],
                 const ParamScale.ruler(unitsPerPixel: 0.0005, minorTick: 0.01, majorTick: 0.1, decimals: 4)),
             _pathControls(context, layer.transform.anchor),
+            // its switches inside its fold.
             _vecParam(context, 'scale', layer.transform.scale, localFrame, [1.0, 1.0],
-                const ParamScale.ruler(unitsPerPixel: 0.005, minorTick: 0.1, majorTick: 0.5)),
+                const ParamScale.ruler(unitsPerPixel: 0.005, minorTick: 0.1, majorTick: 0.5),
+                below: [_scaleSwitches(layer)]),
             // "Size handles lengthen it": what each side adds (keyed).
             if (rectExtendMode && layer.content.shape == 'rect') ..._extendRulers(context, layer, localFrame),
-            _scaleSwitches(layer),
             _scalarParam(context, 'rotation', layer.transform.rotation, localFrame, 0.0, ParamScale.degrees),
             _scalarParam(context, 'opacity', layer.transform.opacity, localFrame, 1.0, const ParamScale.slider(0, 1)),
             // its centre: what it turns and scales round.
@@ -358,7 +359,8 @@ class ParamsPanelView extends StatelessWidget {
     );
   }
 
-  Widget _vecParam(BuildContext context, String label, Track trk, double localFrame, List<double> defaultValue, ParamScale scale) {
+  Widget _vecParam(BuildContext context, String label, Track trk, double localFrame, List<double> defaultValue, ParamScale scale,
+      {List<Widget> below = const []}) {
     final value = evaluateTrack(app.project, trk, localFrame) as List<double>;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -372,6 +374,7 @@ class ParamsPanelView extends StatelessWidget {
         // fractions of it), the scale's 1:1.
         padCenter: label == 'scale' ? const [1.0, 1.0] : const [0.5, 0.5],
         padSpan: label == 'scale' ? 4 : 1,
+        below: below,
         onEditStart: app.pushUndo,
         onChanged: (v) => _live(trk, localFrame, _linked(label, value, v)),
         onCommit: (v) => _commit(trk, localFrame, _linked(label, value, v)),

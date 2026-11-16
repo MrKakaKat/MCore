@@ -1321,6 +1321,10 @@ class PhysicsSettings {
   /// How much of its speed it keeps bouncing off what stops it, 0..1 (0:
   /// it just lands).
   double bounce = 0;
+
+  /// How strongly the project's gravity pulls this one (1: as set; 0.5:
+  /// half - it falls slower; 2: twice).
+  double gravityScale = 1;
   PhysicsSettings(
       {this.collide = false,
       this.group = '1',
@@ -1353,7 +1357,8 @@ class PhysicsSettings {
     ..grows = grows
     ..spin = spin
     ..falls = falls
-    ..bounce = bounce;
+    ..bounce = bounce
+    ..gravityScale = gravityScale;
   Map<String, dynamic> toJson() => {
         'collide': collide,
         'group': group,
@@ -1370,6 +1375,7 @@ class PhysicsSettings {
         if (spin) 'spin': true,
         if (falls) 'falls': true,
         if (bounce != 0) 'bounce': bounce,
+        if (gravityScale != 1) 'gravityScale': gravityScale,
       };
   static PhysicsSettings fromJson(Map<String, dynamic> j) {
     final l = j['leash'] as Map?;
@@ -1392,7 +1398,8 @@ class PhysicsSettings {
       ..grows = j['grows'] == true
       ..spin = j['spin'] == true
       ..falls = j['falls'] == true
-      ..bounce = (j['bounce'] as num?)?.toDouble() ?? 0;
+      ..bounce = (j['bounce'] as num?)?.toDouble() ?? 0
+      ..gravityScale = (j['gravityScale'] as num?)?.toDouble() ?? 1;
   }
 }
 

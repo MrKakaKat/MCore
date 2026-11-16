@@ -81,7 +81,11 @@ class _Frame {
   /// Bends that give under a push (bend's `react`): angle (degrees) and
   /// its speed (degrees per frame), springing back to 0.
   final Map<String, List<double>> bend;
-  _Frame(this.induced, this.keyed, this.armed, this.touching, this.contacts, this.normals, this.sig, [this.velocity = const {}, this.bend = const {}]);
+  /// How fast each falling layer turns (radians a frame) - tipping over
+  /// keeps turning.
+  final Map<String, double> spinVel;
+  _Frame(this.induced, this.keyed, this.armed, this.touching, this.contacts, this.normals, this.sig,
+      [this.velocity = const {}, this.bend = const {}, this.spinVel = const {}]);
 }
 
 class PhysicsWorld {
@@ -421,6 +425,9 @@ class PhysicsWorld {
       b[1] += dAng;
     }
 
+    // how fast the falling ones turn (tipping over), this frame.
+    final spinVel = <String, double>{};
+
     // Grows to hold: `b` pressed along `n` (unit, outward from what
     // presses) by `d` at `contact` grows about its pivot so that point
     // moves out by `d`. False when growing can't move it that way (the
@@ -442,7 +449,9 @@ class PhysicsWorld {
     // (the lighter, the more).
     void spin(_Body b, List<double> off, List<double> p, List<double> contact) {
       final ph = b.layer.physics;
-      if (!ph.spin || ph.immovable) return;
+      // a falling layer turns too: held off its middle it tips over.
+      final tips = ph.falls && project.gravity > 0;
+      if (!(ph.spin || tips) || ph.immovable) return;
       final c = b.centre(off);
       final rx = contact[0] - c[0], ry = contact[1] - c[1];
       final torque = rx * p[1] - ry * p[0];
@@ -454,6 +463,8 @@ class PhysicsWorld {
         off.add(off.length == 2 ? 1 : 0);
       }
       off[3] += dth * 180 / math.pi;
+      // tipping keeps turning (its turn carries to the next frames).
+      if (tips) spinVel[b.layer.id] = (spinVel[b.layer.id] ?? 0) + dth;
     }
 
     // the layers falling this frame: the move gravity and their speed
@@ -493,12 +504,23 @@ class PhysicsWorld {
       // its speed carries on (barely slowed by the air) and gravity adds
       // to it - never more a frame than half its own size (it can't jump
       // through what it lands on).
-      final falls = l.physics.falls && !l.physics.immovable && project.gravity > 0;
+      final falls = l.physics.falls && !l.physics.immovable && project.gravity > 0 && l.physics.gravityScale != 0;
       final k = l.physics.immovable ? 0.0 : (falls ? 0.995 : l.physics.inertia.clamp(0.0, 0.99));
       final v = prev?.velocity[l.id];
       var step = [k > 0 && v != null ? v[0] * k : 0.0, k > 0 && v != null ? v[1] * k : 0.0];
       if (falls) {
-        final g = project.gravity / (fps * fps), a = project.gravityAngle * math.pi / 180;
+        // tipping: last frame's turn carries on (a little slower).
+        final w = (prev?.spinVel[l.id] ?? 0) * 0.98;
+        if (w.abs() > 1e-7) {
+          body.turn(w);
+          final off = induced[l.id]!;
+          while (off.length < 4) {
+            off.add(off.length == 2 ? 1 : 0);
+          }
+          off[3] += w * 180 / math.pi;
+          spinVel[l.id] = w;
+        }
+        final g = project.gravity * l.physics.gravityScale / (fps * fps), a = project.gravityAngle * math.pi / 180;
         step = [step[0] + g * math.cos(a), step[1] + g * math.sin(a)];
         final len = math.sqrt(step[0] * step[0] + step[1] * step[1]), most = math.max(1.0, body.minSize / 2);
         if (len > most) step = [step[0] / len * most, step[1] / len * most];
@@ -653,14 +675,17 @@ class PhysicsWorld {
                   if (hit.$2 - d > maxSink) d = hit.$2 - maxSink;
                 }
                 // where they meet: the deepest point of each into the other.
+                // (growing: the deepest point of the one pressing; turning:
+                // the middle of where their sides meet - a box resting flat
+                // isn't turned by one of its corners.)
                 final atB = A.support(n, offA), atA = B.support([-n[0], -n[1]], offB);
                 if (shareA > 0 && !grow(A, offA, [-n[0], -n[1]], d * shareA, atA) && !A.layer.physics.immovable) {
                   push(A.layer.id, offA, -n[0] * d * shareA, -n[1] * d * shareA);
-                  spin(A, offA, [-n[0] * d * shareA, -n[1] * d * shareA], atA);
+                  spin(A, offA, [-n[0] * d * shareA, -n[1] * d * shareA], _contactMid(B, offB, A, offA, [-n[0], -n[1]]));
                 }
                 if (shareB > 0 && !grow(B, offB, n, d * shareB, atB) && !B.layer.physics.immovable) {
                   push(B.layer.id, offB, n[0] * d * shareB, n[1] * d * shareB);
-                  spin(B, offB, [n[0] * d * shareB, n[1] * d * shareB], atB);
+                  spin(B, offB, [n[0] * d * shareB, n[1] * d * shareB], _contactMid(A, offA, B, offB, n));
                 }
                 moved = true;
                 if (s == steps) {
@@ -734,7 +759,38 @@ class PhysicsWorld {
       if (math.sqrt(hx * hx + hy * hy) <= 2 * g) continue;
       velocity[e.key] = [moved[0] - b * hx, moved[1] - b * hy];
     }
-    return _Frame(induced, keyedT, armed, touching, contacts, normals, _frameSig(f), velocity, bend);
+    return _Frame(induced, keyedT, armed, touching, contacts, normals, _frameSig(f), velocity, bend, spinVel);
+  }
+
+  /// Where `a` (pushing along `n`, unit) holds `b`: the middle of where
+  /// their facing sides overlap - a box resting on a floor is held under
+  /// its middle; one hanging past the floor's edge, at the edge (it tips).
+  static List<double> _contactMid(_Body a, List<double> offA, _Body b, List<double> offB, List<double> n) {
+    final t = [-n[1], n[0]];
+    double dn(List<double> p, List<double> o) => (p[0] + o[0]) * n[0] + (p[1] + o[1]) * n[1];
+    double dt(List<double> p, List<double> o) => (p[0] + o[0]) * t[0] + (p[1] + o[1]) * t[1];
+    // b's side facing a (its lowest along n), a's facing b (its highest).
+    final bLow = b.world.map((p) => dn(p, offB)).reduce(math.min);
+    final aHigh = a.world.map((p) => dn(p, offA)).reduce(math.max);
+    const tol = 1.0;
+    final bs = [for (final p in b.world) if (dn(p, offB) <= bLow + tol) dt(p, offB)];
+    final as = [for (final p in a.world) if (dn(p, offA) >= aHigh - tol) dt(p, offA)];
+    var lo = bs.reduce(math.min), hi = bs.reduce(math.max);
+    final alo = as.reduce(math.min), ahi = as.reduce(math.max);
+    // a single corner of either: that's where they meet; else the overlap.
+    if (hi - lo < tol) {
+      // b meets with a corner.
+    } else if (ahi - alo < tol) {
+      lo = hi = alo;
+    } else {
+      final l2 = math.max(lo, alo), h2 = math.min(hi, ahi);
+      if (l2 <= h2) {
+        lo = l2;
+        hi = h2;
+      }
+    }
+    final m = (lo + hi) / 2, level = (bLow + aHigh) / 2;
+    return [n[0] * level + t[0] * m, n[1] * level + t[1] * m];
   }
 
   /// A pair where one is hollow and the other's middle is inside it:

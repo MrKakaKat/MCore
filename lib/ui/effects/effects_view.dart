@@ -1061,13 +1061,50 @@ class EffectsView extends StatelessWidget {
                 ButtonSegment(value: 180, icon: Icon(Icons.west, size: 16), tooltip: 'left'),
                 ButtonSegment(value: 0, icon: Icon(Icons.east, size: 16), tooltip: 'right'),
               ],
-              selected: {app.project.gravityAngle},
+              emptySelectionAllowed: true,
+              selected: {if (const [0.0, 90.0, 180.0, 270.0].contains(app.project.gravityAngle)) app.project.gravityAngle},
               onSelectionChanged: (v) {
+                if (v.isEmpty) return;
                 app.pushUndo();
                 app.project.gravityAngle = v.first;
                 app.commitEdit();
               },
             ),
+            // any way at all: the angle (90 down, 0 right).
+            Row(children: [
+              SizedBox(width: 120, child: Text('Way ${app.project.gravityAngle.round()}°', style: const TextStyle(fontSize: 13))),
+              Expanded(
+                child: Slider(
+                  key: const ValueKey('physics-gravity-angle'),
+                  value: app.project.gravityAngle.clamp(0.0, 359.0),
+                  max: 359,
+                  onChangeStart: (_) => app.pushUndo(),
+                  onChanged: (v) {
+                    app.project.gravityAngle = v.roundToDouble();
+                    app.commitEdit();
+                  },
+                ),
+              ),
+            ]),
+            // this one's own share of it.
+            Row(children: [
+              SizedBox(width: 120, child: Text('Its gravity ×${ph.gravityScale.toStringAsFixed(2)}', style: const TextStyle(fontSize: 13))),
+              Expanded(
+                child: Slider(
+                  key: const ValueKey('physics-gravity-scale'),
+                  value: ph.gravityScale.clamp(0.0, 3.0),
+                  max: 3,
+                  onChangeStart: (_) => app.pushUndo(),
+                  onChanged: (v) {
+                    ph.gravityScale = (v * 20).round() / 20;
+                    app.commitEdit();
+                  },
+                ),
+              ),
+            ]),
+            hint('Held off its middle (hanging past an edge) it tips over and turns as it falls. Its gravity: '
+                    'this layer only - below 1 it falls slower, above 1 faster.') ??
+                const SizedBox.shrink(),
           ],
           SwitchListTile(
             key: const ValueKey('physics-stage-walls'),

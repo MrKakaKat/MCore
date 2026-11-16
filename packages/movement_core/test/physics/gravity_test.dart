@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:movement_core/movement_core.dart';
 import 'package:test/test.dart';
@@ -108,5 +109,48 @@ void main() {
     bake(p, 240);
     expect(pos(p, 'A', 240)[1], closeTo(830, 2), reason: 'on the floor');
     expect(pos(p, 'B', 240)[1], closeTo(730, 3), reason: 'on A');
+  });
+
+  double turnOf(Project p, String id, int f) {
+    final m = getLayerStateAt(p, id, f).matrix;
+    return math.atan2(m[1], m[0]) * 180 / math.pi;
+  }
+
+  test('tipping: a box hanging past the floor\'s edge turns over and falls off; one resting on it stays square', () {
+    final floor = box('F', 300, 900, 400, 40)..physics.role = 'immovable'; // 100..500, its top at 880
+    final over = box('B', 520, 820, 100, 100)..physics.falls = true; // its middle 20 past the edge
+    final p = Project(layers: [floor, over], gravity: 1800);
+    bake(p, 200);
+    expect(turnOf(p, 'B', 200).abs(), greaterThan(20), reason: 'it tipped over the edge');
+    expect(pos(p, 'B', 200)[1], greaterThan(880), reason: 'and fell past the floor');
+    final on = box('C', 300, 820, 100, 100)..physics.falls = true;
+    final q = Project(layers: [box('F', 300, 900, 400, 40)..physics.role = 'immovable', on], gravity: 1800);
+    bake(q, 200);
+    expect(turnOf(q, 'C', 200).abs(), lessThan(0.5), reason: 'held under its middle: no turn');
+    expect(pos(q, 'C', 200)[1], closeTo(830, 1.5));
+  });
+
+  test('its own gravity: half falls slower, 0 does not fall', () {
+    double yAt(double scale) {
+      final b = box('B', 500, 200, 60, 60)
+        ..physics.falls = true
+        ..physics.gravityScale = scale;
+      final p = Project(layers: [b], gravity: 1800);
+      bake(p, 20);
+      return pos(p, 'B', 20)[1] - 200;
+    }
+
+    final full = yAt(1), half = yAt(0.5);
+    expect(half, closeTo(full / 2, full * 0.05));
+    expect(yAt(0), 0);
+  });
+
+  test('any way: gravity at 45 degrees pulls down and right alike', () {
+    final b = box('B', 500, 500, 60, 60)..physics.falls = true;
+    final p = Project(layers: [b], gravity: 1800, gravityAngle: 45);
+    bake(p, 20);
+    final d = pos(p, 'B', 20);
+    expect(d[0] - 500, closeTo(d[1] - 500, 1e-6));
+    expect(d[0] - 500, greaterThan(0));
   });
 }

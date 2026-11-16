@@ -225,6 +225,9 @@ class _FakeAudioService implements AudioService {
 }
 
 class _FakePlayback implements AudioPlayback {
+  @override
+  Future<void> prime(Duration at) async {}
+
   String? loaded;
   Duration? startedAt;
   bool paused = false;

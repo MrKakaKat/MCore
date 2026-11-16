@@ -24,8 +24,11 @@ void main() {
     // the default project: short, small, no media - a GIF.
     expect(summary(tester), startsWith('GIF'));
     expect(find.text('Play in a loop'), findsOneWidget, reason: 'settings shown');
-    // each format says what it is for.
-    expect(find.text('A short looping animation, no sound'), findsOneWidget);
+    // the formats are short chips, no descriptions (a compact window).
+    expect(find.text('A short looping animation, no sound'), findsNothing);
+    expect(find.byKey(const ValueKey('export-kind-gif')), findsOneWidget);
+    // frames per second: the usual rates first.
+    expect(find.byKey(const ValueKey('fps-gif-24')), findsOneWidget);
   });
 
   testWidgets('switching formats keeps the layout: the summary and Export stay put', (tester) async {

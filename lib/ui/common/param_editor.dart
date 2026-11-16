@@ -120,6 +120,9 @@ class ParamEditor extends StatefulWidget {
   /// How much of the value the XY pad spans (see XyPadTarget.span).
   final double padSpan;
 
+  /// Shown under its controls while it is open (its own switches).
+  final List<Widget> below;
+
   const ParamEditor({
     super.key,
     required this.prefKey,
@@ -133,6 +136,7 @@ class ParamEditor extends StatefulWidget {
     this.trailing = const [],
     this.padCenter,
     this.padSpan = 1,
+    this.below = const [],
   });
 
   /// prefKey -> true when that parameter shows number fields.
@@ -401,6 +405,7 @@ class _ParamEditorState extends State<ParamEditor> {
         Padding(padding: const EdgeInsets.fromLTRB(4, 0, 4, 6), child: body),
         // the user's own stations, right under the ruler.
         if (!_fields && widget.values.length == 1) _stationRow(context),
+        ...widget.below,
       ],
     );
   }

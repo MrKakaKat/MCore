@@ -10,6 +10,10 @@ abstract class AudioPlayback {
 
   /// Starts playing at `from` (timeline time) at `speed`.
   Future<void> start(Duration from, {double speed = 1});
+
+  /// Stands ready at `at` while stopped (the playhead moved), so starting
+  /// there plays at once - no seek to wait for.
+  Future<void> prime(Duration at);
   Future<void> pause();
 
   /// Where playback is now (timeline time), moving smoothly between the
@@ -32,10 +36,17 @@ class JustAudioPlayback implements AudioPlayback {
 
   @override
   Future<void> start(Duration from, {double speed = 1}) async {
-    await _player.setSpeed(speed);
-    await _player.seek(from);
+    if (_player.speed != speed) await _player.setSpeed(speed);
+    // already standing there (primed): no seek - it starts at once.
+    if ((_player.position - from).inMilliseconds.abs() > 25) await _player.seek(from);
     // play() completes only when playback stops - don't wait for it.
     _player.play();
+  }
+
+  @override
+  Future<void> prime(Duration at) async {
+    if (_player.playing || _player.duration == null) return;
+    if ((_player.position - at).inMilliseconds.abs() > 25) await _player.seek(at);
   }
 
   @override

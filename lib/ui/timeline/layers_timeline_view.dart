@@ -1211,6 +1211,24 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                             height: effectiveHeight,
                             child: Stack(
                               children: [
+                                // the sound's loudness, behind the lanes: from
+                                // the top down over the first few rows.
+                                if (widget.app.project.layers.any((l) => isAudioShape(l.content.shape) && !l.hidden))
+                                  Positioned(
+                                    key: const ValueKey('timeline-volume'),
+                                    left: _edgeSlack,
+                                    top: _rulerHeight,
+                                    width: contentWidth,
+                                    height: _rowHeight * 3.5,
+                                    child: IgnorePointer(
+                                      child: CustomPaint(
+                                        painter: TimelineVolumePainter(
+                                          [for (final l in widget.app.project.layers) if (isAudioShape(l.content.shape) && !l.hidden) l],
+                                          pixelsPerFrame,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                 // lanes are positioned (not a Column) so a
                                 // reorder can slide them into their new rows
                                 // - the dragged one follows the finger.
@@ -1780,17 +1798,24 @@ void paintTimelineRuler(Canvas canvas, Size size,
           .paint(canvas, Offset(x + 2, 2));
     }
   }
+  // zoomed out the seconds crowd: numbers every 5, 10, 30... seconds (a
+  // tick each second while they stay apart); just the number, no "s".
+  final pxPerSec = fps * pixelsPerFrame;
+  var labelEvery = 1;
+  for (final e in const [1, 5, 10, 30, 60, 300]) {
+    labelEvery = e;
+    if (e * pxPerSec >= 28) break;
+  }
   for (var sec = 0; !inFrames && sec * fps <= maxFrame; sec++) {
+    final labelled = sec % labelEvery == 0;
+    if (!labelled && pxPerSec < 5) continue;
     final x = sec * fps * pixelsPerFrame;
     final o = secondOpacity[sec] ?? 1.0;
-    final tickPaint = Paint()..color = const Color(0xFF6A6A6A).withOpacity(o);
+    final tickPaint = Paint()..color = const Color(0xFF6A6A6A).withOpacity(labelled ? o : o * 0.6);
+    canvas.drawLine(Offset(x, size.height - (labelled ? 6 : 3)), Offset(x, size.height), tickPaint);
+    if (!labelled) continue;
     final textStyle = TextStyle(fontSize: 9, color: const Color(0xFF8A8A8A).withOpacity(o));
-    canvas.drawLine(
-        Offset(x, size.height - 6), Offset(x, size.height), tickPaint);
-    final tp = TextPainter(
-        text: TextSpan(text: '${sec}s', style: textStyle),
-        textDirection: TextDirection.ltr)
-      ..layout();
+    final tp = TextPainter(text: TextSpan(text: '$sec', style: textStyle), textDirection: TextDirection.ltr)..layout();
     tp.paint(canvas, Offset(x + 2, 2));
   }
 
@@ -3115,6 +3140,10 @@ class _LayerActionRow extends StatelessWidget {
                   ? () => app.fitLayerEdgeToPlayhead(layer.id)
                   : null,
               'a-fit'),
+          // a video / GIF: the frame at the playhead as a picture layer.
+          if (layer.content.shape == 'video' || layer.content.shape == 'gif')
+            button(Icons.add_photo_alternate_outlined, 'this frame as a picture layer',
+                inside ? () => app.frameToLayer(layer.id) : null, 'a-frame'),
           ],
           if (span == null) ...[
           // timeline link: linked layers move together in time.
@@ -3364,4 +3393,38 @@ class _InertiaPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_InertiaPainter old) => old.color != color;
+}
+
+/// The sound's loudness on the timeline (all sound layers, the loudest at
+/// each moment): bars hanging from the top, as long as it is loud.
+class TimelineVolumePainter extends CustomPainter {
+  final List<Layer> sounds;
+  final double pixelsPerFrame;
+  TimelineVolumePainter(this.sounds, this.pixelsPerFrame);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (pixelsPerFrame <= 0 || sounds.isEmpty) return;
+    final clip = canvas.getLocalClipBounds();
+    final x0 = math.max(0.0, clip.left), x1 = math.min(size.width, clip.right);
+    final paint = Paint()..color = const Color(0xFF4DD0C4).withOpacity(0.16);
+    // a bar every 2 px (or every frame when they are wider apart).
+    final step = math.max(2.0, pixelsPerFrame);
+    final path = Path()..moveTo(x0, 0);
+    for (var x = x0; x <= x1; x += step) {
+      final f = x / pixelsPerFrame;
+      var level = 0.0;
+      for (final l in sounds) {
+        level = math.max(level, soundLevelAt(l, f));
+      }
+      path.lineTo(x, level * size.height);
+    }
+    path
+      ..lineTo(x1, 0)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(TimelineVolumePainter oldDelegate) => true; // the sounds may have moved or changed
 }

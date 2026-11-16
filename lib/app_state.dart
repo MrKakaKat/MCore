@@ -475,8 +475,13 @@ class AppState extends ChangeNotifier {
     if (audioStore == null || playing || !hasAudio) return;
     _audioPrepTimer?.cancel();
     // (a while after the last edit: dragging sound around stays light.)
-    _audioPrepTimer = Timer(const Duration(milliseconds: 1500), () {
-      if (playing || _loadedMixKey == _audioMixKey()) return;
+    _audioPrepTimer = Timer(const Duration(milliseconds: 500), () {
+      if (playing) return;
+      // ready: the player waits at the playhead (play starts at once).
+      if (_loadedMixKey == _audioMixKey()) {
+        unawaited(_playback?.prime(Duration(microseconds: (currentFrame * 1e6 / fps).round())));
+        return;
+      }
       unawaited(_loadMix(_playSession).then((_) {}, onError: (Object e) {
         audioError = '$e';
       }));
@@ -494,6 +499,7 @@ class AppState extends ChangeNotifier {
     if (mix == null || session != _playSession) return false;
     await p.load(mix.path);
     _loadedMixKey = key;
+    if (!playing) await p.prime(Duration(microseconds: (currentFrame * 1e6 / fps).round()));
     // older preview mixes aren't needed any more.
     for (final f in mix.parent.listSync().whereType<File>()) {
       if (f.path != mix.path && f.uri.pathSegments.last.startsWith('preview_')) {
@@ -1974,9 +1980,17 @@ class AppState extends ChangeNotifier {
   /// Merge with pictures among the layers: all of them as one picture -
   /// what they show together at the playhead (vector shapes turned into
   /// pixels), a new picture layer in their place. One undo step.
-  Future<bool> mergeLayersAsPicture(List<String> ids) async {
+  Future<bool> mergeLayersAsPicture(List<String> ids) => _layersAsPicture(ids, extract: false);
+
+  /// Timeline, a video or GIF layer: the frame it shows at the playhead
+  /// becomes a picture layer of its own, just above it - as it looks there
+  /// (effects, crop, filters and all), from the playhead to the layer's
+  /// end. The video stays. One undo step.
+  Future<bool> frameToLayer(String id) => _layersAsPicture([id], extract: true);
+
+  Future<bool> _layersAsPicture(List<String> ids, {required bool extract}) async {
     final layers = [for (final id in ids) findLayer(project, id)].whereType<Layer>().toList();
-    if (layers.length < 2) return false;
+    if (layers.length < (extract ? 1 : 2)) return false;
     final keep = {for (final l in layers) l.id};
     // drawn alone: the others hidden, no background, no stage camera, at
     // twice the frame's size (it may be scaled up later).
@@ -2041,8 +2055,10 @@ class AppState extends ChangeNotifier {
     final k = w / frameWidth; // picture px per frame px
     final ordered = [...layers]..sort((a, b) => project.layers.indexOf(a).compareTo(project.layers.indexOf(b)));
     final top = ordered.last;
-    final start = layers.map((l) => l.startFrame).reduce(math.min);
+    var start = layers.map((l) => l.startFrame).reduce(math.min);
     final end = layers.map((l) => l.startFrame + l.durationFrames).reduce(math.max);
+    // an extracted frame: from the playhead on (a still).
+    if (extract) start = math.min(math.max(start, currentFrame), end - 1);
     final merged = createImageLayer(
         imageSourceType: 'embedded',
         imageData: base64Encode(png.buffer.asUint8List()),
@@ -2050,7 +2066,7 @@ class AppState extends ChangeNotifier {
         naturalHeight: bh,
         maxDimension: math.max(bw, bh) / k)
       ..id = _newLayerId()
-      ..name = nextFreeLayerName(project, '${top.name} merged')
+      ..name = nextFreeLayerName(project, extract ? '${top.name} frame $currentFrame' : '${top.name} merged')
       ..folder = top.folder
       ..startFrame = start
       ..durationFrames = end - start;
@@ -2060,13 +2076,15 @@ class AppState extends ChangeNotifier {
       (minY + bh / 2) / k / stageSize.height,
     ];
     project.layers.insert(project.layers.indexOf(top) + 1, merged);
-    // children of a merged layer keep their place, under no parent.
-    for (final l in project.layers) {
-      if (l.parentId != null && keep.contains(l.parentId) && !keep.contains(l.id)) {
-        reparentPreservingWorldPosition(project, l, null, currentFrame);
+    if (!extract) {
+      // children of a merged layer keep their place, under no parent.
+      for (final l in project.layers) {
+        if (l.parentId != null && keep.contains(l.parentId) && !keep.contains(l.id)) {
+          reparentPreservingWorldPosition(project, l, null, currentFrame);
+        }
       }
+      project.layers.removeWhere((l) => keep.contains(l.id));
     }
-    project.layers.removeWhere((l) => keep.contains(l.id));
     normalizeTimelineRows(project);
     clearStateCaches();
     selection.selectedLayer = merged.id;

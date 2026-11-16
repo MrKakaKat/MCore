@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
-import '../common/hint.dart';
 import '../../services/native_media.dart' show NativeVideoService;
 import '../../io/export.dart';
 
@@ -187,56 +186,42 @@ class _ExportViewState extends State<ExportView> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
             children: [
-              // the formats: a name and what it is for, one per line.
-              section(
-                  'Format',
-                  Column(children: [
-                    for (final k in kinds)
-                      Card(
-                        margin: const EdgeInsets.only(bottom: 6),
-                        color: _kind == k ? theme.colorScheme.primaryContainer : null,
-                        child: InkWell(
-                          key: ValueKey('export-kind-${k.name}'),
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: _busy ? null : () => setState(() => _kind = k),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            child: Row(children: [
-                              Icon(_kindLabels[k]!.$2, size: 22),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(_kindLabels[k]!.$1, style: const TextStyle(fontWeight: FontWeight.w600)),
-                                  Text(_kindLabels[k]!.$3, style: theme.textTheme.bodySmall),
-                                ]),
-                              ),
-                              if (_kind == k) const Icon(Icons.check_circle, size: 20),
-                            ]),
-                          ),
-                        ),
-                      ),
-                  ])),
+              // the formats: compact chips, one tap each.
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Wrap(spacing: 6, runSpacing: 6, children: [
+                  for (final k in kinds)
+                    ChoiceChip(
+                      key: ValueKey('export-kind-${k.name}'),
+                      avatar: Icon(_kindLabels[k]!.$2, size: 18),
+                      label: Text(_kindLabels[k]!.$1),
+                      selected: _kind == k,
+                      onSelected: _busy ? null : (_) => setState(() => _kind = k),
+                    ),
+                ]),
+              ),
               // what will be made.
-              section('You get', Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                _summary(_summaryLines()),
-                if (_kind == _ExportKind.video) ...[
-                  const SizedBox(height: 6),
-                  _summary(['File: about ${_videoBytes()}'], key: const ValueKey('export-file-size')),
-                ],
-              ])),
-              // its settings, open (the project's own values to start with).
-              section(
-                  'Settings',
-                  KeyedSubtree(
-                    key: const ValueKey('export-settings'),
-                    child: switch (_kind) {
-                      _ExportKind.image => _buildImageSection(),
-                      _ExportKind.gif => _buildGifSection(),
-                      _ExportKind.video => _buildVideoSection(),
-                      _ExportKind.svg => _buildSvgSection(),
-                      _ExportKind.audio => _buildAudioSection(),
-                    },
-                  )),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  _summary(_summaryLines()),
+                  if (_kind == _ExportKind.video) ...[
+                    const SizedBox(height: 4),
+                    _summary(['File: about ${_videoBytes()}'], key: const ValueKey('export-file-size')),
+                  ],
+                ]),
+              ),
+              // its settings (the project's own values to start with).
+              KeyedSubtree(
+                key: const ValueKey('export-settings'),
+                child: switch (_kind) {
+                  _ExportKind.image => _buildImageSection(),
+                  _ExportKind.gif => _buildGifSection(),
+                  _ExportKind.video => _buildVideoSection(),
+                  _ExportKind.svg => _buildSvgSection(),
+                  _ExportKind.audio => _buildAudioSection(),
+                },
+              ),
               // where it is saved: a folder of your own, or asked each time.
               section('Save to', _saveToRow()),
             ],
@@ -255,19 +240,25 @@ class _ExportViewState extends State<ExportView> {
             ],
             if (_status != null) Text(_status!, style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 6),
+            // one wide button; while exporting, Cancel beside it, the same size.
             Row(children: [
-              if (_busy)
-                TextButton(
-                  key: const ValueKey('export-cancel'),
-                  onPressed: _cancelRequested ? null : () => setState(() => _cancelRequested = true),
-                  child: const Text('Cancel'),
+              if (_busy) ...[
+                Expanded(
+                  child: OutlinedButton(
+                    key: const ValueKey('export-cancel'),
+                    onPressed: _cancelRequested ? null : () => setState(() => _cancelRequested = true),
+                    child: const Text('Cancel'),
+                  ),
                 ),
-              const Spacer(),
-              FilledButton.icon(
-                key: const ValueKey('export-go'),
-                onPressed: _busy ? null : _export,
-                icon: const Icon(Icons.ios_share, size: 18),
-                label: Text(_busy ? 'Exporting...' : 'Export ${_kindLabels[_kind]!.$1}'),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: FilledButton.icon(
+                  key: const ValueKey('export-go'),
+                  onPressed: _busy ? null : _export,
+                  icon: const Icon(Icons.ios_share, size: 18),
+                  label: Text(_busy ? 'Exporting...' : 'Export ${_kindLabels[_kind]!.$1}'),
+                ),
               ),
             ]),
           ]),
@@ -361,14 +352,28 @@ class _ExportViewState extends State<ExportView> {
   /// A labelled block: a short title, its controls, and one short grey
   /// line on what it changes.
   Widget _group(String title, List<Widget> children, {String? hint}) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.only(bottom: 6),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
           const SizedBox(height: 2),
           ...children,
-          if (hint != null) Text(hint, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          // (descriptions left out: the window stays short.)
         ]),
       );
+
+  /// Frames per second: the usual rates first (one tap), the slider for
+  /// any other.
+  Widget _fpsPresets(double value, double max, String kind, ValueChanged<double> set) => Wrap(spacing: 6, runSpacing: 4, children: [
+        for (final r in const [12, 15, 24, 25, 30, 50, 60])
+          if (r <= max)
+            ChoiceChip(
+              key: ValueKey('fps-$kind-$r'),
+              label: Text('$r'),
+              visualDensity: VisualDensity.compact,
+              selected: value.round() == r,
+              onSelected: (_) => set(r.toDouble()),
+            ),
+      ]);
 
   Widget _summary(List<String> lines, {Key key = const ValueKey('export-summary')}) => Container(
         key: key,
@@ -466,9 +471,10 @@ class _ExportViewState extends State<ExportView> {
               divisions: 20,
               onChanged: (v) => setState(() => _gifQuality = v)),
         ], hint: _gifQualityHint()),
-        _group('Smoothness: ${_gifFps.round()} frames per second', [
+        _group('Frames per second: ${_gifFps.round()}', [
+          _fpsPresets(_gifFps, 50, 'gif', (v) => setState(() => _gifFps = v)),
           Slider(value: _gifFps, min: 1, max: 50, divisions: 49, onChanged: (v) => setState(() => _gifFps = v)),
-        ], hint: 'More is smoother but a bigger file'),
+        ]),
         SwitchListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
@@ -531,34 +537,25 @@ class _ExportViewState extends State<ExportView> {
       children: [
         _resolutionGroup(),
         _group('File type', [
-          RadioListTile<String>(
-            key: const ValueKey('codec-vp9'),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            value: 'vp9',
-            groupValue: _videoCodec,
-            onChanged: _vp9 == false ? null : (v) => setState(() => _videoCodec = v!),
-            title: const Text('WebM (VP9)'),
-            subtitle: _vp9 == false
-                ? const Text('This phone has no VP9 encoder', style: TextStyle(fontSize: 11))
-                : hint('Free of licence fees. Plays in browsers'),
-          ),
-          RadioListTile<String>(
-            key: const ValueKey('codec-h264'),
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            value: 'h264',
-            groupValue: _videoCodec,
-            onChanged: _hwH264 == false ? null : (v) => setState(() => _videoCodec = v!),
-            title: const Text('MP4 (H.264)'),
-            subtitle: _hwH264 == false
-                ? const Text('This phone has no H.264 encoder', style: TextStyle(fontSize: 11))
-                : hint('Plays everywhere'),
-          ),
+          Wrap(spacing: 6, children: [
+            ChoiceChip(
+              key: const ValueKey('codec-vp9'),
+              label: Text(_vp9 == false ? 'WebM (VP9) - not on this phone' : 'WebM (VP9)'),
+              selected: _videoCodec == 'vp9',
+              onSelected: _vp9 == false ? null : (_) => setState(() => _videoCodec = 'vp9'),
+            ),
+            ChoiceChip(
+              key: const ValueKey('codec-h264'),
+              label: Text(_hwH264 == false ? 'MP4 (H.264) - not on this phone' : 'MP4 (H.264)'),
+              selected: _videoCodec == 'h264',
+              onSelected: _hwH264 == false ? null : (_) => setState(() => _videoCodec = 'h264'),
+            ),
+          ]),
         ]),
-        _group('Smoothness: ${_videoFps.round()} frames per second', [
+        _group('Frames per second: ${_videoFps.round()}', [
+          _fpsPresets(_videoFps, 60, 'video', (v) => setState(() => _videoFps = v)),
           Slider(value: _videoFps, min: 1, max: 60, divisions: 59, onChanged: (v) => setState(() => _videoFps = v)),
-        ], hint: 'The project runs $fps; more than that only repeats frames'),
+        ]),
         _group('Picture quality', [
           Wrap(spacing: 6, children: [
             for (final (key, label) in const [('low', 'Low'), ('medium', 'Medium'), ('high', 'High'), ('max', 'Best'), ('custom', 'Custom')])
