@@ -80,17 +80,17 @@ void main() {
     tearDown(() => app.dispose());
 
     Future<void> pump(WidgetTester tester) async {
-      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.physicalSize = const Size(800, 1800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      await tester.pumpWidget(MaterialApp(home: Scaffold(body: SizedBox(width: 420, height: 900, child: ParamsPanelView(app: app)))));
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: SizedBox(width: 420, height: 1500, child: ParamsPanelView(app: app)))));
       await tester.pumpAndSettle();
     }
 
     testWidgets('rotation, anchor and scale are rulers (two for x/y), opacity a slider', (tester) async {
       await pump(tester);
       expect(find.byType(EndlessRuler), findsNWidgets(5), reason: 'anchor x/y, scale x/y, rotation');
-      expect(find.byType(Slider), findsOneWidget, reason: 'opacity');
+      expect(find.byType(Slider), findsWidgets, reason: 'opacity (then Free move\'s smoothing)');
     });
 
     testWidgets('dragging the rotation ruler turns the layer past 360, one undo step', (tester) async {
