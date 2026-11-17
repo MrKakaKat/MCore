@@ -212,6 +212,20 @@ LayerBaseState getLayerBaseStateAt(Project project, String layerId, num globalFr
       anchor[1] + (vx * math.sin(a) + vy * math.cos(a)) / stageSize.height,
     ];
   }
+  // turning round a point of its own: that point stays where it is
+  // whatever the turn (only the turn moves round it).
+  final ro = layer.rotateOrigin;
+  if (ro != null && baseRot != 0) {
+    // where that point is from the anchor, unturned (with the scale and a
+    // kept side's shift above).
+    final wx = (so == null ? 0.0 : so[0] * (1 - scale[0])) + ro[0] * scale[0];
+    final wy = (so == null ? 0.0 : so[1] * (1 - scale[1])) + ro[1] * scale[1];
+    final a = baseRot * math.pi / 180, cs = math.cos(a), sn = math.sin(a);
+    anchor = [
+      anchor[0] + (wx - (wx * cs - wy * sn)) / stageSize.width,
+      anchor[1] + (wy - (wx * sn + wy * cs)) / stageSize.height,
+    ];
+  }
   if (layer.parentKeepDifference && layer.inheritScale && layer.parentId != null) {
     scale = keepDifferenceScale(project, layer, globalFrame, scale);
   }

@@ -2314,6 +2314,10 @@ class Layer {
   /// keep that side in place too. It turns round its centre all the same.
   List<double>? scaleOrigin;
 
+  /// The point it turns round (content-local, null: as before - its
+  /// anchor): its middle, a side's middle or a corner (Movement tab).
+  List<double>? rotateOrigin;
+
   /// Order on the stage: from each border's (local) frame on the layer
   /// stands at that place, numbered as in the Layers list (1: the bottom) -
   /// a jump, no in-between. Before its first border it stands where the
@@ -2777,6 +2781,7 @@ Layer cloneLayer(Layer src) {
     ..lens = src.lens.copy()
     ..stackKeys = [for (final k in src.stackKeys) StackKey(k.frame, k.position)]
     ..scaleOrigin = src.scaleOrigin == null ? null : [...src.scaleOrigin!]
+    ..rotateOrigin = src.rotateOrigin == null ? null : [...src.rotateOrigin!]
     ..editAll = src.editAll
     ..inheritRounding = src.inheritRounding
     ..pathOffset = [...src.pathOffset]

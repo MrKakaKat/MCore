@@ -164,7 +164,7 @@ void main() {
       bake(p, 400);
       for (var f = 1; f <= 400; f++) {
         final d = (turnOf(p, 'B', f) - turnOf(p, 'B', f - 1)).abs();
-        expect(d < 6 || d > 354, isTrue, reason: '$w x $h at $tilt: frame $f turned $d degrees at once');
+        expect(d < 15 || d > 345, isTrue, reason: '$w x $h at $tilt: frame $f turned $d degrees at once');
       }
       final rest = [for (var f = 340; f <= 400; f++) turnOf(p, 'B', f)];
       expect(rest.reduce(math.max) - rest.reduce(math.min), lessThan(0.05), reason: '$w x $h at $tilt: at rest');
@@ -238,6 +238,17 @@ void main() {
       final rest = [for (var f = 170; f <= 200; f++) turnOf(p, 'B', f)];
       expect(rest.reduce(math.max) - rest.reduce(math.min), lessThan(0.05), reason: 'bounce $bounce: at rest');
     }
+  });
+
+  test('tipping over an edge speeds up like a fall (not a steady crawl)', () {
+    final floor = box('F', 300, 900, 400, 40)..physics.role = 'immovable'; // 100..500
+    final over = box('B', 520, 820, 100, 100)..physics.falls = true;
+    final p = Project(layers: [floor, over], gravity: 1800);
+    bake(p, 120);
+    // the turn per frame early in the tip and a little later.
+    double step(int f) => (turnOf(p, 'B', f + 1) - turnOf(p, 'B', f)).abs();
+    final start = [for (var f = 0; f < 120; f++) if (step(f) > 0.05) f].first;
+    expect(step(start + 8), greaterThan(step(start + 1) * 1.3), reason: 'it gathers speed as it goes over');
   });
 
   test('friction 0 slides on; saved', () {

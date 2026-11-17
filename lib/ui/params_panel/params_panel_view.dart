@@ -96,7 +96,8 @@ class ParamsPanelView extends StatelessWidget {
                 below: [_scaleSwitches(layer)]),
             // "Size handles lengthen it": what each side adds (keyed).
             if (rectExtendMode && layer.content.shape == 'rect') ..._extendRulers(context, layer, localFrame),
-            _scalarParam(context, 'rotation', layer.transform.rotation, localFrame, 0.0, ParamScale.degrees),
+            _scalarParam(context, 'rotation', layer.transform.rotation, localFrame, 0.0, ParamScale.degrees,
+                below: [_rotatePivot(layer)]),
             _scalarParam(context, 'opacity', layer.transform.opacity, localFrame, 1.0, const ParamScale.slider(0, 1)),
             // its centre: what it turns and scales round.
             PivotField(app: app),
@@ -475,7 +476,8 @@ class ParamsPanelView extends StatelessWidget {
     return [before[0] * k, next[1]];
   }
 
-  Widget _scalarParam(BuildContext context, String label, Track trk, double localFrame, double defaultValue, ParamScale scale) {
+  Widget _scalarParam(BuildContext context, String label, Track trk, double localFrame, double defaultValue, ParamScale scale,
+      {List<Widget> below = const []}) {
     final value = evaluateTrack(app.project, trk, localFrame) as double;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -488,7 +490,57 @@ class ParamsPanelView extends StatelessWidget {
         onChanged: (v) => _live(trk, localFrame, v.first),
         onCommit: (v) => _commit(trk, localFrame, v.first),
         trailing: _paramIcons(context, trk, localFrame, 1, () => _commit(trk, localFrame, defaultValue)),
+        below: below,
       ),
+    );
+  }
+
+  /// Rotation's own fold: the point it turns round - its middle, a side's
+  /// middle or a corner (tap the picked one again: back to its anchor).
+  Widget _rotatePivot(Layer layer) {
+    final b = shapeBoundingBox(layer.content);
+    final ro = layer.rotateOrigin;
+    List<double> at(double fx, double fy) => [b.minX + (b.maxX - b.minX) * fx, b.minY + (b.maxY - b.minY) * fy];
+    bool picked(double fx, double fy) {
+      if (ro == null) return false;
+      final q = at(fx, fy);
+      return (q[0] - ro[0]).abs() < 1e-6 && (q[1] - ro[1]).abs() < 1e-6;
+    }
+
+    Widget dot(double fx, double fy) => SizedBox(
+          width: 24,
+          height: 24,
+          child: IconButton(
+            key: ValueKey('rotate-pivot-$fx-$fy'),
+            padding: EdgeInsets.zero,
+            iconSize: 11,
+            tooltip: 'turn round here',
+            icon: Icon(picked(fx, fy) ? Icons.circle : Icons.circle_outlined),
+            onPressed: () {
+              app.pushUndo();
+              setRotateOrigin(app.project, layer, picked(fx, fy) ? null : at(fx, fy), app.currentFrame);
+              app.commitEdit();
+            },
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(children: [
+        const Text('Turns round', style: TextStyle(fontSize: 13)),
+        const SizedBox(width: 8),
+        DecoratedBox(
+          decoration: BoxDecoration(border: Border.all(color: Colors.grey.withOpacity(0.5))),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            for (final fy in const [0.0, 0.5, 1.0])
+              Row(mainAxisSize: MainAxisSize.min, children: [for (final fx in const [0.0, 0.5, 1.0]) dot(fx, fy)]),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(ro == null ? 'its centre (anchor)' : 'a point of its own',
+              style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        ),
+      ]),
     );
   }
 

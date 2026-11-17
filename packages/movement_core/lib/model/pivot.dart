@@ -85,3 +85,19 @@ void setScaleOrigin(Project project, Layer layer, List<double>? o, int globalFra
   setTrackValueAt(layer.transform.anchor, lf, <double>[cur[0] + d[0], cur[1] + d[1]]);
   clearStateCaches();
 }
+
+/// Sets the point `layer` turns round (content-local; null: its anchor) -
+/// see `Layer.rotateOrigin`. It stays where it is on the stage now.
+void setRotateOrigin(Project project, Layer layer, List<double>? o, int globalFrame) {
+  final before = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
+  layer.rotateOrigin = o == null ? null : [o[0], o[1]];
+  clearStateCaches();
+  final after = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
+  final b = applyAffine(before, const [0, 0]), a = applyAffine(after, const [0, 0]);
+  final d = frameDeltaToLocal(project, layer, globalFrame, a, [b[0] - a[0], b[1] - a[1]]);
+  if (d[0].abs() < 1e-12 && d[1].abs() < 1e-12) return;
+  final lf = layerLocalFrame(layer, globalFrame).round();
+  final cur = (evaluateTrack(project, layer.transform.anchor, lf.toDouble(), layer) as List).cast<num>();
+  setTrackValueAt(layer.transform.anchor, lf, <double>[cur[0] + d[0], cur[1] + d[1]]);
+  clearStateCaches();
+}

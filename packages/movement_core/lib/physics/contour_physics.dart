@@ -517,7 +517,7 @@ class PhysicsWorld {
           return;
         }
         // never faster than its far edge moving a few px a frame.
-        final most = 8.0 / math.max(1.0, b.reach2(m));
+        final most = math.max(8.0, b.minSize / 3) / math.max(1.0, b.reach2(m));
         w = (w + sign * alpha).clamp(-most, most);
         spinVel[b.layer.id] = w;
         final dth = (sign * alpha).clamp(-most, most);
@@ -880,7 +880,9 @@ class PhysicsWorld {
         final at = tipAt[e.key], body = bodyOf[e.key];
         var rn = 0.0, k2 = 1.0;
         if (at != null && body != null) {
-          final mc = body.massCentre(induced[e.key]!);
+          final off = induced[e.key]!;
+          final mc = body.massCentre(off);
+          // (where it was held this frame: on what holds it.)
           final r = [at[0] - mc[0], at[1] - mc[1]];
           rn = r[0] * n[1] - r[1] * n[0];
           var x0 = double.infinity, x1 = -double.infinity, y0 = double.infinity, y1 = -double.infinity;
@@ -895,8 +897,12 @@ class PhysicsWorld {
         final j = -(1 + back) * vn / (1 + rn * rn / k2);
         v = [v[0] + j * n[0], v[1] + j * n[1]];
         if (rn != 0 && body != null) {
-          final most = 8.0 / math.max(1.0, body.reach2(body.massCentre(induced[e.key]!)));
-          spinVel[e.key] = ((spinVel[e.key] ?? 0) + j * rn / k2).clamp(-most, most);
+          final most = math.max(8.0, body.minSize / 3) / math.max(1.0, body.reach2(body.massCentre(induced[e.key]!)));
+          final w0 = spinVel[e.key] ?? 0, dw = j * rn / k2;
+          // a hit against the way it turns stops the turn (it doesn't
+          // swing back: no rocking side to side).
+          final w1 = w0 != 0 && dw.sign != w0.sign && (w0 + dw).sign != w0.sign ? 0.0 : w0 + dw;
+          spinVel[e.key] = w1.clamp(-most, most);
         }
       }
       // along it: friction takes off as much as it was pressed (x mu).

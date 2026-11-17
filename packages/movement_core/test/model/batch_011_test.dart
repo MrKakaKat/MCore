@@ -154,6 +154,50 @@ void main() {
     expect(l.transform.extend.defaultValue, [50.0, 50.0, 50.0, 50.0]);
   });
 
+  test('rotate handle: the grabbed point follows the finger, whatever point it turns round', () {
+    for (final mode in ['plain', 'keptSide', 'corner']) {
+      final l = createLayer('rect')..content.size = [100, 60];
+      l.transform.anchor.defaultValue = [0.5, 0.5];
+      l.transform.scale.defaultValue = <double>[2.0, 1.5];
+      final p = Project(layers: [l]);
+      if (mode == 'keptSide') l.scaleOrigin = [-50, 0];
+      if (mode == 'corner') setRotateOrigin(p, l, [50, 30], 0);
+      clearStateCaches();
+      final m0 = toFrameMatrix(getLayerStateAt(p, l.id, 0).matrix);
+      final grabLocal = [40.0, -20.0];
+      final grab = applyAffine(m0, grabLocal);
+      final op = RotateDragOp.grab(p, l, 0, grab);
+      // the finger turns 60 degrees round the true pivot.
+      final pv = rotationPivotScreen(p, l, 0);
+      const t = 60 * math.pi / 180;
+      final dx = grab[0] - pv[0], dy = grab[1] - pv[1];
+      final finger = [pv[0] + dx * math.cos(t) - dy * math.sin(t), pv[1] + dx * math.sin(t) + dy * math.cos(t)];
+      op.apply(p, 0, finger);
+      clearStateCaches();
+      final now = applyAffine(toFrameMatrix(getLayerStateAt(p, l.id, 0).matrix), grabLocal);
+      expect(now[0], closeTo(finger[0], 0.5), reason: mode);
+      expect(now[1], closeTo(finger[1], 0.5), reason: mode);
+    }
+  });
+
+  test('turning round a corner: the corner stays put, whatever the turn', () {
+    final l = createLayer('rect')..content.size = [100, 60];
+    l.transform.anchor.defaultValue = [0.5, 0.5];
+    final p = Project(layers: [l]);
+    final m0 = toFrameMatrix(getLayerStateAt(p, l.id, 0).matrix);
+    setRotateOrigin(p, l, [50, 30], 0);
+    clearStateCaches();
+    final m1 = toFrameMatrix(getLayerStateAt(p, l.id, 0).matrix);
+    expect(applyAffine(m1, const [0, 0])[0], closeTo(applyAffine(m0, const [0, 0])[0], 1e-6), reason: 'it stays where it was');
+    final corner = applyAffine(m1, const [50, 30]);
+    l.transform.rotation.defaultValue = 70.0;
+    clearStateCaches();
+    final c2 = applyAffine(toFrameMatrix(getLayerStateAt(p, l.id, 0).matrix), const [50, 30]);
+    expect(c2[0], closeTo(corner[0], 1e-6));
+    expect(c2[1], closeTo(corner[1], 1e-6));
+    expect(layerFromJson(layerToJson(l)).rotateOrigin, [50.0, 30.0]);
+  });
+
   test('the piece rect is set like a crop and sticks at the quarters', () {
     final l = createLayer('rect')..content.size = [100, 100];
     final p = Project(layers: [l]);

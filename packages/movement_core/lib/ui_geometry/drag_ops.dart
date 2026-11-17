@@ -497,7 +497,7 @@ class RotateDragOp implements DragOp {
 
   factory RotateDragOp.grab(Project project, Layer layer, int globalFrame,
       List<double> grabFramePoint) {
-    final anchorScreen = getAnchorLiveHandleScreen(project, layer, globalFrame);
+    final anchorScreen = rotationPivotScreen(project, layer, globalFrame);
     final startAngle = math.atan2(grabFramePoint[1] - anchorScreen[1],
         grabFramePoint[0] - anchorScreen[0]);
     final startRotation = evaluateTrack(project, layer.transform.rotation,
@@ -749,3 +749,39 @@ bool rectExtendMode = false;
 /// Stage: a size handle keeps the edge across from it in place (off: the
 /// object grows / shrinks about its anchor, both sides moving).
 bool scaleKeepsOppositeEdge = false;
+
+/// The point `layer` really turns round on the stage (frame px): where it
+/// stays put when its rotation changes - its anchor, or another point when
+/// it turns round a point of its own or keeps a side in place. Found by
+/// trying a quarter turn more and putting it back.
+List<double> rotationPivotScreen(Project project, Layer layer, int globalFrame) {
+  final trk = layer.transform.rotation;
+  final lf = localFrameOf(layer, globalFrame);
+  final saved = cloneTrack(trk);
+  List<List<double>> at() {
+    clearStateCaches();
+    final m = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
+    return [applyAffine(m, const [0, 0]), applyAffine(m, const [100, 0])];
+  }
+
+  final r0 = (evaluateTrack(project, trk, lf.toDouble(), layer) as num).toDouble();
+  final p0 = at();
+  setTrackValueAt(trk, lf, r0 + 90);
+  final p1 = at();
+  // back as it was.
+  trk
+    ..defaultValue = saved.defaultValue
+    ..keyframes = saved.keyframes;
+  clearStateCaches();
+  // the turn on the stage (a mirror turns it the other way) and its centre.
+  final a0 = math.atan2(p0[1][1] - p0[0][1], p0[1][0] - p0[0][0]);
+  final a1 = math.atan2(p1[1][1] - p1[0][1], p1[1][0] - p1[0][0]);
+  final phi = a1 - a0, cs = math.cos(phi), sn = math.sin(phi);
+  // (I - R) q = p1 - R p0
+  final rx = cs * p0[0][0] - sn * p0[0][1], ry = sn * p0[0][0] + cs * p0[0][1];
+  final bx = p1[0][0] - rx, by = p1[0][1] - ry;
+  final m00 = 1 - cs, m01 = sn, m10 = -sn, m11 = 1 - cs;
+  final det = m00 * m11 - m01 * m10;
+  if (det.abs() < 1e-9) return getAnchorLiveHandleScreen(project, layer, globalFrame);
+  return [(m11 * bx - m01 * by) / det, (-m10 * bx + m00 * by) / det];
+}
