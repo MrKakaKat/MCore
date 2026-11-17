@@ -579,6 +579,7 @@ class CanvasRenderer implements Renderer {
       for (final l in project.layers)
         if (l.backSourceId != null) l.backSourceId!,
     };
+    final junction = junctionHidden(project, frame);
     // paint order = array order - every layer draws the same way, no
     // special-cased hardcoded first/last layer.
     for (final l in project.layers) {
@@ -603,6 +604,8 @@ class CanvasRenderer implements Renderer {
         continue;
       }
       if (l.hidden) continue; // explicit hide, independent of opacity
+      // where one layer ends and another begins on this frame: the upper.
+      if (junction.contains(l.id)) continue;
       // export: a still layer is drawn once and replayed on every frame.
       if (_stillIds.contains(l.id)) {
         if (frame < l.startFrame || frame > l.startFrame + l.durationFrames) continue;

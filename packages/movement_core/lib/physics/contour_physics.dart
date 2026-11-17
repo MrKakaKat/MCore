@@ -442,8 +442,11 @@ class PhysicsWorld {
     final falling = <String, (List<double>, double)>{};
     // how fast the falling ones turn (tipping over), this frame.
     final spinVel = <String, double>{};
-    // the ones tipped this frame (once a frame, however many steps).
+    // the ones tipped this frame (once a frame, however many steps), where
+    // they were held, and their bodies.
     final tipped = <String>{};
+    final tipAt = <String, List<double>>{};
+    final bodyOf = <String, _Body>{};
 
     // Grows to hold: `b` pressed along `n` (unit, outward from what
     // presses) by `d` at `contact` grows about its pivot so that point
@@ -477,10 +480,13 @@ class PhysicsWorld {
         // where it is held up (the push against gravity), by its weight -
         // at the middle of its area (a heavier side pulls more) - about
         // what holds it. A hard landing doesn't flip it.
-        if (!tipped.add(b.layer.id)) return;
         final ga = gravityAngleAt(f) * math.pi / 180;
         final g = [math.cos(ga), math.sin(ga)];
         if (p[0] * g[0] + p[1] * g[1] >= -1e-9) return;
+        if (!tipped.add(b.layer.id)) return;
+        // where it was held (its landing turns it there - see the end).
+        tipAt[b.layer.id] = contact;
+        bodyOf[b.layer.id] = b;
         final m = b.massCentre(off);
         // held along a stretch (lying on a side), its weight over it: it
         // rests - no turning, any turn it had stops.
@@ -491,6 +497,7 @@ class PhysicsWorld {
           final along = math.sqrt(math.pow(span[1][0] - span[0][0], 2) + math.pow(span[1][1] - span[0][1], 2));
           if (along > b.minSize * 0.15 && ct >= lo - 1e-6 && ct <= hi + 1e-6) {
             spinVel[b.layer.id] = 0;
+            tipAt.remove(b.layer.id); // resting: its support turns it no more
             return;
           }
         }
@@ -510,7 +517,7 @@ class PhysicsWorld {
           return;
         }
         // never faster than its far edge moving a few px a frame.
-        final most = 3.0 / math.max(1.0, b.reach2(m));
+        final most = 8.0 / math.max(1.0, b.reach2(m));
         w = (w + sign * alpha).clamp(-most, most);
         spinVel[b.layer.id] = w;
         final dth = (sign * alpha).clamp(-most, most);
@@ -866,9 +873,31 @@ class PhysicsWorld {
       var v = [...asked];
       final vn = v[0] * n[0] + v[1] * n[1];
       if (vn < 0) {
-        // into it: gone - or bounced back when it came in hard.
+        // into it: gone - or bounced back when it came in hard. Hit off
+        // its middle, part of the hit turns it instead (a landing on a
+        // corner tips it; flat on a side, it doesn't).
         final back = -vn > 2 * g ? b : 0.0;
-        v = [v[0] - (1 + back) * vn * n[0], v[1] - (1 + back) * vn * n[1]];
+        final at = tipAt[e.key], body = bodyOf[e.key];
+        var rn = 0.0, k2 = 1.0;
+        if (at != null && body != null) {
+          final mc = body.massCentre(induced[e.key]!);
+          final r = [at[0] - mc[0], at[1] - mc[1]];
+          rn = r[0] * n[1] - r[1] * n[0];
+          var x0 = double.infinity, x1 = -double.infinity, y0 = double.infinity, y1 = -double.infinity;
+          for (final q in body.world) {
+            x0 = math.min(x0, q[0]);
+            x1 = math.max(x1, q[0]);
+            y0 = math.min(y0, q[1]);
+            y1 = math.max(y1, q[1]);
+          }
+          k2 = math.max(1.0, ((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)) / 12);
+        }
+        final j = -(1 + back) * vn / (1 + rn * rn / k2);
+        v = [v[0] + j * n[0], v[1] + j * n[1]];
+        if (rn != 0 && body != null) {
+          final most = 8.0 / math.max(1.0, body.reach2(body.massCentre(induced[e.key]!)));
+          spinVel[e.key] = ((spinVel[e.key] ?? 0) + j * rn / k2).clamp(-most, most);
+        }
       }
       // along it: friction takes off as much as it was pressed (x mu).
       final along = v[0] * -n[1] + v[1] * n[0];

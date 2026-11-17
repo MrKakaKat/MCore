@@ -122,6 +122,21 @@ void main() {
     expect(effectRegistry['wave'], isNotNull);
   });
 
+  test('where one layer ends and another begins on the same frame, only the upper one shows there', () async {
+    final a = rect('a', '#ff0000', 100, 50, 40)
+      ..startFrame = 0
+      ..durationFrames = 40;
+    final b = rect('b', '#0000ff', 100, 50, 40)
+      ..startFrame = 40
+      ..durationFrames = 40;
+    final at = await render(Project(layers: [a, b]), frame: 40);
+    expect(at(100, 50), 0x0000ffff, reason: 'b is above: only b');
+    final at2 = await render(Project(layers: [b, a]), frame: 40);
+    expect(at2(100, 50), 0xff0000ff, reason: 'a is above: only a');
+    final before = await render(Project(layers: [a, b]), frame: 39);
+    expect(before(100, 50), 0xff0000ff);
+  });
+
   test('a lens: a telephoto magnifies what is under it; outside its circle nothing changes', () async {
     // a small red square under the middle of a big lens.
     final dot = rect('d', '#ff0000', 100, 50, 10);

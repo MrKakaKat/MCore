@@ -225,6 +225,21 @@ void main() {
     expect(pos(p, 'B', 300)[1], closeTo(960, 1), reason: 'on the floor');
   });
 
+  test('landing on a corner turns it (the hit, not only its weight): it lies down soon, bouncing or not', () {
+    for (final bounce in [0.0, 0.52]) {
+      final b = box('B', 500, 300, 200, 70)
+        ..physics.falls = true
+        ..physics.bounce = bounce
+        ..transform.rotation.defaultValue = 30.0;
+      final p = Project(layers: [b], gravity: 1500, stageWalls: true);
+      bake(p, 200);
+      // it lands about frame 55.
+      expect(turnOf(p, 'B', 110).abs(), lessThan(10), reason: 'bounce $bounce: turned down within a second');
+      final rest = [for (var f = 170; f <= 200; f++) turnOf(p, 'B', f)];
+      expect(rest.reduce(math.max) - rest.reduce(math.min), lessThan(0.05), reason: 'bounce $bounce: at rest');
+    }
+  });
+
   test('friction 0 slides on; saved', () {
     final b = box('B', 300, 900, 80, 80)
       ..physics.falls = true

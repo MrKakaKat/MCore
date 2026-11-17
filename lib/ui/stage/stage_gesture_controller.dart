@@ -893,6 +893,7 @@ class StageGestureController {
       ...hiddenCutters(app.project),
       for (final l in app.project.layers)
         if (l.backSourceId != null) l.backSourceId!,
+      ...junctionHidden(app.project, app.currentFrame),
     };
     // top first as drawn now (order on the stage may be keyed).
     for (final layer in stackOrderAt(app.project, app.currentFrame).reversed) {

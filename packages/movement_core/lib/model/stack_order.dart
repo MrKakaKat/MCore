@@ -69,3 +69,29 @@ void setStackKey(Layer l, int frame, int position) {
     ..add(StackKey(frame, position < 1 ? 1 : position))
     ..sort((a, b) => a.frame.compareTo(b.frame));
 }
+
+/// Layers left out at `frame` where one ends and another begins on that
+/// very frame (a cut, a hand-over): only the upper of the two shows there,
+/// never both at once.
+Set<String> junctionHidden(Project project, int frame) {
+  final ends = [
+    for (final l in project.layers)
+      if (!l.hidden && l.durationFrames > 0 && l.startFrame + l.durationFrames == frame) l
+  ];
+  if (ends.isEmpty) return const {};
+  final starts = [
+    for (final l in project.layers)
+      if (!l.hidden && l.startFrame == frame) l
+  ];
+  if (starts.isEmpty) return const {};
+  final order = stackOrderAt(project, frame);
+  final rank = {for (var i = 0; i < order.length; i++) order[i].id: i};
+  final out = <String>{};
+  for (final e in ends) {
+    for (final s in starts) {
+      if (identical(e, s)) continue;
+      out.add((rank[e.id] ?? 0) < (rank[s.id] ?? 0) ? e.id : s.id);
+    }
+  }
+  return out;
+}
