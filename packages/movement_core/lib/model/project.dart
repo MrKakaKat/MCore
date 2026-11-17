@@ -1371,6 +1371,10 @@ class PhysicsSettings {
   List<String> handles = [];
   String handlesKeep = 'middle';
 
+  /// Friction, 0..1: how much sliding along what holds it (a floor, a
+  /// wall) slows it - 0: it slides on and on; 1: it stops at once.
+  double friction = 0.5;
+
   /// The leash's point moves with its keys (pulled back toward where its
   /// keys put it - turning it on before or after keying them makes no
   /// difference); off: a fixed point on the stage (`leashPoint`).
@@ -1429,6 +1433,7 @@ class PhysicsSettings {
     ..handles = [...handles]
     ..handlesKeep = handlesKeep
     ..leashKeyed = leashKeyed
+    ..friction = friction
     ..fallsKeys = fallsKeys == null ? null : cloneTrack(fallsKeys!);
   Map<String, dynamic> toJson() => {
         'collide': collide,
@@ -1450,6 +1455,7 @@ class PhysicsSettings {
         if (handles.isNotEmpty) 'handles': handles,
         if (handlesKeep != 'middle') 'handlesKeep': handlesKeep,
         if (!leashKeyed) 'leashKeyed': false,
+        if (friction != 0.5) 'friction': friction,
         if (fallsKeys != null && fallsKeys!.keyframes.isNotEmpty) 'fallsKeys': trackToJson(fallsKeys!),
       };
   static PhysicsSettings fromJson(Map<String, dynamic> j) {
@@ -1478,6 +1484,7 @@ class PhysicsSettings {
       ..handles = [for (final h in (j['handles'] as List? ?? const [])) h as String]
       ..handlesKeep = j['handlesKeep'] as String? ?? 'middle'
       ..leashKeyed = j['leashKeyed'] != false
+      ..friction = (j['friction'] as num?)?.toDouble() ?? 0.5
       ..fallsKeys = j['fallsKeys'] is Map ? trackFromJson(Map<String, dynamic>.from(j['fallsKeys'] as Map)) : null;
   }
 }

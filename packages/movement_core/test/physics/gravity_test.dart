@@ -201,6 +201,37 @@ void main() {
     expect(p.gravityAngleAt(40), 0);
   });
 
+  test('no endless sliding: dropped tilted onto the frame\'s bottom it comes to rest (no wandering wall to wall)', () {
+    for (final tilt in [0.0, 20.0, 50.0]) {
+      final b = box('B', 300, 200, 140, 60)
+        ..physics.falls = true
+        ..transform.rotation.defaultValue = tilt;
+      final p = Project(layers: [b], gravity: 6000, stageWalls: true);
+      bake(p, 300);
+      final xs = [for (var f = 240; f <= 300; f++) pos(p, 'B', f)[0]];
+      final ys = [for (var f = 240; f <= 300; f++) pos(p, 'B', f)[1]];
+      expect(xs.reduce(math.max) - xs.reduce(math.min), lessThan(0.5), reason: 'tilt $tilt: stopped sliding');
+      expect(ys.reduce(math.max) - ys.reduce(math.min), lessThan(0.5), reason: 'tilt $tilt: at rest');
+      expect((xs.last - 300).abs(), lessThan(150), reason: 'tilt $tilt: no long slide from a straight drop');
+    }
+  });
+
+  test('gravity turned from sideways to down: it slides along the floor only a little, and stops', () {
+    final b = box('B', 500, 300, 80, 80)..physics.falls = true;
+    final p = Project(layers: [b], gravity: 3000, stageWalls: true, gravityAngle: 0)..gravityWays = [(40, 90.0)];
+    bake(p, 300);
+    final xs = [for (var f = 240; f <= 300; f++) pos(p, 'B', f)[0]];
+    expect(xs.reduce(math.max) - xs.reduce(math.min), lessThan(0.5), reason: 'stopped');
+    expect(pos(p, 'B', 300)[1], closeTo(960, 1), reason: 'on the floor');
+  });
+
+  test('friction 0 slides on; saved', () {
+    final b = box('B', 300, 900, 80, 80)
+      ..physics.falls = true
+      ..physics.friction = 0;
+    expect(PhysicsSettings.fromJson(b.physics.toJson()).friction, 0);
+  });
+
   test('its own gravity: half falls slower, 0 does not fall', () {
     double yAt(double scale) {
       final b = box('B', 500, 200, 60, 60)

@@ -2334,6 +2334,30 @@ class _LayerLaneState extends State<_LayerLane>
                 child: DecoratedBox(decoration: BoxDecoration(border: Border.all(color: color, width: 1.2))),
               ),
             ),
+          // gravity in time: a square where its falling turns on / off
+          // (its own keys) and where gravity's way turns (the project's).
+          if (widget.layer.physics.collide && widget.layer.physics.falls)
+            for (final f in {
+              for (final k in widget.layer.physics.fallsKeys?.keyframes ?? const <Keyframe>[])
+                widget.layer.startFrame + k.frame,
+              for (final w in widget.app.project.gravityWays)
+                if (w.$1 >= widget.layer.startFrame && w.$1 <= widget.layer.startFrame + widget.layer.durationFrames) w.$1,
+            })
+              Positioned(
+                key: ValueKey('gravity-key-${widget.layer.id}-$f'),
+                left: _frameToX(f) - 5.5,
+                top: widget.height / 2 - 5.5,
+                width: 11,
+                height: 11,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFB39DDB),
+                      border: Border.all(color: Colors.white70, width: 1),
+                    ),
+                  ),
+                ),
+              ),
           // contour physics: a square where a push starts and where it
           // ends (not keys: nothing to drag or ease).
           if (widget.layer.physics.collide)

@@ -1128,6 +1128,21 @@ class EffectsView extends StatelessWidget {
                 ),
               ),
             ]),
+            // sliding along what holds it: how soon it stops.
+            Row(children: [
+              SizedBox(width: 80, child: Text('Friction ${(ph.friction * 100).round()}%')),
+              Expanded(
+                child: Slider(
+                  key: const ValueKey('physics-friction'),
+                  value: ph.friction.clamp(0.0, 1.0),
+                  onChangeStart: (_) => app.pushUndo(),
+                  onChanged: (v) {
+                    ph.friction = (v * 100).round() / 100;
+                    app.commitEdit();
+                  },
+                ),
+              ),
+            ]),
             Row(children: [
               SizedBox(width: 120, child: Text('Gravity ${app.project.gravity.round()}', style: const TextStyle(fontSize: 13))),
               Expanded(

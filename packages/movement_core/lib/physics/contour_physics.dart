@@ -411,7 +411,14 @@ class PhysicsWorld {
       reacts[l.id] = (react, wl < 1e-9 ? [0.0, 0.0] : [wx / wl, wy / wl], arm);
     }
     // a push on such a layer: partly into its bend (the static side stays).
+    // what held each one this frame (the pushes it took from what it hit
+    // and the frame's edges): the falling ones' speed loses the part
+    // into it and slides along it with friction.
+    final heldBy = <String, List<double>>{};
     void push(String id, List<double> off, double dx, double dy) {
+      final h = heldBy[id] ??= [0.0, 0.0];
+      h[0] += dx;
+      h[1] += dy;
       final r = reacts[id];
       if (r == null) {
         off[0] += dx;
@@ -795,7 +802,7 @@ class PhysicsWorld {
               }
             }
           }
-          if (project.stageWalls && _walls(bodies, induced, spin)) moved = true;
+          if (project.stageWalls && _walls(bodies, induced, spin, heldBy)) moved = true;
           if (!moved) break;
         }
       }
@@ -842,17 +849,33 @@ class PhysicsWorld {
     final velocity = <String, List<double>>{
       for (final e in induced.entries) e.key: [e.value[0] - (prev?.induced[e.key]?[0] ?? 0), e.value[1] - (prev?.induced[e.key]?[1] ?? 0)]
     };
-    // falling and stopped by something: what was held back bounces back
-    // (its bounce share of it); resting, nothing does.
+    // falling and held by something: its speed is what it asked for, less
+    // the part into what held it (bounced back by its bounce share, if
+    // hard enough), and along it slowed by friction - never the pushes
+    // themselves (a push out of a wall, a turn about a corner), which
+    // would make speed out of nothing.
     for (final e in falling.entries) {
+      final h = heldBy[e.key];
+      final hl = h == null ? 0.0 : math.sqrt(h[0] * h[0] + h[1] * h[1]);
+      if (hl < 1e-6) continue;
       final l = findLayer(project, e.key);
       final b = l?.physics.bounce.clamp(0.0, 1.0) ?? 0.0;
-      final moved = velocity[e.key];
-      if (b <= 0 || moved == null) continue;
+      final mu = l?.physics.friction.clamp(0.0, 1.0) ?? 0.5;
       final (asked, g) = e.value;
-      final hx = asked[0] - moved[0], hy = asked[1] - moved[1];
-      if (math.sqrt(hx * hx + hy * hy) <= 2 * g) continue;
-      velocity[e.key] = [moved[0] - b * hx, moved[1] - b * hy];
+      final n = [h![0] / hl, h[1] / hl]; // out of what holds it
+      var v = [...asked];
+      final vn = v[0] * n[0] + v[1] * n[1];
+      if (vn < 0) {
+        // into it: gone - or bounced back when it came in hard.
+        final back = -vn > 2 * g ? b : 0.0;
+        v = [v[0] - (1 + back) * vn * n[0], v[1] - (1 + back) * vn * n[1]];
+      }
+      // along it: friction takes off as much as it was pressed (x mu).
+      final along = v[0] * -n[1] + v[1] * n[0];
+      final press = math.max(0.0, -vn);
+      final slowed = along.abs() <= mu * press ? 0.0 : along - mu * press * along.sign;
+      final across = v[0] * n[0] + v[1] * n[1];
+      velocity[e.key] = [across * n[0] + slowed * -n[1], across * n[1] + slowed * n[0]];
     }
     return _Frame(induced, keyedT, armed, touching, contacts, normals, _frameSig(f), velocity, bend, spinVel);
   }
@@ -1025,7 +1048,8 @@ class PhysicsWorld {
   /// The frame's edges as walls: a pushable object past one is pushed
   /// back inside. Returns whether anything moved.
   bool _walls(List<_Body> bodies, Map<String, List<double>> induced,
-      void Function(_Body b, List<double> off, List<double> p, List<double> contact, [List<List<double>>? span]) spin) {
+      void Function(_Body b, List<double> off, List<double> p, List<double> contact, [List<List<double>>? span]) spin,
+      Map<String, List<double>> heldBy) {
     var moved = false;
     final w = stageSize.width, h = stageSize.height;
     for (final b in bodies) {
@@ -1046,6 +1070,9 @@ class PhysicsWorld {
       if (dx.abs() > 1e-9 || dy.abs() > 1e-9) {
         off[0] += dx;
         off[1] += dy;
+        final held = heldBy[b.layer.id] ??= [0.0, 0.0];
+        held[0] += dx;
+        held[1] += dy;
         moved = true;
         // the edge pushes where it touches: off its middle it turns it
         // (Turns when hit, tipping under gravity) as another layer would.

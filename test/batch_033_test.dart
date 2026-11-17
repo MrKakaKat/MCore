@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:movement_core/movement_core.dart';
 import 'package:movement_mobile/app_state.dart';
 import 'package:movement_mobile/ui/stage/grid_settings_dialog.dart';
+import 'package:movement_mobile/ui/timeline/layers_timeline_view.dart';
 import 'package:movement_mobile/ui/stage/stage_camera.dart';
 import 'package:movement_mobile/ui/stage/stage_gesture_controller.dart';
 
@@ -42,5 +43,25 @@ void main() {
     await tester.drag(find.byKey(const ValueKey('grid-opacity')), const Offset(300, 0));
     await tester.pump();
     expect(gridOpacity, greaterThan(0.9));
+  });
+
+  testWidgets('gravity keys show as squares on the falling layer', (tester) async {
+    final app = AppState()..timelineCenterPlayheadEnabled = false;
+    app.project.layers.clear();
+    final l = createLayer('rect')
+      ..id = 'f'
+      ..startFrame = 0
+      ..durationFrames = 120;
+    l.physics
+      ..collide = true
+      ..falls = true
+      ..fallsKeys = (Track(0.0, false)..keyframes = [Keyframe(frame: 10, value: 1.0)]);
+    app.project.layers.add(l);
+    app.project.gravityWays = [(50, 0.0)];
+    app.maxFrame = 120;
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SizedBox(width: 600, height: 200, child: LayersTimelineView(app: app)))));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('gravity-key-f-10')), findsOneWidget);
+    expect(find.byKey(const ValueKey('gravity-key-f-50')), findsOneWidget);
   });
 }
