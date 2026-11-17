@@ -1370,6 +1370,28 @@ class PhysicsSettings {
   /// handles' "keep the opposite side").
   List<String> handles = [];
   String handlesKeep = 'middle';
+
+  /// The leash's point moves with its keys (pulled back toward where its
+  /// keys put it - turning it on before or after keying them makes no
+  /// difference); off: a fixed point on the stage (`leashPoint`).
+  bool leashKeyed = true;
+
+  /// Falls, keyed (null: `falls` all along): on (1) / off (0) from each
+  /// key on - stepped, never eased.
+  Track? fallsKeys;
+
+  /// Whether it falls at local frame `f`.
+  bool fallsAt(num f) {
+    if (!falls) return false;
+    final t = fallsKeys;
+    if (t == null || t.keyframes.isEmpty) return true;
+    Keyframe? last;
+    for (final k in t.keyframes) {
+      if (k.frame <= f && (last == null || k.frame >= last.frame)) last = k;
+    }
+    last ??= t.keyframes.reduce((a, b) => a.frame <= b.frame ? a : b);
+    return (last.value as num) >= 0.5;
+  }
   PhysicsSettings(
       {this.collide = false,
       this.group = '1',
@@ -1405,7 +1427,9 @@ class PhysicsSettings {
     ..bounce = bounce
     ..gravityScale = gravityScale
     ..handles = [...handles]
-    ..handlesKeep = handlesKeep;
+    ..handlesKeep = handlesKeep
+    ..leashKeyed = leashKeyed
+    ..fallsKeys = fallsKeys == null ? null : cloneTrack(fallsKeys!);
   Map<String, dynamic> toJson() => {
         'collide': collide,
         'group': group,
@@ -1425,6 +1449,8 @@ class PhysicsSettings {
         if (gravityScale != 1) 'gravityScale': gravityScale,
         if (handles.isNotEmpty) 'handles': handles,
         if (handlesKeep != 'middle') 'handlesKeep': handlesKeep,
+        if (!leashKeyed) 'leashKeyed': false,
+        if (fallsKeys != null && fallsKeys!.keyframes.isNotEmpty) 'fallsKeys': trackToJson(fallsKeys!),
       };
   static PhysicsSettings fromJson(Map<String, dynamic> j) {
     final l = j['leash'] as Map?;
@@ -1450,7 +1476,9 @@ class PhysicsSettings {
       ..bounce = (j['bounce'] as num?)?.toDouble() ?? 0
       ..gravityScale = (j['gravityScale'] as num?)?.toDouble() ?? 1
       ..handles = [for (final h in (j['handles'] as List? ?? const [])) h as String]
-      ..handlesKeep = j['handlesKeep'] as String? ?? 'middle';
+      ..handlesKeep = j['handlesKeep'] as String? ?? 'middle'
+      ..leashKeyed = j['leashKeyed'] != false
+      ..fallsKeys = j['fallsKeys'] is Map ? trackFromJson(Map<String, dynamic>.from(j['fallsKeys'] as Map)) : null;
   }
 }
 

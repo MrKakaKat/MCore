@@ -427,6 +427,9 @@ class PhysicsWorld {
       b[1] += dAng;
     }
 
+    // the layers falling this frame: the move gravity and their speed
+    // asked for, and the frame's gravity step.
+    final falling = <String, (List<double>, double)>{};
     // how fast the falling ones turn (tipping over), this frame.
     final spinVel = <String, double>{};
 
@@ -451,12 +454,35 @@ class PhysicsWorld {
 
     // Turns when hit: a push `p` at `contact` off its middle turns it
     // (the lighter, the more).
-    void spin(_Body b, List<double> off, List<double> p, List<double> contact) {
+    void spin(_Body b, List<double> off, List<double> p, List<double> contact, [List<List<double>>? span]) {
       final ph = b.layer.physics;
       // a falling layer turns too: held off its middle it tips over.
-      final tips = ph.falls && project.gravity > 0;
+      final tips = ph.falls && project.gravity > 0 && falling.containsKey(b.layer.id);
       if (!(ph.spin || tips) || ph.immovable) return;
       final c = b.centre(off);
+      if (tips && !ph.spin) {
+        // tipping is gravity's doing, not the hit's: only where it is held
+        // up (the push against gravity), and only by its weight about what
+        // holds it - a hard landing doesn't flip a box lying flat.
+        final ga = project.gravityAngle * math.pi / 180;
+        final g = [math.cos(ga), math.sin(ga)];
+        if (p[0] * g[0] + p[1] * g[1] >= -1e-9) return;
+        // held along a stretch (lying on a side), its middle over it: it
+        // rests - no turning, any turn it had stops.
+        if (span != null) {
+          double tv(List<double> q) => q[0] * -g[1] + q[1] * g[0];
+          final a0 = tv(span[0]), a1 = tv(span[1]);
+          final lo = math.min(a0, a1), hi = math.max(a0, a1), ct = tv(c);
+          final along = math.sqrt(math.pow(span[1][0] - span[0][0], 2) + math.pow(span[1][1] - span[0][1], 2));
+          if (along > b.minSize * 0.15 && ct >= lo - 1e-6 && ct <= hi + 1e-6) {
+            spinVel[b.layer.id] = 0;
+            return;
+          }
+        }
+        // its weight at its middle, held at the contact: turns it about it.
+        final w = falling[b.layer.id]!.$2;
+        p = [-g[0] * w * 4, -g[1] * w * 4];
+      }
       final rx = contact[0] - c[0], ry = contact[1] - c[1];
       final torque = rx * p[1] - ry * p[0];
       final rad = math.max(1.0, b.minSize / 2);
@@ -471,9 +497,6 @@ class PhysicsWorld {
       if (tips) spinVel[b.layer.id] = (spinVel[b.layer.id] ?? 0) + dth;
     }
 
-    // the layers falling this frame: the move gravity and their speed
-    // asked for, and the frame's gravity step.
-    final falling = <String, (List<double>, double)>{};
     for (final l in _colliders) {
       induced[l.id] ??= [0, 0];
       final s = getLayerStateAt(project, l.id, f);
@@ -510,7 +533,7 @@ class PhysicsWorld {
       // its speed carries on (barely slowed by the air) and gravity adds
       // to it - never more a frame than half its own size (it can't jump
       // through what it lands on).
-      final falls = l.physics.falls && !l.physics.immovable && project.gravity > 0 && l.physics.gravityScale != 0;
+      final falls = l.physics.fallsAt(layerLocalFrame(l, f)) && !l.physics.immovable && project.gravity > 0 && l.physics.gravityScale != 0;
       final k = l.physics.immovable ? 0.0 : (falls ? 0.995 : l.physics.inertia.clamp(0.0, 0.99));
       final v = prev?.velocity[l.id];
       var step = [k > 0 && v != null ? v[0] * k : 0.0, k > 0 && v != null ? v[1] * k : 0.0];
@@ -540,7 +563,9 @@ class PhysicsWorld {
       if (ph.leash && !ph.immovable) {
         final off = induced[l.id]!;
         final px = m[4] + off[0], py = m[5] + off[1];
-        final dx = ph.leashPoint[0] - px, dy = ph.leashPoint[1] - py;
+        // with its keys: toward where they put it now.
+        final to = ph.leashKeyed ? [m[4], m[5]] : ph.leashPoint;
+        final dx = to[0] - px, dy = to[1] - py;
         final d = math.sqrt(dx * dx + dy * dy);
         if (d > ph.leashLength && d > 1e-9) {
           final pull = (d - ph.leashLength) * ph.leashStrength.clamp(0.0, 1.0);
@@ -696,7 +721,9 @@ class PhysicsWorld {
                     // its scale handle gave instead.
                   } else if (!A.layer.physics.immovable) {
                     push(A.layer.id, offA, -n[0] * d * shareA, -n[1] * d * shareA);
-                    spin(A, offA, [-n[0] * d * shareA, -n[1] * d * shareA], _contactMid(B, offB, A, offA, [-n[0], -n[1]]));
+                    final sp = _contactSpan(B, offB, A, offA, [-n[0], -n[1]]);
+                    spin(A, offA, [-n[0] * d * shareA, -n[1] * d * shareA],
+                        [(sp[0][0] + sp[1][0]) / 2, (sp[0][1] + sp[1][1]) / 2], sp);
                   } else if (reacts.containsKey(A.layer.id) && it == 0 && s == steps) {
                     // (its bend takes it once a frame: bending moves its
                     // outline only from the next frame on.)
@@ -708,7 +735,8 @@ class PhysicsWorld {
                     // its scale handle gave instead.
                   } else if (!B.layer.physics.immovable) {
                     push(B.layer.id, offB, n[0] * d * shareB, n[1] * d * shareB);
-                    spin(B, offB, [n[0] * d * shareB, n[1] * d * shareB], _contactMid(A, offA, B, offB, n));
+                    final sp = _contactSpan(A, offA, B, offB, n);
+                    spin(B, offB, [n[0] * d * shareB, n[1] * d * shareB], [(sp[0][0] + sp[1][0]) / 2, (sp[0][1] + sp[1][1]) / 2], sp);
                   } else if (reacts.containsKey(B.layer.id) && it == 0 && s == steps) {
                     push(B.layer.id, offB, n[0] * d * shareB, n[1] * d * shareB);
                   }
@@ -729,7 +757,7 @@ class PhysicsWorld {
               }
             }
           }
-          if (project.stageWalls && _walls(bodies, induced)) moved = true;
+          if (project.stageWalls && _walls(bodies, induced, spin)) moved = true;
           if (!moved) break;
         }
       }
@@ -854,13 +882,20 @@ class PhysicsWorld {
   /// their facing sides overlap - a box resting on a floor is held under
   /// its middle; one hanging past the floor's edge, at the edge (it tips).
   static List<double> _contactMid(_Body a, List<double> offA, _Body b, List<double> offB, List<double> n) {
+    final s = _contactSpan(a, offA, b, offB, n);
+    return [(s[0][0] + s[1][0]) / 2, (s[0][1] + s[1][1]) / 2];
+  }
+
+  /// The two ends of where `a` (pushing along `n`) holds `b` (frame
+  /// points; the same point at a corner) - see _contactMid.
+  static List<List<double>> _contactSpan(_Body a, List<double> offA, _Body b, List<double> offB, List<double> n) {
     final t = [-n[1], n[0]];
     double dn(List<double> p, List<double> o) => (p[0] + o[0]) * n[0] + (p[1] + o[1]) * n[1];
     double dt(List<double> p, List<double> o) => (p[0] + o[0]) * t[0] + (p[1] + o[1]) * t[1];
     // b's side facing a (its lowest along n), a's facing b (its highest).
     final bLow = b.world.map((p) => dn(p, offB)).reduce(math.min);
     final aHigh = a.world.map((p) => dn(p, offA)).reduce(math.max);
-    const tol = 1.0;
+    const tol = 2.0;
     final bs = [for (final p in b.world) if (dn(p, offB) <= bLow + tol) dt(p, offB)];
     final as = [for (final p in a.world) if (dn(p, offA) >= aHigh - tol) dt(p, offA)];
     var lo = bs.reduce(math.min), hi = bs.reduce(math.max);
@@ -877,8 +912,11 @@ class PhysicsWorld {
         hi = h2;
       }
     }
-    final m = (lo + hi) / 2, level = (bLow + aHigh) / 2;
-    return [n[0] * level + t[0] * m, n[1] * level + t[1] * m];
+    final level = (bLow + aHigh) / 2;
+    return [
+      [n[0] * level + t[0] * lo, n[1] * level + t[1] * lo],
+      [n[0] * level + t[0] * hi, n[1] * level + t[1] * hi],
+    ];
   }
 
   /// A pair where one is hollow and the other's middle is inside it:
@@ -948,7 +986,8 @@ class PhysicsWorld {
 
   /// The frame's edges as walls: a pushable object past one is pushed
   /// back inside. Returns whether anything moved.
-  bool _walls(List<_Body> bodies, Map<String, List<double>> induced) {
+  bool _walls(List<_Body> bodies, Map<String, List<double>> induced,
+      void Function(_Body b, List<double> off, List<double> p, List<double> contact, [List<List<double>>? span]) spin) {
     var moved = false;
     final w = stageSize.width, h = stageSize.height;
     for (final b in bodies) {
@@ -970,6 +1009,31 @@ class PhysicsWorld {
         off[0] += dx;
         off[1] += dy;
         moved = true;
+        // the edge pushes where it touches: off its middle it turns it
+        // (Turns when hit, tipping under gravity) as another layer would.
+        List<List<double>> touch(int axis, bool atMax) {
+          var edge = atMax ? -double.infinity : double.infinity;
+          for (final p in b.world) {
+            final v = p[axis] + off[axis];
+            edge = atMax ? math.max(edge, v) : math.min(edge, v);
+          }
+          // along the edge: the first and last of its points on it.
+          List<double>? lo, hi;
+          final o = 1 - axis;
+          for (final p in b.world) {
+            if (((p[axis] + off[axis]) - edge).abs() > 2.0) continue;
+            final q = [p[0] + off[0], p[1] + off[1]];
+            if (lo == null || q[o] < lo[o]) lo = q;
+            if (hi == null || q[o] > hi[o]) hi = q;
+          }
+          return [lo!, hi!];
+        }
+
+        for (final (axis, v) in [(0, dx), (1, dy)]) {
+          if (v.abs() <= 1e-9) continue;
+          final sp = touch(axis, v < 0);
+          spin(b, off, axis == 0 ? [v, 0] : [0, v], [(sp[0][0] + sp[1][0]) / 2, (sp[0][1] + sp[1][1]) / 2], sp);
+        }
       }
     }
     return moved;

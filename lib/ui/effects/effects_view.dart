@@ -1056,24 +1056,63 @@ class EffectsView extends StatelessWidget {
           // gravity: this layer falls; the project's pull (how strong,
           // which way) and how it bounces.
           if (!ph.immovable)
-            SwitchListTile(
-              key: const ValueKey('physics-falls'),
-              dense: true,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Falls (gravity)', style: TextStyle(fontSize: 13)),
-              subtitle: hint('Gravity pulls it, faster and faster, until something holds it: an Immovable, or the '
-                  'frame\'s edges with "Frame edges collide" on.'),
-              value: ph.falls,
-              onChanged: (v) {
-                app.pushUndo();
-                ph.falls = v;
-                if (v && app.project.gravity <= 0) app.project.gravity = 1500;
-                // falling: the frame's edges hold it (switch them off to let
-                // it fall out).
-                if (v) app.project.stageWalls = true;
-                app.commitEdit();
-              },
-            ),
+            () {
+              // keyable: on / off from each key on (stepped).
+              final lf = layerLocalFrame(layer, app.currentFrame);
+              final frame = lf.round();
+              final keys = ph.fallsKeys;
+              final keyed = keys != null && keys.keyframes.any((k) => k.frame == frame);
+              final on = ph.fallsAt(lf);
+              void setKey(int f, bool v) {
+                final t = ph.fallsKeys ??= Track(1.0, false);
+                t.keyframes.removeWhere((k) => k.frame == f);
+                t.keyframes.add(Keyframe(frame: f, value: v ? 1.0 : 0.0));
+                t.keyframes.sort((a, b) => a.frame.compareTo(b.frame));
+              }
+
+              return Row(children: [
+                Expanded(
+                  child: SwitchListTile(
+                    key: const ValueKey('physics-falls'),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Falls (gravity)', style: TextStyle(fontSize: 13)),
+                    subtitle: hint('Gravity pulls it, faster and faster, until something holds it: an Immovable, or the '
+                        'frame\'s edges with "Frame edges collide" on. Key it to start / stop falling in time.'),
+                    value: on,
+                    onChanged: (v) {
+                      app.pushUndo();
+                      if (keys != null && keys.keyframes.isNotEmpty) {
+                        // keyed: a key here.
+                        ph.falls = true;
+                        setKey(frame, v);
+                      } else {
+                        ph.falls = v;
+                      }
+                      if (v && app.project.gravity <= 0) app.project.gravity = 1500;
+                      // falling: the frame's edges hold it (switch them off to
+                      // let it fall out).
+                      if (v) app.project.stageWalls = true;
+                      app.commitEdit();
+                    },
+                  ),
+                ),
+                IconButton(
+                  key: const ValueKey('physics-falls-key'),
+                  icon: Icon(keyed ? Icons.diamond : Icons.diamond_outlined, size: 16),
+                  tooltip: 'key falling at this frame',
+                  onPressed: () {
+                    app.pushUndo();
+                    if (keyed) {
+                      ph.fallsKeys?.keyframes.removeWhere((k) => k.frame == frame);
+                    } else {
+                      setKey(frame, on);
+                    }
+                    app.commitEdit();
+                  },
+                ),
+              ]);
+            }(),
           if (ph.falls && !ph.immovable) ...[
             Row(children: [
               SizedBox(width: 80, child: Text('Bounce ${(ph.bounce * 100).round()}%')),
@@ -1214,8 +1253,8 @@ class EffectsView extends StatelessWidget {
               dense: true,
               contentPadding: EdgeInsets.zero,
               title: const Text('On a leash', style: TextStyle(fontSize: 13)),
-              subtitle: hint('Pulled back toward a point (where it is now when turned on) once farther than the '
-                  'leash; with inertia it swings and settles.'),
+              subtitle: hint('Pulled back toward its point once farther than the leash; with inertia it swings '
+                  'and settles.'),
               value: ph.leash,
               onChanged: (v) {
                 app.pushUndo();
@@ -1228,6 +1267,17 @@ class EffectsView extends StatelessWidget {
               },
             ),
             if (ph.leash) ...[
+              SwitchListTile(
+                key: const ValueKey('physics-leash-keyed'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Its point follows its keys', style: TextStyle(fontSize: 13)),
+                subtitle: hint(ph.leashKeyed
+                    ? 'Pulled back toward where its keys put it - keyed before or after the leash, the same.'
+                    : 'A fixed point on the stage (set below).'),
+                value: ph.leashKeyed,
+                onChanged: (v) => set(() => ph.leashKeyed = v),
+              ),
               Row(children: [
                 SizedBox(width: 80, child: Text('Length ${ph.leashLength.round()} px')),
                 Expanded(
@@ -1259,6 +1309,7 @@ class EffectsView extends StatelessWidget {
                   ),
                 ),
               ]),
+              if (!ph.leashKeyed)
               TextButton.icon(
                 key: const ValueKey('physics-leash-here'),
                 icon: const Icon(Icons.my_location, size: 16),

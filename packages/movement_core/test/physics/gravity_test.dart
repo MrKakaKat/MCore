@@ -130,6 +130,30 @@ void main() {
     expect(pos(q, 'C', 200)[1], closeTo(830, 1.5));
   });
 
+  test('a box landing a little tilted settles: no rocking corner to corner, no flip from a hard landing', () {
+    for (final tilt in [3.0, 0.5]) {
+      final floor = box('F', 500, 900, 800, 40)..physics.role = 'immovable';
+      final b = box('B', 500, 500, 200, 200)
+        ..physics.falls = true
+        ..transform.rotation.defaultValue = tilt;
+      final p = Project(layers: [floor, b], gravity: 3000);
+      bake(p, 120);
+      final turns = [for (var f = 60; f <= 120; f++) turnOf(p, 'B', f)];
+      expect(turns.reduce(math.max) - turns.reduce(math.min), lessThan(0.01), reason: 'tilt $tilt: at rest');
+      expect(turns.last.abs(), lessThan(tilt + 0.01), reason: 'tilt $tilt: not tipped over');
+    }
+  });
+
+  test('tipping on the frame\'s edge too: a tilted box landing on the bottom edge turns down onto its side', () {
+    final b = box('B', 500, 600, 200, 200)
+      ..physics.falls = true
+      ..transform.rotation.defaultValue = 10.0;
+    final p = Project(layers: [b], gravity: 3000, stageWalls: true);
+    bake(p, 150);
+    expect(turnOf(p, 'B', 150).abs(), lessThan(3), reason: 'turned from 10 degrees toward lying flat');
+    expect(pos(p, 'B', 150)[1], greaterThan(880), reason: 'down on the edge');
+  });
+
   test('its own gravity: half falls slower, 0 does not fall', () {
     double yAt(double scale) {
       final b = box('B', 500, 200, 60, 60)

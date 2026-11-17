@@ -372,6 +372,34 @@ void main() {
     expect(PhysicsSettings.fromJson(b.physics.toJson()).leashStrength, 0.3);
   });
 
+  test('leash with its keys: pulled back to where its keys put it (its point moves with them)', () {
+    final b = box('B', 400, 500)
+      ..physics.leash = true
+      ..physics.leashPoint = [400, 500] // where it was when turned on - not used
+      ..physics.leashLength = 0
+      ..physics.leashStrength = 0.3;
+    move(b, 0, [400, 500], 40, [700, 500]);
+    final p = Project(layers: [b]);
+    bake(p, 60);
+    expect(pos(p, 'B', 60)[0], closeTo(700, 1e-6), reason: 'follows its keys, not held at 400');
+    b.physics.leashKeyed = false;
+    final q = Project(layers: [b]);
+    bake(q, 60);
+    expect(pos(q, 'B', 60)[0], lessThan(500), reason: 'a fixed point holds it back');
+    expect(PhysicsSettings.fromJson(b.physics.toJson()).leashKeyed, isFalse);
+  });
+
+  test('falls, keyed: it hangs until its key turns falling on', () {
+    final b = box('B', 500, 200)..physics.falls = true;
+    b.physics.fallsKeys = Track(0.0, false)
+      ..keyframes = [Keyframe(frame: 0, value: 0.0), Keyframe(frame: 30, value: 1.0)];
+    final p = Project(layers: [b], gravity: 1800);
+    bake(p, 50);
+    expect(pos(p, 'B', 29)[1], closeTo(200, 1e-6), reason: 'not yet');
+    expect(pos(p, 'B', 50)[1], greaterThan(210), reason: 'falling from its key on');
+    expect(PhysicsSettings.fromJson(b.physics.toJson()).fallsKeys!.keyframes.length, 2);
+  });
+
   test('bend + physics: a push bends the free end instead of moving the layer, then it springs back', () {
     registerBuiltinEffects();
     final a = box('A', 100, 300, size: 80), b = box('B', 400, 500, size: 100);

@@ -60,6 +60,9 @@ void main() {
     await tester.longPress(find.byKey(const ValueKey('playhead-play')));
     await tester.pumpAndSettle();
     expect(app.project.markers, [50]);
+    // drawn over the pinned playhead.
+    expect(find.descendant(of: find.byKey(const ValueKey('pinned-playhead-mark')), matching: find.byType(CustomPaint)),
+        findsOneWidget);
     await tester.longPress(find.byKey(const ValueKey('playhead-play')));
     await tester.pumpAndSettle();
     expect(app.project.markers, isEmpty);

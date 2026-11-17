@@ -1689,6 +1689,24 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                         painter: _PlayheadPainter()),
                                   ),
                                 ),
+                              // a ruler mark under the pinned playhead: still
+                              // on top of it.
+                              if (pinned)
+                                Positioned(
+                                  key: const ValueKey('pinned-playhead-mark'),
+                                  left: halfViewport - 8,
+                                  top: 0,
+                                  width: 16,
+                                  height: 14,
+                                  child: IgnorePointer(
+                                    child: ValueListenableBuilder<int>(
+                                      valueListenable: widget.app.frameNotifier,
+                                      builder: (context, f, _) => widget.app.project.markers.contains(f)
+                                          ? const CustomPaint(painter: RulerMarkerPainter())
+                                          : const SizedBox.shrink(),
+                                    ),
+                                  ),
+                                ),
                               // pinned: the whole playhead is an (invisible)
                               // play / pause button.
                               // holding it puts a ruler mark at its frame
