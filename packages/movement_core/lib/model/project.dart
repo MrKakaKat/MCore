@@ -2502,6 +2502,21 @@ class Project {
   double gravity;
   double gravityAngle;
 
+  /// Gravity's way, keyed in time (project frames -> degrees, sorted):
+  /// from each key on it pulls that way - a turn at a border, no
+  /// in-between. Empty: `gravityAngle` all along.
+  List<(int, double)> gravityWays = [];
+
+  /// The way gravity pulls at `frame` (degrees).
+  double gravityAngleAt(num frame) {
+    var a = gravityAngle;
+    for (final (f, v) in gravityWays) {
+      if (f <= frame) a = v;
+    }
+    if (gravityWays.isNotEmpty && frame < gravityWays.first.$1) a = gravityAngle;
+    return a;
+  }
+
   /// Red marks on the timeline ruler (frames, sorted): places to jump to.
   List<int> markers;
   Project({this.fps = 60, List<Layer>? layers, this.stageWalls = false, this.gravity = 0, this.gravityAngle = 90, List<int>? markers})

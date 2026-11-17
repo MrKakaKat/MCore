@@ -171,6 +171,8 @@ class PhysicsWorld {
   /// markers), inside the layer's own range only; a contact still going
   /// at the end of what is baked gets its end marker only once the bake
   /// has reached the layer's end.
+  double gravityAngleAt(int f) => project.gravityAngleAt(f);
+
   List<int> contactMarkers(String layerId) {
     final layer = findLayer(project, layerId);
     if (layer == null) return const [];
@@ -322,6 +324,7 @@ class PhysicsWorld {
         project.stageWalls,
         project.gravity,
         project.gravityAngle,
+        [for (final (f, a) in project.gravityWays) '$f:$a'].join(','),
         for (final l in project.layers)
           [
             l.id, l.parentId, l.startFrame, l.durationFrames, l.physics.toJson(),
@@ -432,6 +435,8 @@ class PhysicsWorld {
     final falling = <String, (List<double>, double)>{};
     // how fast the falling ones turn (tipping over), this frame.
     final spinVel = <String, double>{};
+    // the ones tipped this frame (once a frame, however many steps).
+    final tipped = <String>{};
 
     // Grows to hold: `b` pressed along `n` (unit, outward from what
     // presses) by `d` at `contact` grows about its pivot so that point
@@ -461,27 +466,60 @@ class PhysicsWorld {
       if (!(ph.spin || tips) || ph.immovable) return;
       final c = b.centre(off);
       if (tips && !ph.spin) {
-        // tipping is gravity's doing, not the hit's: only where it is held
-        // up (the push against gravity), and only by its weight about what
-        // holds it - a hard landing doesn't flip a box lying flat.
-        final ga = project.gravityAngle * math.pi / 180;
+        // tipping is gravity's doing, not the hit's: once a frame, only
+        // where it is held up (the push against gravity), by its weight -
+        // at the middle of its area (a heavier side pulls more) - about
+        // what holds it. A hard landing doesn't flip it.
+        if (!tipped.add(b.layer.id)) return;
+        final ga = gravityAngleAt(f) * math.pi / 180;
         final g = [math.cos(ga), math.sin(ga)];
         if (p[0] * g[0] + p[1] * g[1] >= -1e-9) return;
-        // held along a stretch (lying on a side), its middle over it: it
+        final m = b.massCentre(off);
+        // held along a stretch (lying on a side), its weight over it: it
         // rests - no turning, any turn it had stops.
         if (span != null) {
           double tv(List<double> q) => q[0] * -g[1] + q[1] * g[0];
           final a0 = tv(span[0]), a1 = tv(span[1]);
-          final lo = math.min(a0, a1), hi = math.max(a0, a1), ct = tv(c);
+          final lo = math.min(a0, a1), hi = math.max(a0, a1), ct = tv(m);
           final along = math.sqrt(math.pow(span[1][0] - span[0][0], 2) + math.pow(span[1][1] - span[0][1], 2));
           if (along > b.minSize * 0.15 && ct >= lo - 1e-6 && ct <= hi + 1e-6) {
             spinVel[b.layer.id] = 0;
             return;
           }
         }
-        // its weight at its middle, held at the contact: turns it about it.
-        final w = falling[b.layer.id]!.$2;
-        p = [-g[0] * w * 4, -g[1] * w * 4];
+        // which way its weight turns it about the contact, and how hard.
+        final rv = [m[0] - contact[0], m[1] - contact[1]];
+        final down = -rv[1] * g[0] + rv[0] * g[1]; // a small + turn lowers it?
+        if (down.abs() < 1e-9) return;
+        final sign = down > 0 ? 1.0 : -1.0;
+        final arm = (rv[0] * -g[1] + rv[1] * g[0]).abs();
+        final k2 = rv[0] * rv[0] + rv[1] * rv[1] + b.minSize * b.minSize / 6;
+        final alpha = falling[b.layer.id]!.$2 * arm / k2;
+        var w = spinVel[b.layer.id] ?? 0;
+        // turning the other way than its weight now asks: it has come down
+        // on that side - the turn stops there (no rocking back and forth).
+        if (w != 0 && w.sign != sign) {
+          spinVel[b.layer.id] = 0;
+          return;
+        }
+        // never faster than its far edge moving a few px a frame.
+        final most = 3.0 / math.max(1.0, b.reach2(m));
+        w = (w + sign * alpha).clamp(-most, most);
+        spinVel[b.layer.id] = w;
+        final dth = (sign * alpha).clamp(-most, most);
+        if (dth.abs() < 1e-9) return;
+        // about the contact: the point it stands on stays.
+        final pv = [b.pivot[0] + off[0], b.pivot[1] + off[1]];
+        final q = [contact[0] - pv[0], contact[1] - pv[1]];
+        final cs = math.cos(dth), sn = math.sin(dth);
+        b.turn(dth);
+        off[0] += q[0] - (cs * q[0] - sn * q[1]);
+        off[1] += q[1] - (sn * q[0] + cs * q[1]);
+        while (off.length < 4) {
+          off.add(off.length == 2 ? 1 : 0);
+        }
+        off[3] += dth * 180 / math.pi;
+        return;
       }
       final rx = contact[0] - c[0], ry = contact[1] - c[1];
       final torque = rx * p[1] - ry * p[0];
@@ -549,7 +587,7 @@ class PhysicsWorld {
           off[3] += w * 180 / math.pi;
           spinVel[l.id] = w;
         }
-        final g = project.gravity * l.physics.gravityScale / (fps * fps), a = project.gravityAngle * math.pi / 180;
+        final g = project.gravity * l.physics.gravityScale / (fps * fps), a = gravityAngleAt(f) * math.pi / 180;
         step = [step[0] + g * math.cos(a), step[1] + g * math.sin(a)];
         final len = math.sqrt(step[0] * step[0] + step[1] * step[1]), most = math.max(1.0, body.minSize / 2);
         if (len > most) step = [step[0] / len * most, step[1] / len * most];
@@ -1389,6 +1427,33 @@ class _Body {
   List<List<double>> placedAt(List<double> t) => [
         for (final p in hull) [linear[0] * p[0] + linear[2] * p[1] + t[0], linear[1] * p[0] + linear[3] * p[1] + t[1]]
       ];
+
+  /// The middle of its area (its weight's middle): convex parts weighed
+  /// by their area - a heavier side counts more.
+  List<double> massCentre(List<double> off) {
+    var ax = 0.0, ay = 0.0, at = 0.0;
+    for (final part in worldParts) {
+      final pts = part.points;
+      for (var i = 0; i < pts.length; i++) {
+        final a = pts[i], c = pts[(i + 1) % pts.length];
+        final cr = a[0] * c[1] - c[0] * a[1];
+        at += cr;
+        ax += (a[0] + c[0]) * cr;
+        ay += (a[1] + c[1]) * cr;
+      }
+    }
+    if (at.abs() < 1e-9) return centre(off);
+    return [ax / (3 * at) + off[0], ay / (3 * at) + off[1]];
+  }
+
+  /// How far it reaches from `p` (frame point, offset included).
+  double reach2(List<double> p) {
+    var best = 0.0;
+    for (final q in world) {
+      best = math.max(best, math.sqrt(math.pow(q[0] - p[0], 2) + math.pow(q[1] - p[1], 2)));
+    }
+    return best;
+  }
 
   List<double> centre(List<double> off) {
     var x = 0.0, y = 0.0;

@@ -1144,40 +1144,85 @@ class EffectsView extends StatelessWidget {
               ),
             ]),
             hint('For the whole project: px per second, each second.') ?? const SizedBox.shrink(),
-            SegmentedButton<double>(
-              key: const ValueKey('physics-gravity-way'),
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: 90, icon: Icon(Icons.south, size: 16), tooltip: 'down'),
-                ButtonSegment(value: 270, icon: Icon(Icons.north, size: 16), tooltip: 'up'),
-                ButtonSegment(value: 180, icon: Icon(Icons.west, size: 16), tooltip: 'left'),
-                ButtonSegment(value: 0, icon: Icon(Icons.east, size: 16), tooltip: 'right'),
-              ],
-              emptySelectionAllowed: true,
-              selected: {if (const [0.0, 90.0, 180.0, 270.0].contains(app.project.gravityAngle)) app.project.gravityAngle},
-              onSelectionChanged: (v) {
-                if (v.isEmpty) return;
-                app.pushUndo();
-                app.project.gravityAngle = v.first;
-                app.commitEdit();
-              },
-            ),
-            // any way at all: the angle (90 down, 0 right).
-            Row(children: [
-              SizedBox(width: 120, child: Text('Way ${app.project.gravityAngle.round()}°', style: const TextStyle(fontSize: 13))),
-              Expanded(
-                child: Slider(
-                  key: const ValueKey('physics-gravity-angle'),
-                  value: app.project.gravityAngle.clamp(0.0, 359.0),
-                  max: 359,
-                  onChangeStart: (_) => app.pushUndo(),
-                  onChanged: (v) {
-                    app.project.gravityAngle = v.roundToDouble();
-                    app.commitEdit();
-                  },
-                ),
-              ),
-            ]),
+            // its way - keyable: from a key on it pulls that way (a turn
+            // at the border, no in-between).
+            () {
+              final pr = app.project;
+              final frame = app.currentFrame;
+              final way = pr.gravityAngleAt(frame);
+              final keyed = pr.gravityWays.any((w) => w.$1 == frame);
+              void setWay(double v) {
+                if (pr.gravityWays.isEmpty) {
+                  pr.gravityAngle = v;
+                } else {
+                  // keyed: the key here (one made if there is none).
+                  pr.gravityWays = [
+                    for (final w in pr.gravityWays)
+                      if (w.$1 != frame) w,
+                    (frame, v),
+                  ]..sort((a, b) => a.$1.compareTo(b.$1));
+                }
+              }
+
+              return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(
+                    child: SegmentedButton<double>(
+                      key: const ValueKey('physics-gravity-way'),
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(value: 90, icon: Icon(Icons.south, size: 16), tooltip: 'down'),
+                        ButtonSegment(value: 270, icon: Icon(Icons.north, size: 16), tooltip: 'up'),
+                        ButtonSegment(value: 180, icon: Icon(Icons.west, size: 16), tooltip: 'left'),
+                        ButtonSegment(value: 0, icon: Icon(Icons.east, size: 16), tooltip: 'right'),
+                      ],
+                      emptySelectionAllowed: true,
+                      selected: {if (const [0.0, 90.0, 180.0, 270.0].contains(way)) way},
+                      onSelectionChanged: (v) {
+                        if (v.isEmpty) return;
+                        app.pushUndo();
+                        setWay(v.first);
+                        app.commitEdit();
+                      },
+                    ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('physics-gravity-way-key'),
+                    icon: Icon(keyed ? Icons.diamond : Icons.diamond_outlined, size: 16),
+                    tooltip: 'key the way at this frame (from here on it pulls this way)',
+                    onPressed: () {
+                      app.pushUndo();
+                      if (keyed) {
+                        pr.gravityWays = [for (final w in pr.gravityWays) if (w.$1 != frame) w];
+                      } else {
+                        pr.gravityWays = [...pr.gravityWays, (frame, way)]..sort((a, b) => a.$1.compareTo(b.$1));
+                      }
+                      app.commitEdit();
+                    },
+                  ),
+                ]),
+                // any way at all: the angle (90 down, 0 right).
+                Row(children: [
+                  SizedBox(width: 120, child: Text('Way ${way.round()}°', style: const TextStyle(fontSize: 13))),
+                  Expanded(
+                    child: Slider(
+                      key: const ValueKey('physics-gravity-angle'),
+                      value: way.clamp(0.0, 359.0),
+                      max: 359,
+                      onChangeStart: (_) => app.pushUndo(),
+                      onChanged: (v) {
+                        setWay(v.roundToDouble());
+                        app.commitEdit();
+                      },
+                    ),
+                  ),
+                ]),
+                if (pr.gravityWays.isNotEmpty)
+                  hint('Keyed: ${[for (final w in pr.gravityWays) 'frame ${w.$1} → ${w.$2.round()}°'].join(', ')} '
+                          '(before the first key: ${pr.gravityAngle.round()}°).') ??
+                      const SizedBox.shrink(),
+              ]);
+            }(),
             // this one's own share of it.
             Row(children: [
               SizedBox(width: 120, child: Text('Its gravity ×${ph.gravityScale.toStringAsFixed(2)}', style: const TextStyle(fontSize: 13))),

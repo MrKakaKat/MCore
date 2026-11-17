@@ -154,6 +154,53 @@ void main() {
     expect(pos(p, 'B', 150)[1], greaterThan(880), reason: 'down on the edge');
   });
 
+  test('strong gravity, landing at an angle: no sudden flips, it comes to rest', () {
+    for (final (w, h, tilt) in [(200.0, 200.0, 30.0), (300.0, 80.0, 25.0), (80.0, 300.0, 15.0)]) {
+      final floor = box('F', 500, 950, 1000, 40)..physics.role = 'immovable';
+      final b = box('B', 500, 300, w, h)
+        ..physics.falls = true
+        ..transform.rotation.defaultValue = tilt;
+      final p = Project(layers: [floor, b], gravity: 9000);
+      bake(p, 400);
+      for (var f = 1; f <= 400; f++) {
+        final d = (turnOf(p, 'B', f) - turnOf(p, 'B', f - 1)).abs();
+        expect(d < 6 || d > 354, isTrue, reason: '$w x $h at $tilt: frame $f turned $d degrees at once');
+      }
+      final rest = [for (var f = 340; f <= 400; f++) turnOf(p, 'B', f)];
+      expect(rest.reduce(math.max) - rest.reduce(math.min), lessThan(0.05), reason: '$w x $h at $tilt: at rest');
+      final ys = [for (var f = 340; f <= 400; f++) pos(p, 'B', f)[1]];
+      expect(ys.reduce(math.max) - ys.reduce(math.min), lessThan(0.5), reason: '$w x $h at $tilt: not jumping');
+    }
+  });
+
+  test('its weight at the middle of its area: an L tips toward its heavy side', () {
+    // a tall bar standing on its narrow bottom with an arm sticking out
+    // right at the top: its area's middle is right of what holds it.
+    final floor = box('F', 500, 950, 1000, 40)..physics.role = 'immovable';
+    final l = box('L', 500, 600, 100, 100)..physics.falls = true;
+    l.content
+      ..shape = 'line'
+      ..lineNodes = [
+        LineNode(-50, -150), LineNode(150, -150), LineNode(150, -110), LineNode(-10, -110),
+        LineNode(-10, 150), LineNode(-50, 150),
+      ]
+      ..lineClosed = true
+      ..lineFilled = true;
+    final p = Project(layers: [floor, l], gravity: 3000);
+    bake(p, 200);
+    expect(turnOf(p, 'L', 200), greaterThan(20), reason: 'tipped over to the right (clockwise)');
+  });
+
+  test('gravity\'s way keyed in time: it falls down, then from its key on, right', () {
+    final b = box('B', 500, 500, 60, 60)..physics.falls = true;
+    final p = Project(layers: [b], gravity: 1800, stageWalls: true)..gravityWays = [(40, 0.0)];
+    bake(p, 120);
+    expect(pos(p, 'B', 39)[1], greaterThan(600), reason: 'down first');
+    expect(pos(p, 'B', 120)[0], greaterThan(900), reason: 'then right');
+    expect(p.gravityAngleAt(39), 90);
+    expect(p.gravityAngleAt(40), 0);
+  });
+
   test('its own gravity: half falls slower, 0 does not fall', () {
     double yAt(double scale) {
       final b = box('B', 500, 200, 60, 60)

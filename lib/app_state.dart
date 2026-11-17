@@ -4802,6 +4802,7 @@ class AppState extends ChangeNotifier {
         project.stageWalls,
         project.gravity,
         project.gravityAngle,
+        [for (final (f, a) in project.gravityWays) [f, a]],
         project.markers,
         maxFrame,
         playbackSpeed,
