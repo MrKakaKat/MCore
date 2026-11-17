@@ -5,6 +5,7 @@ import 'origami_fold.dart';
 import 'outline.dart';
 import 'rotate_3d.dart';
 import 'squeeze_axis.dart';
+import 'wave.dart';
 
 /// registers all built-in geometry effects - call once, before anything
 /// resolves an effect by id (createEffectInstance/applyEffectStack).
@@ -20,4 +21,5 @@ void registerBuiltinEffects() {
   registerEdgeBlur();
   registerEdgeGlow();
   registerOrigamiFold();
+  registerWave();
 }

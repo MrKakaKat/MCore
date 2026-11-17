@@ -33,11 +33,15 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late Future<List<ProjectMeta>> _projects = _list();
 
-  void _refresh() => setState(() => _projects = _list());
+  void _refresh() => setState(() {
+        _projects = _list();
+      });
 
   /// The projects, newest first by the chosen date (see Settings).
   Future<List<ProjectMeta>> _list() async {
     final all = await widget.store.list();
+    // what waited out its week in the trash goes now.
+    await widget.store.purgeTrash();
     if (AppSettings.instance?.projectSort == 'created') {
       all.sort((a, b) => b.created.compareTo(a.created));
     }
@@ -131,8 +135,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Delete ${ps.length} projects?'),
-        content: Text('${ps.map((p) => p.name).join(', ')}. This cannot be undone.'),
+        title: Text('Move ${ps.length} projects to the trash?'),
+        content: Text('${ps.map((p) => p.name).join(', ')}. They are deleted for good after 7 days.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(tr('Cancel'))),
           TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(tr('Delete'))),
@@ -141,9 +145,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (ok != true) return;
     for (final p in ps) {
-      await widget.store.delete(p.file);
+      await widget.store.moveToTrash(p.file);
     }
-    await widget.store.cleanupVideos();
     _picked.clear();
     _refresh();
   }
@@ -204,10 +207,10 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (dialogContext) => AlertDialog(
         title: Text('Delete "${meta.name}"?'),
         content: Text(users.isEmpty
-            ? 'This cannot be undone.'
+            ? 'It goes to the trash and is deleted for good after 7 days.'
             : 'Used in ${users.length} project${users.length == 1 ? '' : 's'}: '
                 '${users.map((u) => u.name).join(', ')}. They will show "Project not found". '
-                'This cannot be undone.'),
+                'It goes to the trash and is deleted for good after 7 days.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: Text(tr('Cancel'))),
           TextButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(tr('Delete'))),
@@ -215,8 +218,12 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
     if (ok != true) return;
-    await widget.store.delete(meta.file);
-    await widget.store.cleanupVideos();
+    await widget.store.moveToTrash(meta.file);
+    _refresh();
+  }
+
+  Future<void> _openTrash() async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => TrashScreen(store: widget.store)));
     _refresh();
   }
 
@@ -308,6 +315,12 @@ class _HomeScreenState extends State<HomeScreen> {
             )
           : AppBar(title: Text(tr('Projects')), actions: [
         IconButton(
+          key: const ValueKey('home-trash'),
+          icon: const Icon(Icons.delete_outline),
+          tooltip: tr('Trash'),
+          onPressed: _openTrash,
+        ),
+        IconButton(
           key: const ValueKey('home-settings'),
           icon: const Icon(Icons.settings_outlined),
           tooltip: tr('Settings'),
@@ -386,6 +399,107 @@ class _HomeScreenState extends State<HomeScreen> {
                     PopupMenuItem(value: 'delete', child: Text(tr('Delete'))),
                   ],
                 ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Deleted projects: each waits a week, then goes for good. Restore one,
+/// delete one for good, or empty the whole trash.
+class TrashScreen extends StatefulWidget {
+  final ProjectStore store;
+  const TrashScreen({super.key, required this.store});
+
+  @override
+  State<TrashScreen> createState() => _TrashScreenState();
+}
+
+class _TrashScreenState extends State<TrashScreen> {
+  late Future<List<ProjectMeta>> _items = widget.store.listTrash();
+
+  void _refresh() => setState(() {
+        _items = widget.store.listTrash();
+      });
+
+  Future<bool> _confirm(String title) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: Text(title),
+          content: const Text('This cannot be undone.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('Cancel'))),
+            TextButton(key: const ValueKey('trash-confirm'), onPressed: () => Navigator.pop(c, true), child: Text(tr('Delete'))),
+          ],
+        ),
+      ) ==
+      true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(tr('Trash')), actions: [
+        FutureBuilder<List<ProjectMeta>>(
+          future: _items,
+          builder: (context, snap) => TextButton(
+            key: const ValueKey('trash-empty'),
+            onPressed: (snap.data ?? const []).isEmpty
+                ? null
+                : () async {
+                    if (!await _confirm('Empty the trash?')) return;
+                    await widget.store.emptyTrash();
+                    _refresh();
+                  },
+            child: Text(tr('Empty trash')),
+          ),
+        ),
+      ]),
+      body: FutureBuilder<List<ProjectMeta>>(
+        future: _items,
+        builder: (context, snap) {
+          if (!snap.hasData) return const Center(child: CircularProgressIndicator());
+          final items = snap.data!;
+          if (items.isEmpty) {
+            return const Center(child: Text('The trash is empty.', style: TextStyle(color: Colors.grey)));
+          }
+          return ListView.separated(
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, i) {
+              final p = items[i];
+              final days = p.purgeAt!.difference(DateTime.now()).inHours / 24;
+              final left = days <= 1 ? 'Deleted within a day' : 'Deleted in ${days.ceil()} days';
+              return ListTile(
+                key: ValueKey('trash-item-$i'),
+                leading: _AspectThumb(width: p.frameWidth, height: p.frameHeight),
+                title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text(left, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  IconButton(
+                    key: ValueKey('trash-restore-$i'),
+                    icon: const Icon(Icons.restore),
+                    tooltip: tr('Restore'),
+                    onPressed: () async {
+                      await widget.store.restoreFromTrash(p.file);
+                      _refresh();
+                    },
+                  ),
+                  IconButton(
+                    key: ValueKey('trash-delete-$i'),
+                    icon: const Icon(Icons.delete_forever_outlined),
+                    tooltip: tr('Delete for good'),
+                    onPressed: () async {
+                      if (!await _confirm('Delete "${p.name}" for good?')) return;
+                      await widget.store.delete(p.file);
+                      await widget.store.cleanupVideos();
+                      _refresh();
+                    },
+                  ),
+                ]),
               );
             },
           );

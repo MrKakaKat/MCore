@@ -884,7 +884,29 @@ class CanvasRenderer implements Renderer {
     }
     final m = state.matrix;
     final mCanvas = [m[0], m[1], m[2], m[3], m[4] * _width, m[5] * _height];
+    _drawEcho(canvas, project, layer, globalFrame);
     _drawLayerInto(canvas, project, layer, globalFrame, mCanvas, 0, 1);
+  }
+
+  /// Echo: the layer where it was `delay`, 2 x `delay`... frames ago,
+  /// under it - the furthest first, each fainter and resized step by
+  /// step (about its own anchor) toward the last one's.
+  void _drawEcho(ui.Canvas canvas, Project project, Layer layer, int globalFrame) {
+    final e = layer.echo;
+    if (!e.enabled || e.count < 1 || !effectActiveAt(layer, 'echo', globalFrame - layer.startFrame)) return;
+    final delay = math.max(1, e.delay);
+    for (var i = e.count; i >= 1; i--) {
+      final f = globalFrame - i * delay;
+      if (f < layer.startFrame) continue;
+      final st = getLayerStateAt(project, layer.id, f);
+      if (!st.inRange) continue;
+      final t = i / e.count;
+      final k = 1 + (e.shrink - 1) * t;
+      final w = (1 - e.fade * t).clamp(0.0, 1.0);
+      if (w <= 0.001 || k <= 0.001) continue;
+      final m = st.matrix;
+      _drawLayerInto(canvas, project, layer, f, [m[0] * k, m[1] * k, m[2] * k, m[3] * k, m[4] * _width, m[5] * _height], 0, w);
+    }
   }
 
   // ============================================================
@@ -1418,7 +1440,7 @@ class CanvasRenderer implements Renderer {
   /// A trail point: the line it has left behind it so far, in the frame
   /// (not in its own space - the trail stays where it was drawn).
   void _drawTrail(ui.Canvas canvas, Project project, Layer layer, int globalFrame, double weight) {
-    final lines = trailPolylines(project, layer, globalFrame);
+    final lines = visibleTrail(project, layer, globalFrame);
     if (lines.isEmpty) return;
     final lf = layerLocalFrame(layer, globalFrame);
     final opacity =
@@ -1433,6 +1455,27 @@ class CanvasRenderer implements Renderer {
       ..strokeWidth = w
       ..strokeCap = ui.StrokeCap.round
       ..strokeJoin = ui.StrokeJoin.round;
+    final limit = layer.content.trailLength;
+    if (layer.content.trailFade && limit > 0) {
+      // the end fades out: each piece as see-through as it is far from
+      // the point (along the line), clear at the length limit.
+      final base = color.opacity * opacity;
+      paint.strokeCap = ui.StrokeCap.butt;
+      var along = 0.0;
+      for (var r = lines.length - 1; r >= 0; r--) {
+        final l = lines[r];
+        for (var i = l.length - 1; i > 0; i--) {
+          final a = l[i], b = l[i - 1];
+          final d = math.sqrt(math.pow(a[0] - b[0], 2) + math.pow(a[1] - b[1], 2));
+          final mid = along + d / 2;
+          along += d;
+          final o = base * (1 - mid / limit).clamp(0.0, 1.0);
+          if (o <= 0) continue;
+          canvas.drawLine(ui.Offset(a[0] * k, a[1] * k), ui.Offset(b[0] * k, b[1] * k), paint..color = color.withOpacity(o));
+        }
+      }
+      return;
+    }
     final path = ui.Path();
     for (final l in lines) {
       path.moveTo(l[0][0] * k, l[0][1] * k);
@@ -1554,14 +1597,28 @@ class CanvasRenderer implements Renderer {
           inner: ui.ImageFilter.compose(
               outer: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: 0, tileMode: ui.TileMode.decal),
               inner: ui.ImageFilter.matrix(rot(-a))));
+    } else if (sigma > 0.05 && f.blurKind == 'chromatic') {
+      // the colours pulled apart, softened a little too.
+      paint.imageFilter = ui.ImageFilter.blur(sigmaX: sigma / 4, sigmaY: sigma / 4, tileMode: ui.TileMode.decal);
     }
+    // the layer's middle (the frame's for the scene): where zoom, spin and
+    // centred chromatic spread out from.
+    ui.Offset middle() {
+      if (layer.filters.scope == 'scene') return ui.Offset(_width / 2, _height / 2);
+      final st = getLayerStateAt(project, layer.id, globalFrame);
+      return ui.Offset(st.matrix[4] * _width, st.matrix[5] * _height);
+    }
+
+    final focused = blur > 0.1 && f.blurFocus != 'none';
+    final vignette = tv(f.vignette).clamp(0.0, 1.0).toDouble();
+    // (a group of its own: the sharp focus and the vignette go over this
+    // picture only.)
+    final group = focused || vignette > 0;
+    if (group) canvas.saveLayer(null, ui.Paint());
     canvas.saveLayer(null, paint);
     if (blur > 0.1 && (f.blurKind == 'zoom' || f.blurKind == 'spin')) {
       // copies spread out from / around the layer's middle, averaged.
-      final st = getLayerStateAt(project, layer.id, globalFrame);
-      final c = layer.filters.scope == 'scene'
-          ? ui.Offset(_width / 2, _height / 2)
-          : ui.Offset(st.matrix[4] * _width, st.matrix[5] * _height);
+      final c = middle();
       const n = 12;
       for (var i = 0; i < n; i++) {
         final t = i / (n - 1) - (f.blurKind == 'spin' ? 0.5 : 0.0);
@@ -1577,11 +1634,81 @@ class CanvasRenderer implements Renderer {
         canvas.drawPicture(p);
         canvas.restore();
       }
+    } else if (blur > 0.1 && f.blurKind == 'chromatic') {
+      _drawChromatic(canvas, p, blur, f, middle());
     } else {
       canvas.drawPicture(p);
     }
-    _drawVignette(canvas, project, layer, tv(f.vignette).clamp(0.0, 1.0).toDouble(), globalFrame);
     canvas.restore();
+    if (focused) {
+      // the focus: the picture sharp there, fading into the blur.
+      canvas.saveLayer(null, ui.Paint()..colorFilter = paint.colorFilter);
+      canvas.drawPicture(p);
+      canvas.drawRect(ui.Rect.fromLTWH(-_width, -_height, _width * 3, _height * 3),
+          ui.Paint()
+            ..blendMode = ui.BlendMode.dstIn
+            ..shader = _focusShader(f));
+      canvas.restore();
+    }
+    _drawVignette(canvas, project, layer, vignette, globalFrame);
+    if (group) canvas.restore();
+  }
+
+  /// Chromatic blur: red, green and blue drawn apart and added up - scaled
+  /// out from `c` (centred: the middle stays together, the edges split
+  /// more) or shifted along the blur's angle.
+  void _drawChromatic(ui.Canvas canvas, ui.Picture p, double blur, LayerFilters f, ui.Offset c) {
+    // each channel a third as strong (alpha too), added; the sum's colour
+    // brought back up three times.
+    canvas.saveLayer(
+        null,
+        ui.Paint()
+          ..colorFilter = const ui.ColorFilter.matrix([
+            3, 0, 0, 0, 0, //
+            0, 3, 0, 0, 0, //
+            0, 0, 3, 0, 0, //
+            0, 0, 0, 1, 0,
+          ]));
+    const channels = [(-1.0, ui.Color(0x55FF0000)), (0.0, ui.Color(0x5500FF00)), (1.0, ui.Color(0x550000FF))];
+    final a = f.blurAngle * math.pi / 180;
+    for (final (t, color) in channels) {
+      canvas.saveLayer(
+          null,
+          ui.Paint()
+            ..blendMode = ui.BlendMode.plus
+            ..colorFilter = ui.ColorFilter.mode(color, ui.BlendMode.modulate));
+      if (f.blurCentered) {
+        final k = 1 + t * blur / 300;
+        canvas.translate(c.dx, c.dy);
+        canvas.scale(k, k);
+        canvas.translate(-c.dx, -c.dy);
+      } else {
+        canvas.translate(t * blur / 4 * math.cos(a), t * blur / 4 * math.sin(a));
+      }
+      canvas.drawPicture(p);
+      canvas.restore();
+    }
+    canvas.restore();
+  }
+
+  /// White where the blur's focus keeps the picture sharp, fading to
+  /// clear (canvas px).
+  ui.Shader _focusShader(LayerFilters f) {
+    final c = ui.Offset(f.blurFocusX * _width, f.blurFocusY * _height);
+    final size = math.max(0.0, f.blurFocusSize) * _width;
+    final soft = math.max(1.0, f.blurFocusSoft * _width);
+    const on = ui.Color(0xFFFFFFFF), off = ui.Color(0x00FFFFFF);
+    if (f.blurFocus == 'line') {
+      // across the line: sharp within `size` of it.
+      final a = (f.blurFocusAngle + 90) * math.pi / 180;
+      final n = ui.Offset(math.cos(a), math.sin(a));
+      final r = size + soft;
+      final s0 = size / r;
+      return ui.Gradient.linear(c - n * r, c + n * r, [off, on, on, off],
+          [0, (1 - s0) / 2, (1 + s0) / 2, 1]);
+    }
+    final r = size + soft;
+    return ui.Gradient.radial(c, r, [on, on, off], [0, size / r, 1]);
   }
 
   /// The vignette over what was just drawn (only where it shows): darker

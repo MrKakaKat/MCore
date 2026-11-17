@@ -54,7 +54,6 @@ const _parentLinkColor = ui.Color(0xFF5A9FD4);
 // deliberately faint color (a persistent reference underlay, not an
 // attention-grabbing guide).
 const _snapGuideColor = ui.Color(0xFFFF4D6D);
-const _snapGridColor = ui.Color(0x33FFFFFF);
 // crop handles (Crop tab): cyan, distinct from every other family.
 const _cropColor = ui.Color(0xFF5FD4E0);
 // 3D Rotate pivot + axis: pink, distinct from the pendulum's green.
@@ -898,7 +897,7 @@ void _paintParentLinks(ui.Canvas canvas, Project project, int globalFrame,
 
 void _paintSnapGrid(ui.Canvas canvas, double frameWidth, double frameHeight, double inv) {
   final paint = ui.Paint()
-    ..color = _snapGridColor
+    ..color = ui.Color(0xFF000000 | gridColorRgb).withOpacity(gridOpacity.clamp(0.0, 1.0))
     ..strokeWidth = inv;
   for (final line in computeSnapGridLines(frameWidth, frameHeight, snapGridCols, snapGridRows)) {
     canvas.drawLine(

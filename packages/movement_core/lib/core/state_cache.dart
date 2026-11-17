@@ -312,8 +312,10 @@ LayerState _layerStateAt(Project project, String layerId, num globalFrame) {
     // a fourth: how far a hit turned it (degrees) - both about its pivot.
     final k = off != null && off.length > 2 ? off[2] : 1.0;
     final turn = off != null && off.length > 3 ? off[3] : 0.0;
-    if (off != null && (off[0] != 0 || off[1] != 0 || k != 1 || turn != 0)) {
-      var a = finalMatrix[0] * k, b = finalMatrix[1] * k, c = finalMatrix[2] * k, d = finalMatrix[3] * k;
+    // a fifth and sixth: squashed / grown by its scale handles (its own x, y).
+    final kx = off != null && off.length > 5 ? off[4] : 1.0, ky = off != null && off.length > 5 ? off[5] : 1.0;
+    if (off != null && (off[0] != 0 || off[1] != 0 || k != 1 || turn != 0 || kx != 1 || ky != 1)) {
+      var a = finalMatrix[0] * k * kx, b = finalMatrix[1] * k * kx, c = finalMatrix[2] * k * ky, d = finalMatrix[3] * k * ky;
       if (turn != 0) {
         final r = turn * math.pi / 180, cs = math.cos(r), sn = math.sin(r);
         (a, b, c, d) = (cs * a - sn * b, sn * a + cs * b, cs * c - sn * d, sn * c + cs * d);

@@ -3173,6 +3173,54 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// A trail point's line as it shows now, made into a line layer of its
+  /// own (a path to edit, or for other layers to follow): the longest
+  /// stretch of it. False when there is no line yet.
+  bool trailToLine(String trailId) {
+    final t = findLayer(project, trailId);
+    if (t == null || !isTrailShape(t.content.shape)) return false;
+    final runs = visibleTrail(project, t, currentFrame);
+    List<List<double>>? best;
+    double len(List<List<double>> r) {
+      var d = 0.0;
+      for (var i = 1; i < r.length; i++) {
+        d += math.sqrt(math.pow(r[i][0] - r[i - 1][0], 2) + math.pow(r[i][1] - r[i - 1][1], 2));
+      }
+      return d;
+    }
+
+    for (final r in runs) {
+      if (r.length >= 2 && (best == null || len(r) > len(best))) best = r;
+    }
+    if (best == null) return false;
+    final pts = thinPolyline(best, 3 * _resolutionScale);
+    undo.pushUndoState(project);
+    var minX = double.infinity, minY = double.infinity, maxX = -double.infinity, maxY = -double.infinity;
+    for (final p in pts) {
+      minX = math.min(minX, p[0]);
+      maxX = math.max(maxX, p[0]);
+      minY = math.min(minY, p[1]);
+      maxY = math.max(maxY, p[1]);
+    }
+    final cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    final l = createLayer('line')
+      ..color = t.color
+      ..name = '${t.name} line';
+    project.layers.add(l);
+    l.transform.anchor.defaultValue = [cx / stageSize.width, cy / stageSize.height];
+    l.transform.anchor.keyframes.clear();
+    clearStateCaches();
+    final c = l.content
+      ..lineNodes = [for (final p in pts) LineNode(p[0] - cx, p[1] - cy)]
+      ..lineWidth = t.content.lineWidth;
+    syncLineBox(c);
+    _fitNewLayerToLength(l);
+    selection.groupSelection.clear();
+    selectLayer(l.id);
+    commitEdit();
+    return true;
+  }
+
   /// Fill: what bounds it - only the selected layers (else all of them),
   /// its colour, and a hole through everything under it instead.
   bool fillOnlySelected = false;
@@ -4827,6 +4875,8 @@ class AppState extends ChangeNotifier {
     'gridOverlay': (() => gridOverlayEnabled, (v) => gridOverlayEnabled = v as bool, false),
     'gridCols': (() => snapGridCols, (v) => snapGridCols = (v as num).toInt(), 4),
     'gridKinds': (() => gridLineKinds, (v) => gridLineKinds = (v as num).toInt(), 3),
+    'gridColor': (() => gridColorRgb, (v) => gridColorRgb = (v as num).toInt(), 0xFFFFFF),
+    'gridOpacity': (() => gridOpacity, (v) => gridOpacity = (v as num).toDouble(), 0.2),
     'gridRows': (() => snapGridRows, (v) => snapGridRows = (v as num).toInt(), 4),
     'scaleContentOnResize': (() => scaleContentOnResize, (v) => scaleContentOnResize = v as bool, true),
     'snap': (() => snapEnabled, (v) => snapEnabled = v as bool, false),

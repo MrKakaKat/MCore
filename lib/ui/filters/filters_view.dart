@@ -79,12 +79,13 @@ class FiltersView extends StatelessWidget {
             section('Blur'),
             _TrackRow(app: app, layer: layer, track: f.blur, keyName: 'filter-blur', label: 'Amount',
                 min: 0, max: 100, suffix: ' px'),
-            Wrap(spacing: 6, children: [
+            SingleChildScrollView(scrollDirection: Axis.horizontal, child: Wrap(spacing: 6, children: [
               for (final (k, name) in const [
                 ('gaussian', 'Gaussian'),
                 ('directional', 'Directional'),
                 ('zoom', 'Zoom'),
                 ('spin', 'Spin'),
+                ('chromatic', 'Chromatic'),
               ])
                 ChoiceChip(
                   key: ValueKey('filter-blur-$k'),
@@ -92,9 +93,52 @@ class FiltersView extends StatelessWidget {
                   selected: f.blurKind == k,
                   onSelected: (_) => edit(() => f.blurKind = k),
                 ),
-            ]),
-            if (f.blurKind == 'directional')
+            ])),
+            if (f.blurKind == 'chromatic')
+              SwitchListTile(
+                key: const ValueKey('filter-blur-centered'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('From the middle'),
+                subtitle: hint(f.blurCentered
+                    ? 'The colours split more toward the edges; the middle stays together.'
+                    : 'The colours shift apart along the angle, everywhere alike.'),
+                value: f.blurCentered,
+                onChanged: (v) => edit(() => f.blurCentered = v),
+              ),
+            if (f.blurKind == 'directional' || (f.blurKind == 'chromatic' && !f.blurCentered))
               number('filter-blur-angle', 'Angle', f.blurAngle, -180, 180, (v) => f.blurAngle = v, suffix: '°'),
+            // where it stays sharp: around a point, or along a line.
+            const SizedBox(height: 6),
+            Row(children: [
+              const Text('Focus'),
+              const SizedBox(width: 12),
+              Expanded(
+                child: SegmentedButton<String>(
+                  key: const ValueKey('filter-blur-focus'),
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(value: 'none', label: Text('None')),
+                    ButtonSegment(value: 'point', label: Text('Point')),
+                    ButtonSegment(value: 'line', label: Text('Line')),
+                  ],
+                  selected: {f.blurFocus},
+                  onSelectionChanged: (v) => edit(() => f.blurFocus = v.first),
+                ),
+              ),
+            ]),
+            if (f.blurFocus != 'none') ...[
+              number('filter-focus-x', 'Focus X', f.blurFocusX * 100, 0, 100, (v) => f.blurFocusX = v / 100, suffix: '%'),
+              number('filter-focus-y', 'Focus Y', f.blurFocusY * 100, 0, 100, (v) => f.blurFocusY = v / 100, suffix: '%'),
+              if (f.blurFocus == 'line')
+                number('filter-focus-angle', 'Line angle', f.blurFocusAngle, -180, 180, (v) => f.blurFocusAngle = v,
+                    suffix: '°'),
+              number('filter-focus-size', f.blurFocus == 'line' ? 'Sharp width' : 'Sharp radius', f.blurFocusSize * 100,
+                  0, 100, (v) => f.blurFocusSize = v / 100,
+                  suffix: '%'),
+              number('filter-focus-soft', 'Fade', f.blurFocusSoft * 100, 0, 100, (v) => f.blurFocusSoft = v / 100,
+                  suffix: '%'),
+            ],
             section('Vignette'),
             _TrackRow(app: app, layer: layer, track: f.vignette, keyName: 'filter-vignette', label: 'Amount',
                 min: 0, max: 100, factor: 100, suffix: '%'),

@@ -41,6 +41,87 @@ void main() {
     expect(at(60, 70), 0);
   });
 
+  test('a trail point: a length limit drops the oldest part; fading thins it out toward the end', () async {
+    Layer trail() {
+      final t = createTrailLayer(width: 6, color: '#ff0000')
+        ..id = 't'
+        ..startFrame = 0
+        ..durationFrames = 60;
+      t.transform.anchor.keyframes
+        ..add(Keyframe(frame: 0, value: [0.1, 0.5], temporal: const Easing(0, 0, 1, 1)))
+        ..add(Keyframe(frame: 40, value: [0.9, 0.5], temporal: const Easing(0, 0, 1, 1)));
+      return t..content.trailLength = 40;
+    }
+
+    // at frame 20 the point is at 100 px, the trail began at 20 px.
+    final at = await render(Project(layers: [trail()]), frame: 20);
+    expect(at(70, 50), 0xff0000ff, reason: 'the newest 40 px');
+    expect(at(40, 50), 0, reason: 'older than the limit: gone');
+    final faded = await render(Project(layers: [trail()..content.trailFade = true]), frame: 20);
+    expect(faded(95, 50) & 0xff, greaterThan(200));
+    expect(faded(66, 50) & 0xff, lessThan(80), reason: 'nearly gone at the far end');
+    expect(faded(40, 50), 0);
+  });
+
+  test('a trail made into a line layer keeps its path', () {
+    final app = AppState();
+    app.project.layers.clear();
+    final t = createTrailLayer(width: 6, color: '#ff0000')
+      ..id = 't'
+      ..startFrame = 0
+      ..durationFrames = 60;
+    t.transform.anchor.keyframes
+      ..add(Keyframe(frame: 0, value: [0.1, 0.5], temporal: const Easing(0, 0, 1, 1)))
+      ..add(Keyframe(frame: 40, value: [0.9, 0.5], temporal: const Easing(0, 0, 1, 1)));
+    app.project.layers.add(t);
+    app.setFrame(40);
+    expect(app.trailToLine('t'), isTrue);
+    final line = app.project.layers.last;
+    expect(isNodeLine(line.content), isTrue);
+    expect(line.content.lineWidth, 6);
+    final pts = lineFramePoints(app.project, line, app.currentFrame);
+    expect(pts.first[0], closeTo(app.frameWidth * 0.1, 2));
+    expect(pts.last[0], closeTo(app.frameWidth * 0.9, 2));
+    expect(app.selection.selectedLayer, line.id);
+  });
+
+  test('echo: fainter copies where the layer was earlier', () async {
+    final l = rect('e', '#ffffff', 20, 50, 10)
+      ..startFrame = 0
+      ..durationFrames = 60
+      ..echo = Echo(enabled: true, count: 2, delay: 10, fade: 0.5, shrink: 1);
+    l.transform.anchor.keyframes
+      ..add(Keyframe(frame: 0, value: [0.1, 0.5], temporal: const Easing(0, 0, 1, 1)))
+      ..add(Keyframe(frame: 40, value: [0.9, 0.5], temporal: const Easing(0, 0, 1, 1)));
+    final at = await render(Project(layers: [l]), frame: 30);
+    expect(at(140, 50) & 0xff, 255, reason: 'the layer itself');
+    expect(at(100, 50) & 0xff, closeTo(191, 4), reason: '10 frames back: 3/4');
+    expect(at(60, 50) & 0xff, closeTo(128, 4), reason: '20 frames back: 1/2');
+    expect(at(20, 50), 0);
+    // smaller toward the last one.
+    l.echo.shrink = 0.2;
+    final at2 = await render(Project(layers: [l]), frame: 30);
+    expect(at2(63, 50), 0, reason: 'the last copy is a fifth the size');
+    expect(at2(60, 50) & 0xff, greaterThan(0));
+    final back = layerFromJson(layerToJson(l)).echo;
+    expect([back.enabled, back.count, back.delay, back.shrink], [true, 2, 10, 0.2]);
+  });
+
+  test('wave: points pushed across its way by a sine of where they lie along it', () {
+    final grid = [
+      for (var r = 0; r <= 2; r++) [for (var c = 0; c <= 8; c++) <double>[c * 10.0, r * 10.0]]
+    ];
+    final out = waveGrid(grid, {'angle': 0.0, 'height': 5.0, 'length': 40.0, 'frequency': 0.0, 'speed': 0.0}, 0);
+    // along x (centre 40): x=50 is a quarter wave on - pushed down 5.
+    expect(out[0][5][1], closeTo(5, 1e-9));
+    expect(out[0][5][0], closeTo(50, 1e-9), reason: 'only across');
+    expect(out[0][4][1], closeTo(0, 1e-9));
+    // in time: half a second at 1 ripple/s turns it over.
+    final later = waveGrid(grid, {'angle': 0.0, 'height': 5.0, 'length': 40.0, 'frequency': 1.0, 'speed': 0.0}, 0.5);
+    expect(later[0][5][1], closeTo(-5, 1e-9));
+    expect(effectRegistry['wave'], isNotNull);
+  });
+
   test('a lens: a telephoto magnifies what is under it; outside its circle nothing changes', () async {
     // a small red square under the middle of a big lens.
     final dot = rect('d', '#ff0000', 100, 50, 10);

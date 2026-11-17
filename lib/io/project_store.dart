@@ -28,7 +28,14 @@ class ProjectMeta {
 
   /// The projects it refers to directly.
   final Set<String> refs;
+
+  /// In the trash since then (null: a live project).
+  final DateTime? trashedAt;
+
+  /// In the trash: when it goes for good.
+  DateTime? get purgeAt => trashedAt?.add(ProjectStore.trashKeep);
   ProjectMeta({
+    this.trashedAt,
     required this.id,
     this.revision = 0,
     this.refs = const {},
@@ -59,13 +66,19 @@ class ProjectStore {
 
   Directory get _dir => Directory('${root.path}/projects');
 
+  /// Deleted projects wait here a week before they go for good.
+  Directory get _trash => Directory('${root.path}/trash');
+  static const trashKeep = Duration(days: 7);
+
   /// Removes imported videos and sounds no saved project uses any more,
   /// keeping `keepVideos` / `keepAudios` too (what an open project and its
   /// undo history still use). Returns the removed video ids.
   Future<Set<String>> cleanupVideos({Set<String> keepVideos = const {}, Set<String> keepAudios = const {}}) async {
+    // (projects in the trash keep their media: they can come back.)
     final files = <File>[];
-    if (await _dir.exists()) {
-      await for (final f in _dir.list()) {
+    for (final d in [_dir, _trash]) {
+      if (!await d.exists()) continue;
+      await for (final f in d.list()) {
         if (f is File && f.path.endsWith('.json')) files.add(f);
       }
     }
@@ -77,9 +90,22 @@ class ProjectStore {
   /// whole list.
   Future<List<ProjectMeta>> list() async {
     await _migrateLegacyAutosave();
-    if (!await _dir.exists()) return [];
+    return _metasIn(_dir);
+  }
+
+  /// The trash, newest deletion first - after dropping what has waited
+  /// out its week.
+  Future<List<ProjectMeta>> listTrash({DateTime? now}) async {
+    await purgeTrash(now: now);
+    final metas = await _metasIn(_trash);
+    metas.sort((a, b) => b.trashedAt!.compareTo(a.trashedAt!));
+    return metas;
+  }
+
+  Future<List<ProjectMeta>> _metasIn(Directory dir) async {
+    if (!await dir.exists()) return [];
     final metas = <ProjectMeta>[];
-    await for (final entity in _dir.list()) {
+    await for (final entity in dir.list()) {
       if (entity is! File || !entity.path.endsWith('.json')) continue;
       try {
         final data = jsonDecode(await entity.readAsString());
@@ -98,6 +124,9 @@ class ProjectStore {
           frameWidth: (data['frameWidth'] as num?)?.toDouble() ?? defaultFrameWidth,
           frameHeight: (data['frameHeight'] as num?)?.toDouble() ?? defaultFrameHeight,
           modified: await entity.lastModified(),
+          trashedAt: dir.path == _trash.path
+              ? DateTime.tryParse(data['trashedAt'] as String? ?? '') ?? await entity.lastModified()
+              : null,
         ));
       } catch (_) {
         continue;
@@ -216,8 +245,51 @@ class ProjectStore {
     return null;
   }
 
+  /// For good (no trash).
   Future<void> delete(File file) async {
     if (await file.exists()) await file.delete();
+  }
+
+  /// Into the trash: it stays there a week (restorable), then goes.
+  Future<void> moveToTrash(File file, {DateTime? now}) async {
+    if (!await file.exists()) return;
+    await _trash.create(recursive: true);
+    final data = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    data['trashedAt'] = (now ?? DateTime.now()).toUtc().toIso8601String();
+    await File('${_trash.path}/${file.uri.pathSegments.last}')
+        .writeAsString(const JsonEncoder.withIndent('  ').convert(data));
+    await file.delete();
+  }
+
+  /// Back out of the trash into the project list.
+  Future<File?> restoreFromTrash(File file) async {
+    if (!await file.exists()) return null;
+    await _dir.create(recursive: true);
+    final data = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    data.remove('trashedAt');
+    final back = File('${_dir.path}/${file.uri.pathSegments.last}');
+    await back.writeAsString(const JsonEncoder.withIndent('  ').convert(data));
+    await file.delete();
+    return back;
+  }
+
+  /// Everything in the trash, for good.
+  Future<void> emptyTrash() async {
+    if (await _trash.exists()) await _trash.delete(recursive: true);
+    await cleanupVideos();
+  }
+
+  /// Drops trashed projects older than a week.
+  Future<void> purgeTrash({DateTime? now}) async {
+    final t = now ?? DateTime.now();
+    var gone = false;
+    for (final m in await _metasIn(_trash)) {
+      if (!m.purgeAt!.isAfter(t)) {
+        await m.file.delete();
+        gone = true;
+      }
+    }
+    if (gone) await cleanupVideos();
   }
 
   /// The app used to keep exactly one project, in `<root>/autosave.json`.

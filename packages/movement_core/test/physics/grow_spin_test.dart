@@ -66,6 +66,25 @@ void main() {
     expect(w2, closeTo(200, 1e-6));
   });
 
+  test('grows by its picked scale handle: pressed on its right wall from inside, only that way, the left one stays', () {
+    final cage = box('C', 500, 500, w: 200, h: 200)
+      ..physics.hollow = true
+      ..physics.grows = true
+      ..physics.handles = ['right']
+      ..physics.handlesKeep = 'far';
+    final ball = box('S', 500, 500, w: 40, h: 40)..physics.role = 'immovable';
+    ball.transform.anchor.keyframes = [
+      Keyframe(frame: 0, value: <double>[0.5, 0.5], temporal: lin),
+      Keyframe(frame: 40, value: <double>[0.7, 0.5], temporal: lin), // its right side to 720
+    ];
+    final p = Project(layers: [cage, ball]);
+    bake(p, 50);
+    final cs = corners(p, cage, 50);
+    expect(cs[0][0], closeTo(400, 0.5), reason: 'the left wall stayed');
+    expect(cs[1][0], closeTo(720, 1), reason: 'the right wall grew out to hold it');
+    expect(cs[2][1] - cs[1][1], closeTo(200, 0.5), reason: 'no taller');
+  });
+
   test('even an Immovable cage grows to hold', () {
     final cage = box('C', 500, 500, w: 200, h: 200)
       ..physics.hollow = true

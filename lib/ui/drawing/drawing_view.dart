@@ -164,6 +164,51 @@ class DrawingView extends StatelessWidget {
           ),
         ),
       ]),
+      // how long the line may get: past it the oldest part goes - cut off,
+      // or fading out along the way.
+      Row(children: [
+        SizedBox(width: 110, child: Text(c.trailLength <= 0 ? 'Length: no limit' : 'Length ${c.trailLength.round()} px')),
+        Expanded(
+          child: Slider(
+            key: const ValueKey('trail-length'),
+            value: c.trailLength.clamp(0.0, 3000.0),
+            max: 3000,
+            onChangeStart: (_) => app.pushUndo(),
+            onChanged: (v) {
+              c.trailLength = v < 10 ? 0 : v.roundToDouble();
+              app.commitEdit();
+            },
+          ),
+        ),
+      ]),
+      if (c.trailLength > 0)
+        SwitchListTile(
+          key: const ValueKey('trail-fade'),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Fade the end'),
+          subtitle: hint(c.trailFade
+              ? 'More see-through the further back, gone at the length.'
+              : 'The end is cut off at the length.'),
+          value: c.trailFade,
+          onChanged: (v) => edit(() => c.trailFade = v),
+        ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          key: const ValueKey('trail-to-line'),
+          onPressed: () {
+            if (!app.trailToLine(t.id)) {
+              ScaffoldMessenger.of(context)
+                  .showSnackBar(const SnackBar(content: Text('No line drawn yet at this frame')));
+            }
+          },
+          icon: const Icon(Icons.timeline, size: 18),
+          label: const Text('Make it a line object'),
+        ),
+      ),
+      hint('The line as it is now, as a line layer: edit its points, or let other layers move along it.') ??
+          const SizedBox.shrink(),
     ];
   }
 }

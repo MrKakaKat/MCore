@@ -316,6 +316,29 @@ void main() {
     expect(overlapX(pos(p, 'A', 99), pos(p, 'B', 99)), closeTo(20, 1e-6));
   });
 
+  test('negative gap on one of the two is enough (the other keeping none)', () {
+    final a = box('A', 100, 500), b = box('B', 400, 500);
+    move(a, 0, [100, 500], 60, [700, 500]);
+    a.physics.gap = -20;
+    final p = Project(layers: [a, b]);
+    bake(p, 99);
+    expect(overlapX(pos(p, 'A', 99), pos(p, 'B', 99)), closeTo(20, 1e-6));
+    // one pushes apart 10, the other sinks in 20: 10 in.
+    final c = box('A', 100, 500)..physics.gap = -20, d = box('B', 400, 500)..physics.gap = 10;
+    move(c, 0, [100, 500], 60, [700, 500]);
+    final q = Project(layers: [c, d]);
+    bake(q, 99);
+    expect(overlapX(pos(q, 'A', 99), pos(q, 'B', 99)), closeTo(10, 1e-6));
+  });
+
+  test('negative gap at the frame edges: it sinks past them that far', () {
+    final b = box('B', 500, 500)..physics.gap = -30;
+    move(b, 0, [500, 500], 30, [1400, 500]);
+    final p = Project(layers: [b], stageWalls: true);
+    bake(p, 40);
+    expect(pos(p, 'B', 40)[0], closeTo(stageSize.width - 50 + 30, 0.5));
+  });
+
   test('soft: overlapping objects part over several frames, the deeper the harder', () {
     // B appears right inside A (unarmed pairs pass through), so drive A
     // into B instead, then stop: soft keeps some overlap while settling.
@@ -366,5 +389,79 @@ void main() {
     expect(mid, greaterThan(5), reason: 'the push bent it');
     expect((pos(p, 'B', 60)[0] - 400).abs(), lessThan(1), reason: 'the layer itself stayed');
     expect(w.bendAt('B', 199).abs(), lessThan(mid / 4), reason: 'springing back');
+  });
+
+  // B's width on the stage (its own x scaled), at a frame.
+  double width(Project p, String id, int f) {
+    final m = getLayerStateAt(p, id, f).matrix;
+    return math.sqrt(m[0] * m[0] + m[1] * m[1]) * 100;
+  }
+
+  test('scale handles give: pressed on a picked side it gets narrower, its middle stays', () {
+    final a = box('A', 100, 500), b = box('B', 400, 500)..physics.handles = ['left'];
+    move(a, 0, [100, 500], 30, [320, 500]);
+    final p = Project(layers: [a, b]);
+    bake(p, 40);
+    expect(pos(p, 'B', 40)[0], closeTo(400, 1e-6), reason: 'not moved');
+    // 20 px in: A gives 10 (back to 360), B's left side comes in to it,
+    // its right one too.
+    expect(width(p, 'B', 40), closeTo(2 * (400 - 360), 0.5));
+    expect(overlapX(pos(p, 'A', 40), pos(p, 'B', 40), 100), lessThan(100), reason: 'sanity');
+  });
+
+  test('scale handles, keeping the side across: only the pressed side comes in', () {
+    final a = box('A', 100, 500), b = box('B', 400, 500)
+      ..physics.handles = ['left']
+      ..physics.handlesKeep = 'far';
+    move(a, 0, [100, 500], 30, [320, 500]);
+    final p = Project(layers: [a, b]);
+    bake(p, 40);
+    // its right side stays at 450, the left one at A's right (360).
+    final w = width(p, 'B', 40), x = pos(p, 'B', 40)[0];
+    expect(x + w / 2, closeTo(450, 0.5));
+    expect(x - w / 2, closeTo(360, 0.5));
+  });
+
+  test('scale handles: a side not picked is pushed as usual; the corner takes any side, the whole size', () {
+    final a = box('A', 100, 500), b = box('B', 400, 500)..physics.handles = ['right'];
+    move(a, 0, [100, 500], 30, [320, 500]);
+    final p = Project(layers: [a, b]);
+    bake(p, 40);
+    expect(pos(p, 'B', 40)[0], closeTo(410, 0.5), reason: 'left not picked: pushed (half each)');
+    expect(width(p, 'B', 40), closeTo(100, 1e-6));
+    final c = box('A', 100, 500), d = box('B', 400, 500)..physics.handles = ['corner'];
+    move(c, 0, [100, 500], 30, [320, 500]);
+    final q = Project(layers: [c, d]);
+    bake(q, 40);
+    expect(pos(q, 'B', 40)[0], closeTo(400, 0.5));
+    final m = getLayerStateAt(q, 'B', 40).matrix;
+    final hy = math.sqrt(m[2] * m[2] + m[3] * m[3]) * 100;
+    expect(width(q, 'B', 40), closeTo(80, 0.5));
+    expect(hy, closeTo(80, 0.5), reason: 'both ways alike');
+    final back = PhysicsSettings.fromJson(d.physics.toJson());
+    expect(back.handles, ['corner']);
+  });
+
+  test('two bends meeting both bend - an Immovable one too (in its bend, not by moving)', () {
+    registerBuiltinEffects();
+    Layer stalk(String id, double x) {
+      final l = box(id, x, 500, size: 100)..content.size = [60, 400];
+      final bend = createEffectInstance('bend_arc', 'bend_$id', l);
+      (bend.params['react'] as Track).defaultValue = 60.0;
+      (bend.params['damping'] as Track).defaultValue = 40.0;
+      l.effectStack.add(bend);
+      return l;
+    }
+
+    final a = stalk('A', 200), b = stalk('B', 420)..physics.role = 'immovable';
+    // A slides over toward B: their tops meet.
+    move(a, 0, [200, 500], 30, [400, 500]);
+    final p = Project(layers: [a, b]);
+    final w = bake(p, 60);
+    double most(String id) => [for (var f = 0; f <= 60; f++) w.bendAt(id, f).abs()].reduce(math.max);
+    expect(most('A'), greaterThan(2), reason: 'the one moving bends');
+    expect(most('B'), greaterThan(2), reason: 'the Immovable one bends too');
+    expect((pos(p, 'B', 60)[0] - 420).abs(), lessThan(1e-6), reason: 'but stays where it is');
+    expect(most('B'), lessThan(90), reason: 'a sane bend, not run away');
   });
 }

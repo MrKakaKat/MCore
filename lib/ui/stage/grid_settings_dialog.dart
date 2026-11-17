@@ -88,6 +88,8 @@ class GridSettingsView extends StatelessWidget {
                     app.setSnapGridCols(4);
                     app.setSnapGridRows(4);
                     app.setAppPreference('gridKinds', 3);
+                    app.setAppPreference('gridColor', 0xFFFFFF);
+                    app.setAppPreference('gridOpacity', 0.2);
                   }),
                 ],
               ),
@@ -95,6 +97,41 @@ class GridSettingsView extends StatelessWidget {
               const SizedBox(height: 4),
               const Text('Lines', style: TextStyle(fontSize: 13)),
               gridKindChips('grid-kind', gridLineKinds, (v) => app.setAppPreference('gridKinds', v)),
+              // its look: a colour and how see-through.
+              const SizedBox(height: 8),
+              const Text('Colour', style: TextStyle(fontSize: 13)),
+              const SizedBox(height: 4),
+              Wrap(spacing: 6, runSpacing: 6, children: [
+                for (final c in const [0xFFFFFF, 0x000000, 0x9E9E9E, 0xF44336, 0xFFEB3B, 0x4CAF50, 0x29B6F6, 0xE040FB])
+                  GestureDetector(
+                    key: ValueKey('grid-color-${c.toRadixString(16)}'),
+                    onTap: () => app.setAppPreference('gridColor', c),
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: Color(0xFF000000 | c),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: gridColorRgb == c ? Theme.of(context).colorScheme.primary : Colors.white24,
+                          width: gridColorRgb == c ? 3 : 1,
+                        ),
+                      ),
+                    ),
+                  ),
+              ]),
+              Row(children: [
+                SizedBox(width: 110, child: Text('Opacity ${(gridOpacity * 100).round()}%', style: const TextStyle(fontSize: 13))),
+                Expanded(
+                  child: Slider(
+                    key: const ValueKey('grid-opacity'),
+                    value: gridOpacity.clamp(0.05, 1.0),
+                    min: 0.05,
+                    max: 1,
+                    onChanged: (v) => app.setAppPreference('gridOpacity', (v * 100).round() / 100),
+                  ),
+                ),
+              ]),
             ],
           ],
         );

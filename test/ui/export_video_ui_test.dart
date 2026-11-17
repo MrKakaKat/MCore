@@ -31,6 +31,23 @@ void main() {
     expect(find.byKey(const ValueKey('fps-gif-24')), findsOneWidget);
   });
 
+  testWidgets('rows scroll sideways; MP4 first; Audio only always offered; 30 fps by default', (tester) async {
+    final app = await pump(tester);
+    expect(find.byKey(const ValueKey('export-kind-audio')), findsOneWidget, reason: 'even with no sound yet');
+    expect(find.text('Audio only'), findsOneWidget);
+    expect(find.ancestor(of: find.byKey(const ValueKey('export-kind-audio')), matching: find.byType(SingleChildScrollView)),
+        findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('export-kind-video')));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(find.byKey(const ValueKey('codec-h264'))).dx,
+        lessThan(tester.getTopLeft(find.byKey(const ValueKey('codec-vp9'))).dx));
+    expect(app.project.fps, 60);
+    expect(summary(tester), contains('30 fps'));
+    for (final k in ['fps-video-24', 'quality-low', 'codec-h264']) {
+      expect(find.ancestor(of: find.byKey(ValueKey(k)), matching: find.byType(SingleChildScrollView)), findsWidgets);
+    }
+  });
+
   testWidgets('switching formats keeps the layout: the summary and Export stay put', (tester) async {
     await pump(tester);
     final buttonTop = tester.getTopLeft(find.byKey(const ValueKey('export-go'))).dy;

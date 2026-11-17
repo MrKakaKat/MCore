@@ -41,7 +41,7 @@ class EffectsView extends StatelessWidget {
     switch (id) {
       case 'wiggle' || 'pendulum' || 'swing' || 'path':
         return 'Motion';
-      case 'motionBlur' || 'timeQuantize':
+      case 'motionBlur' || 'timeQuantize' || 'echo':
         return 'Time';
     }
     final inst = layer.effectStack.where((e) => e.id == id).firstOrNull;
@@ -239,6 +239,7 @@ class EffectsView extends StatelessWidget {
                         ? _instanceBody(context, layer, inst, localFrame)
                         : switch (id) {
                             'motionBlur' => _motionBlurBody(layer),
+                            'echo' => _echoBody(layer),
                             'wiggle' => _wiggleBody(layer),
                             'timeQuantize' => _timeQuantizeBody(layer),
                             'swing' => _swingBody(layer),
@@ -934,6 +935,55 @@ class EffectsView extends StatelessWidget {
             value: ph.grows,
             onChanged: (v) => set(() => ph.grows = v),
           ),
+          // scale handles that give: pressed there it changes size instead
+          // of moving (grows by them with Grows to hold).
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Text('Scale handles that give', style: TextStyle(fontSize: 13)),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(children: [
+              for (final (k, name) in const [
+                ('left', 'Left'),
+                ('top', 'Top'),
+                ('right', 'Right'),
+                ('bottom', 'Bottom'),
+                ('corner', 'Corner'),
+              ]) ...[
+                FilterChip(
+                  key: ValueKey('physics-handle-$k'),
+                  label: Text(name),
+                  visualDensity: VisualDensity.compact,
+                  selected: ph.handles.contains(k),
+                  onSelected: (on) => set(() => on ? ph.handles = [...ph.handles, k] : ph.handles = [
+                        for (final h in ph.handles)
+                          if (h != k) h
+                      ]),
+                ),
+                const SizedBox(width: 6),
+              ],
+            ]),
+          ),
+          if (ph.handles.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            SegmentedButton<String>(
+              key: const ValueKey('physics-handles-keep'),
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 'middle', label: Text('Middle stays')),
+                ButtonSegment(value: 'far', label: Text('Side across stays')),
+              ],
+              selected: {ph.handlesKeep},
+              onSelectionChanged: (v) => set(() => ph.handlesKeep = v.first),
+            ),
+          ],
+          hint(ph.handles.isEmpty
+                  ? 'Pick sides: pressed there it isn\'t moved - its scale handle on that side gives instead.'
+                  : '${ph.grows ? 'Pressed there from inside it grows that way' : 'Pressed there it gets narrower'}'
+                      '${ph.handlesKeep == 'far' ? ', the side across staying put' : ', its middle staying put (both sides move)'}. '
+                      'Corner: the whole size, from any side.') ??
+              const SizedBox.shrink(),
           // turns when hit off its middle.
           if (!ph.immovable)
             SwitchListTile(
@@ -1018,6 +1068,9 @@ class EffectsView extends StatelessWidget {
                 app.pushUndo();
                 ph.falls = v;
                 if (v && app.project.gravity <= 0) app.project.gravity = 1500;
+                // falling: the frame's edges hold it (switch them off to let
+                // it fall out).
+                if (v) app.project.stageWalls = true;
                 app.commitEdit();
               },
             ),
@@ -1577,6 +1630,49 @@ class EffectsView extends StatelessWidget {
     ]);
   }
 
+  /// Echo: copies where the layer was a little earlier - how many, how far
+  /// apart in time, how much fainter and smaller the last one is.
+  Widget _echoBody(Layer layer) {
+    final e = layer.echo;
+    Widget row(String key, String label, double value, ParamScale scale, double reset, void Function(double) set) =>
+        ParamEditor(
+          prefKey: 'effect.echo.$key',
+          label: label,
+          values: [value],
+          scale: scale,
+          onEditStart: app.pushUndo,
+          onChanged: (v) {
+            set(v.first);
+            app.commitEdit();
+          },
+          onCommit: (v) {
+            app.pushUndo();
+            set(v.first);
+            app.commitEdit();
+          },
+          trailing: [
+            ResetIconButton(onPressed: () {
+              app.pushUndo();
+              set(reset);
+              app.commitEdit();
+            }),
+          ],
+        );
+    return Column(children: [
+      row('count', 'copies', e.count.toDouble(), const ParamScale.slider(1, 30, integer: true), 5,
+          (v) => e.count = v.round().clamp(1, 30)),
+      row('delay', 'frames apart', e.delay.toDouble(), const ParamScale.slider(1, 30, integer: true), 3,
+          (v) => e.delay = v.round().clamp(1, 60)),
+      row('fade', 'fade to', e.fade * 100, const ParamScale.slider(0, 100, decimals: 0, suffix: '%'), 80,
+          (v) => e.fade = (v / 100).clamp(0.0, 1.0)),
+      row('shrink', 'last one\'s size', e.shrink * 100, const ParamScale.slider(0, 200, decimals: 0, suffix: '%'), 60,
+          (v) => e.shrink = (v / 100).clamp(0.0, 2.0)),
+      hint('Copies where it was a little earlier, trailing behind it as it moves: each one further back is fainter '
+              'and changes size step by step to the last one\'s.') ??
+          const SizedBox.shrink(),
+    ]);
+  }
+
   /// Time quantize: the layer's own frame rate (it holds each pose for
   /// 60/fps frames).
   Widget _timeQuantizeBody(Layer layer) {
@@ -1934,6 +2030,7 @@ class EffectsView extends StatelessWidget {
 
 const motionPanelNames = {
   'motionBlur': 'Motion blur',
+  'echo': 'Echo (trail of copies)',
   'wiggle': 'Wiggle',
   'pendulum': 'Pendulum',
   'swing': 'Swing',
@@ -1964,7 +2061,7 @@ class _AddEffectRowState extends State<_AddEffectRow> {
     final present = effectPanelEntries(widget.layer).toSet();
     // by type (a type's name heads its items).
     String typeOfOption(String key) => key.startsWith('motion:')
-        ? (key == 'motion:motionBlur' || key == 'motion:timeQuantize' ? 'Time' : 'Motion')
+        ? (key == 'motion:motionBlur' || key == 'motion:timeQuantize' || key == 'motion:echo' ? 'Time' : 'Motion')
         : (key == 'outline' || key == 'edge_blur' || key == 'edge_glow' ? 'Contour' : 'Shape');
     final all = <String, String>{
       for (final e in effectRegistry.entries) e.key: e.value.name,

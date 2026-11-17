@@ -183,6 +183,8 @@ Map<String, dynamic> contentToJson(Content c) => {
       if (c.gridKinds != 3) 'gridKinds': c.gridKinds,
       if (c.shape == 'trail') 'trailWidth': c.lineWidth,
       if (c.trailOn != null) 'trailOn': trackToJson(c.trailOn!),
+      if (c.trailLength > 0) 'trailLength': c.trailLength,
+      if (c.trailFade) 'trailFade': true,
       if (c.lineNodes != null) ...{
         'lineNodes': [for (final n in c.lineNodes!) n.toJson()],
         'lineWidth': c.lineWidth,
@@ -267,6 +269,8 @@ Content contentFromJson(Map<String, dynamic> j) => Content(
       ..lineShowBox = j['lineShowBox'] as bool? ?? false
       ..lineTrimStart = j['lineTrimStart'] is Map ? trackFromJson(j['lineTrimStart'] as Map<String, dynamic>) : null
       ..trailOn = j['trailOn'] is Map ? trackFromJson(j['trailOn'] as Map<String, dynamic>) : null
+      ..trailLength = (j['trailLength'] as num?)?.toDouble() ?? 0
+      ..trailFade = j['trailFade'] as bool? ?? false
       ..lineTrimEnd = j['lineTrimEnd'] is Map ? trackFromJson(j['lineTrimEnd'] as Map<String, dynamic>) : null
       ..lineCap = j['lineCap'] as String? ?? 'round'
       // files from before the fill kinds filled through the points.
@@ -797,6 +801,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.linkId != null) 'link': l.linkId,
       if (l.edgeMatte) 'edgeMatte': {'color': l.edgeMatteColor, 'strength': l.edgeMatteStrength},
       if (l.timeQuantize.enabled) 'timeQuantize': timeQuantizeToJson(l.timeQuantize),
+      if (l.echo.enabled) 'echo': l.echo.toJson(),
       if (l.physics.collide) 'physics': l.physics.toJson(),
       if (l.chromaKey.enabled || l.chromaKey.region.isNotEmpty || l.chromaKey.applied.isNotEmpty) 'chromaKey': chromaKeyToJson(l.chromaKey),
     };
@@ -805,6 +810,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
 /// ensureRegionSelf.)
 Layer layerFromJson(Map<String, dynamic> j) {
   final l = _layerFromJson(j);
+  if (j['echo'] is Map) l.echo = Echo.fromJson(Map<String, dynamic>.from(j['echo'] as Map));
   l.confirmHistory = [
     for (final h in (j['confirmHistory'] as List? ?? const [])) Map<String, dynamic>.from(h as Map)
   ];

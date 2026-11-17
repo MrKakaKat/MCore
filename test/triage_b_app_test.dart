@@ -10,7 +10,7 @@ void main() {
     expect(auto(frames: 1).kind, 'image');
     final gif = auto(transparent: true);
     expect(gif.kind, 'gif');
-    expect(gif.fps, 50);
+    expect(gif.fps, 30, reason: "30 at most by default");
     expect(gif.alpha, isTrue);
     expect(auto(frames: 400).fps, 25);
     expect(auto(sound: true).kind, 'video');

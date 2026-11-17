@@ -187,6 +187,10 @@ int snapGridCols = 4;
 /// The grid's lines: bit 1 vertical, 2 horizontal, 4 diagonal (both ways
 /// through every cell). Drawn and snapped to alike.
 int gridLineKinds = 3;
+
+/// The grid overlay's colour (0xRRGGBB) and how see-through it is (0..1).
+int gridColorRgb = 0xFFFFFF;
+double gridOpacity = 0.2;
 int snapGridRows = 4;
 
 // ===== grid overlay (decoupled from Snapping - see the note on
@@ -822,6 +826,12 @@ class Content {
   /// its trail (1) or not (0) - stepped at its keys, never eased.
   Track? trailOn;
 
+  /// A trail point: how long its line may get, px (0: no limit) - past
+  /// it the oldest part goes; `trailFade`: the end fades out along the
+  /// way instead of being cut off.
+  double trailLength = 0;
+  bool trailFade = false;
+
   /// A rect's own grid (an editor guide, never drawn into the picture):
   /// columns and rows, or null for none. Centre to centre snaps onto its
   /// crossings.
@@ -1162,6 +1172,31 @@ class MotionBlur {
   MotionBlur({this.enabled = false, this.shutterAngle = 180, this.samples = 8});
 }
 
+/// Echo: copies of the layer where it was a little earlier, trailing
+/// behind it as it moves - `count` of them, `delay` frames apart, the
+/// last `fade` (0..1) more see-through and `shrink` times as big (1: the
+/// same size) as the layer, the ones between in steps.
+class Echo {
+  bool enabled;
+  int count;
+  int delay;
+  double fade;
+  double shrink;
+  Echo({this.enabled = false, this.count = 5, this.delay = 3, this.fade = 0.8, this.shrink = 0.6});
+
+  Echo copy() => Echo(enabled: enabled, count: count, delay: delay, fade: fade, shrink: shrink);
+
+  Map<String, dynamic> toJson() => {'enabled': enabled, 'count': count, 'delay': delay, 'fade': fade, 'shrink': shrink};
+
+  static Echo fromJson(Map<String, dynamic> j) => Echo(
+        enabled: j['enabled'] as bool? ?? false,
+        count: (j['count'] as num?)?.toInt() ?? 5,
+        delay: (j['delay'] as num?)?.toInt() ?? 3,
+        fade: (j['fade'] as num?)?.toDouble() ?? 0.8,
+        shrink: (j['shrink'] as num?)?.toDouble() ?? 0.6,
+      );
+}
+
 class Wiggle {
   bool enabled;
   double speed;
@@ -1325,6 +1360,16 @@ class PhysicsSettings {
   /// How strongly the project's gravity pulls this one (1: as set; 0.5:
   /// half - it falls slower; 2: twice).
   double gravityScale = 1;
+
+  /// Scale handles that give under a push ('left', 'top', 'right',
+  /// 'bottom', 'corner'): pressed on that side it isn't moved - that
+  /// side's handle is (it gets narrower; with "Grows to hold" it grows
+  /// that way instead). The corner handle: the whole size, about its
+  /// middle, from any side. `handlesKeep`: 'middle' (the middle stays,
+  /// both sides come in) or 'far' (the side across stays - the size
+  /// handles' "keep the opposite side").
+  List<String> handles = [];
+  String handlesKeep = 'middle';
   PhysicsSettings(
       {this.collide = false,
       this.group = '1',
@@ -1358,7 +1403,9 @@ class PhysicsSettings {
     ..spin = spin
     ..falls = falls
     ..bounce = bounce
-    ..gravityScale = gravityScale;
+    ..gravityScale = gravityScale
+    ..handles = [...handles]
+    ..handlesKeep = handlesKeep;
   Map<String, dynamic> toJson() => {
         'collide': collide,
         'group': group,
@@ -1376,6 +1423,8 @@ class PhysicsSettings {
         if (falls) 'falls': true,
         if (bounce != 0) 'bounce': bounce,
         if (gravityScale != 1) 'gravityScale': gravityScale,
+        if (handles.isNotEmpty) 'handles': handles,
+        if (handlesKeep != 'middle') 'handlesKeep': handlesKeep,
       };
   static PhysicsSettings fromJson(Map<String, dynamic> j) {
     final l = j['leash'] as Map?;
@@ -1399,7 +1448,9 @@ class PhysicsSettings {
       ..spin = j['spin'] == true
       ..falls = j['falls'] == true
       ..bounce = (j['bounce'] as num?)?.toDouble() ?? 0
-      ..gravityScale = (j['gravityScale'] as num?)?.toDouble() ?? 1;
+      ..gravityScale = (j['gravityScale'] as num?)?.toDouble() ?? 1
+      ..handles = [for (final h in (j['handles'] as List? ?? const [])) h as String]
+      ..handlesKeep = j['handlesKeep'] as String? ?? 'middle';
   }
 }
 
@@ -1830,11 +1881,26 @@ class LayerFilters {
   String scope;
 
   /// Blur, px (keyable); its kind: 'gaussian', 'directional' (along
-  /// `blurAngle`, degrees), 'zoom' (out from the middle) or 'spin'
-  /// (around the middle).
+  /// `blurAngle`, degrees), 'zoom' (out from the middle), 'spin' (around
+  /// the middle) or 'chromatic' (red, green and blue pulled apart -
+  /// from the middle out with `blurCentered`, the middle staying sharp;
+  /// else shifted along `blurAngle`).
   Track blur;
   String blurKind;
   double blurAngle;
+  bool blurCentered;
+
+  /// Where the blur stays sharp: 'none', 'point' (around
+  /// `blurFocusX/Y`) or 'line' (along a line through it at
+  /// `blurFocusAngle`). Position: 0..1 of the frame; `blurFocusSize`:
+  /// the sharp part's radius / half width, `blurFocusSoft`: how far it
+  /// fades into the blur (both 0..1 of the frame's width).
+  String blurFocus;
+  double blurFocusX;
+  double blurFocusY;
+  double blurFocusAngle;
+  double blurFocusSize;
+  double blurFocusSoft;
 
   /// Colour wheels, per channel (r, g, b): lift (the shadows, an offset),
   /// gamma (the midtones, exponent 2^-v) and gain (the highlights, 1 + v).
@@ -1868,6 +1934,13 @@ class LayerFilters {
     Track? blur,
     this.blurKind = 'gaussian',
     this.blurAngle = 0,
+    this.blurCentered = true,
+    this.blurFocus = 'none',
+    this.blurFocusX = 0.5,
+    this.blurFocusY = 0.5,
+    this.blurFocusAngle = 0,
+    this.blurFocusSize = 0.12,
+    this.blurFocusSoft = 0.2,
     List<double>? lift,
     List<double>? gamma,
     List<double>? gain,
@@ -1898,6 +1971,7 @@ class LayerFilters {
 
   /// Settings that differ from a fresh one (saved even with nothing on).
   bool get changed => any || scope != 'self' || blurKind != 'gaussian' || blurAngle != 0 ||
+      !blurCentered || blurFocus != 'none' ||
       warpScale != 60 || warpSpeed != 0.5 || lightWrapWidth != 12 ||
       vignetteSize != 0.5 || vignetteSoft != 0.5 || vignetteColor != '#000000';
 
@@ -1907,6 +1981,13 @@ class LayerFilters {
         blur: cloneTrack(blur),
         blurKind: blurKind,
         blurAngle: blurAngle,
+        blurCentered: blurCentered,
+        blurFocus: blurFocus,
+        blurFocusX: blurFocusX,
+        blurFocusY: blurFocusY,
+        blurFocusAngle: blurFocusAngle,
+        blurFocusSize: blurFocusSize,
+        blurFocusSoft: blurFocusSoft,
         lift: [...lift],
         gamma: [...gamma],
         gain: [...gain],
@@ -1927,6 +2008,15 @@ class LayerFilters {
         if (_on(blur)) 'blur': trackToJson(blur),
         if (blurKind != 'gaussian') 'blurKind': blurKind,
         if (blurAngle != 0) 'blurAngle': blurAngle,
+        if (!blurCentered) 'blurCentered': false,
+        if (blurFocus != 'none') ...{
+          'blurFocus': blurFocus,
+          'blurFocusX': blurFocusX,
+          'blurFocusY': blurFocusY,
+          'blurFocusAngle': blurFocusAngle,
+          'blurFocusSize': blurFocusSize,
+          'blurFocusSoft': blurFocusSoft,
+        },
         if (graded) ...{'lift': lift, 'gamma': gamma, 'gain': gain},
         if (_on(warp)) 'warp': trackToJson(warp),
         if (warpScale != 60) 'warpScale': warpScale,
@@ -1949,6 +2039,13 @@ class LayerFilters {
       blur: j['blur'] is Map ? trackFromJson(j['blur'] as Map<String, dynamic>) : null,
       blurKind: j['blurKind'] as String? ?? 'gaussian',
       blurAngle: n(j['blurAngle'], 0),
+      blurCentered: j['blurCentered'] as bool? ?? true,
+      blurFocus: j['blurFocus'] as String? ?? 'none',
+      blurFocusX: n(j['blurFocusX'], 0.5),
+      blurFocusY: n(j['blurFocusY'], 0.5),
+      blurFocusAngle: n(j['blurFocusAngle'], 0),
+      blurFocusSize: n(j['blurFocusSize'], 0.12),
+      blurFocusSoft: n(j['blurFocusSoft'], 0.2),
       lift: three(j['lift']),
       gamma: three(j['gamma']),
       gain: three(j['gain']),
@@ -2112,6 +2209,9 @@ class Layer {
   String renderMode; // "fill" | "outline"
   bool hidden;
   MotionBlur motionBlur;
+
+  /// Copies trailing behind it (Effects tab, "Echo").
+  Echo echo = Echo();
   Wiggle wiggle;
   Pendulum pendulum;
   TimeQuantize timeQuantize;
@@ -2536,6 +2636,8 @@ Layer cloneLayer(Layer src) {
       ..lineMirrorLength = src.content.lineMirrorLength
       ..lineTrimStart = src.content.lineTrimStart == null ? null : cloneTrack(src.content.lineTrimStart!)
       ..trailOn = src.content.trailOn == null ? null : cloneTrack(src.content.trailOn!)
+      ..trailLength = src.content.trailLength
+      ..trailFade = src.content.trailFade
       ..lineTrimEnd = src.content.lineTrimEnd == null ? null : cloneTrack(src.content.lineTrimEnd!)
       ..mediaHash = src.content.mediaHash
       ..refProjectId = src.content.refProjectId
@@ -2611,6 +2713,7 @@ Layer cloneLayer(Layer src) {
     effectPanelOrder: [...src.effectPanelOrder],
   )
     ..confirmHistory = [for (final h in src.confirmHistory) Map<String, dynamic>.from(h)]
+    ..echo = src.echo.copy()
     ..effectRanges = {for (final e in src.effectRanges.entries) e.key: [...e.value]}
     ..content.playReversed = src.content.playReversed
     ..content.mediaSpeed = src.content.mediaSpeed

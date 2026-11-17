@@ -53,6 +53,18 @@ void main() {
     expect(find.byKey(const ValueKey('ruler-marker-40')), findsNothing);
   });
 
+  testWidgets('pinned playhead: holding it puts a mark too', (tester) async {
+    app.timelineCenterPlayheadEnabled = true;
+    app.setFrame(50);
+    await pump(tester);
+    await tester.longPress(find.byKey(const ValueKey('playhead-play')));
+    await tester.pumpAndSettle();
+    expect(app.project.markers, [50]);
+    await tester.longPress(find.byKey(const ValueKey('playhead-play')));
+    await tester.pumpAndSettle();
+    expect(app.project.markers, isEmpty);
+  });
+
   testWidgets('dragging the playhead puts no mark', (tester) async {
     app.setFrame(40);
     await pump(tester);

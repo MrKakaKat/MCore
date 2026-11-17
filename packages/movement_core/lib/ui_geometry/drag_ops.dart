@@ -582,7 +582,9 @@ class ScaleDragOp implements DragOp {
       _applyExtend(localPt, current, globalFrame);
       return;
     }
-    if (scaleKeepsOppositeEdge) {
+    // (the corner handle never keeps the corner across: it scales about
+    // the middle.)
+    if (scaleKeepsOppositeEdge && handle != 'scaleCorner') {
       _applyFromOppositeEdge(project, globalFrame, tb, localPt, current);
       return;
     }
@@ -652,6 +654,23 @@ class ScaleDragOp implements DragOp {
     final sx = current[0].abs() < 1e-9 ? 1.0 : current[0], sy = current[1].abs() < 1e-9 ? 1.0 : current[1];
     final q = [localPt[0] / sx, localPt[1] / sy];
     final cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+    if (handle == 'scaleCorner') {
+      // the corner: it grows (or shrinks) from all four sides alike, about
+      // its middle - the finger is a corner.
+      final hw = math.max(0.5, (q[0] - cx).abs()), hh = math.max(0.5, (q[1] - cy).abs());
+      final w0 = (maxX - minX) / 2, h0 = (maxY - minY) / 2;
+      // as much on every side: the larger of the two changes.
+      final grow = (hw - w0).abs() >= (hh - h0).abs() ? hw - w0 : hh - h0;
+      final g = math.max(grow, -math.min(w0, h0) + 0.5);
+      minX -= g;
+      maxX += g;
+      minY -= g;
+      maxY += g;
+      setTrackValueAt(layer.transform.extend, localFrameOf(layer, globalFrame),
+          <double>[ownMinX - minX, ownMinY - minY, maxX - ownMaxX, maxY - ownMaxY]);
+      _snapGuide = null;
+      return;
+    }
     final left = handle == 'left' || (handle == 'scaleCorner' && q[0] < cx);
     final right = handle == 'right' || (handle == 'scaleCorner' && q[0] >= cx);
     final top = handle == 'top' || (handle == 'scaleCorner' && q[1] < cy);

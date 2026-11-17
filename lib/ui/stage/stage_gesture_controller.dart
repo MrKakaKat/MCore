@@ -887,8 +887,16 @@ class StageGestureController {
     // everything under the finger, top first: a tap takes the top one; a
     // tap again the next one under it, and after the lowest the top again.
     final hits = <String>[];
+    // not drawn, so not picked: a hidden cutter (Cut / Dig with "hide
+    // cutter") and a layer shown only as another's back side.
+    final unseen = {
+      ...hiddenCutters(app.project),
+      for (final l in app.project.layers)
+        if (l.backSourceId != null) l.backSourceId!,
+    };
     // top first as drawn now (order on the stage may be keyed).
     for (final layer in stackOrderAt(app.project, app.currentFrame).reversed) {
+      if (unseen.contains(layer.id) || layer.mirrorProbe) continue;
       if (layer.hidden || layer.locked || isCameraShape(layer.content.shape)) continue; // the camera: from the Stage tab; locked: not here
       if (layer.content.size[0] <= 0 && layer.content.size[1] <= 0) continue;
       final state = getLayerStateAt(app.project, layer.id, app.currentFrame);

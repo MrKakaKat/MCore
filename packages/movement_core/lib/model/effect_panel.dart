@@ -9,10 +9,11 @@ import 'dart:convert';
 import 'project.dart';
 import 'project_json.dart';
 
-const motionPanelIds = ['motionBlur', 'wiggle', 'pendulum', 'swing', 'path', 'timeQuantize'];
+const motionPanelIds = ['motionBlur', 'echo', 'wiggle', 'pendulum', 'swing', 'path', 'timeQuantize'];
 
 bool _motionOn(Layer layer, String id) => switch (id) {
       'motionBlur' => layer.motionBlur.enabled,
+      'echo' => layer.echo.enabled,
       'wiggle' => layer.wiggle.enabled,
       'pendulum' => layer.pendulum.enabled,
       'swing' => layer.swing.enabled,
@@ -56,6 +57,8 @@ void addMotionPanelEntry(Layer layer, String id) {
   switch (id) {
     case 'motionBlur':
       layer.motionBlur = MotionBlur(enabled: true);
+    case 'echo':
+      layer.echo = Echo(enabled: true);
     case 'wiggle':
       layer.wiggle = Wiggle(enabled: true);
     case 'pendulum':
@@ -83,6 +86,8 @@ void removeMotionPanelEntry(Layer layer, String id) {
   switch (id) {
     case 'motionBlur':
       layer.motionBlur = MotionBlur();
+    case 'echo':
+      layer.echo = Echo();
     case 'wiggle':
       layer.wiggle = Wiggle();
     case 'pendulum':
@@ -105,6 +110,8 @@ Map<String, dynamic>? effectEntryToJson(Layer layer, String id) {
   switch (id) {
     case 'motionBlur':
       return {'kind': id, 'settings': motionBlurToJson(layer.motionBlur)};
+    case 'echo':
+      return {'kind': id, 'settings': layer.echo.toJson()};
     case 'wiggle':
       return {'kind': id, 'settings': wiggleToJson(layer.wiggle)};
     case 'pendulum':
@@ -141,6 +148,8 @@ String? pasteEffectEntry(Layer layer, Map<String, dynamic> entry) {
   switch (kind) {
     case 'motionBlur':
       layer.motionBlur = motionBlurFromJson(settings)..enabled = true;
+    case 'echo':
+      layer.echo = Echo.fromJson(settings)..enabled = true;
     case 'wiggle':
       layer.wiggle = wiggleFromJson(settings)..enabled = true;
     case 'pendulum':

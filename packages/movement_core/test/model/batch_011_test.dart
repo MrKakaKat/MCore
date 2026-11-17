@@ -125,6 +125,35 @@ void main() {
     expect(left2[0], closeTo(left[0], 1e-6));
   });
 
+  test('the corner handle scales about the middle even when the size handles keep the side across', () {
+    final l = createLayer('rect')..content.size = [100, 100];
+    l.transform.anchor.defaultValue = [0.5, 0.5];
+    final p = Project(layers: [l]);
+    scaleKeepsOppositeEdge = true;
+    addTearDown(() => scaleKeepsOppositeEdge = false);
+    final mid = applyAffine(getTransformBoxHandles(p, l, 0).mCanvas, const [0, 0]);
+    final corner = applyAffine(getTransformBoxHandles(p, l, 0).mCanvas, scaleCornerLocal(getTransformBoxHandles(p, l, 0).bbox));
+    ScaleDragOp(layer: l, handle: 'scaleCorner')
+        .apply(p, 0, [mid[0] + (corner[0] - mid[0]) * 2, mid[1] + (corner[1] - mid[1]) * 2]);
+    clearStateCaches();
+    expect((l.transform.scale.defaultValue as List)[0], closeTo(2, 1e-6));
+    expect(l.scaleOrigin, isNull);
+    final mid2 = applyAffine(getTransformBoxHandles(p, l, 0).mCanvas, const [0, 0]);
+    expect(mid2[0], closeTo(mid[0], 1e-6));
+    expect(mid2[1], closeTo(mid[1], 1e-6));
+  });
+
+  test('lengthening by the corner: it grows from all four sides alike', () {
+    final l = createLayer('rect')..content.size = [100, 100];
+    l.transform.anchor.defaultValue = [0.5, 0.5];
+    final p = Project(layers: [l]);
+    rectExtendMode = true;
+    addTearDown(() => rectExtendMode = false);
+    final m = getTransformBoxHandles(p, l, 0).mCanvas;
+    ScaleDragOp(layer: l, handle: 'scaleCorner').apply(p, 0, applyAffine(m, const [100, 80]));
+    expect(l.transform.extend.defaultValue, [50.0, 50.0, 50.0, 50.0]);
+  });
+
   test('the piece rect is set like a crop and sticks at the quarters', () {
     final l = createLayer('rect')..content.size = [100, 100];
     final p = Project(layers: [l]);

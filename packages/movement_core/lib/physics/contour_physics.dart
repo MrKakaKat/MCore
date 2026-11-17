@@ -415,7 +415,9 @@ class PhysicsWorld {
         off[1] += dy;
         return;
       }
-      final (react, nrm, arm) = r;
+      var (react, nrm, arm) = r;
+      // an Immovable one can't go anywhere: all of it into its bend.
+      if (findLayer(project, id)?.physics.immovable ?? false) react = 1;
       off[0] += dx * (1 - react);
       off[1] += dy * (1 - react);
       final along = (dx * nrm[0] + dy * nrm[1]) * react;
@@ -434,6 +436,8 @@ class PhysicsWorld {
     // point is on its near side).
     bool grow(_Body b, List<double> off, List<double> n, double d, List<double> contact) {
       if (!b.layer.physics.grows || d <= 0) return false;
+      // with scale handles: it grows by them (only those).
+      if (b.layer.physics.handles.isNotEmpty) return _byHandles(b, off, n, d, growing: true);
       final r = (contact[0] - b.pivot[0] - off[0]) * n[0] + (contact[1] - b.pivot[1] - off[1]) * n[1];
       if (r < 1e-3) return false;
       final k = (1 + d / r).clamp(1.0, 1.5);
@@ -489,7 +493,9 @@ class PhysicsWorld {
         induced[l.id]!.add(sc);
       }
       if (l.physics.spin && induced[l.id]!.length < 4) induced[l.id]!.add(0);
-      final lin = [m[0] * sc, m[1] * sc, m[2] * sc, m[3] * sc];
+      // squashed / grown by its scale handles: the size along its own axes.
+      final kx = was != null && was.length > 5 ? was[4] : 1.0, ky = was != null && was.length > 5 ? was[5] : 1.0;
+      final lin = [m[0] * sc * kx, m[1] * sc * kx, m[2] * sc * ky, m[3] * sc * ky];
       if (turned != 0) {
         final cs = math.cos(turned), sn = math.sin(turned);
         final (a, b, c, d) = (lin[0], lin[1], lin[2], lin[3]);
@@ -574,10 +580,12 @@ class PhysicsWorld {
             if (inner != null) {
               // inside a hollow one: armed once wholly inside.
               final (h, oh, o, oo) = inner;
-              if (_inner(h, oh, o, oo, 0) == null) armed.add(key);
+              if (_inner(h, oh, o, oo, math.min(0.0, pairGap(bodies[i].layer, bodies[j].layer))) == null) armed.add(key);
               continue;
             }
-            final hit = _sat(bodies[i], induced[bodies[i].layer.id]!, bodies[j], induced[bodies[j].layer.id]!, 0);
+            // (a negative gap: sunk in less than it allows still counts as apart.)
+            final hit = _sat(bodies[i], induced[bodies[i].layer.id]!, bodies[j], induced[bodies[j].layer.id]!,
+                math.min(0.0, pairGap(bodies[i].layer, bodies[j].layer)));
             if (hit == null) armed.add(key);
           }
         }
@@ -587,7 +595,7 @@ class PhysicsWorld {
             for (var j = i + 1; j < bodies.length; j++) {
               final A = bodies[i], B = bodies[j];
               if (!armed.contains(_pairKey(A.layer.id, B.layer.id))) continue;
-              final gap = math.max(A.layer.physics.gap, B.layer.physics.gap);
+              final gap = pairGap(A.layer, B.layer);
               final offA = induced[A.layer.id]!, offB = induced[B.layer.id]!;
               final key = _pairKey(A.layer.id, B.layer.id);
               // one inside a hollow one: it hits the walls from within.
@@ -648,7 +656,7 @@ class PhysicsWorld {
                         ..add(A.layer.id)
                         ..add(B.layer.id);
                       againstFixed.add(body.layer.id);
-                      contacts.add(PhysicsContact(A.layer.id, B.layer.id, A.support(hit.$1, offA), hit.$1));
+                      contacts.add(PhysicsContact(A.layer.id, B.layer.id, _contactMid(A, offA, B, offB, hit.$1), hit.$1));
                     }
                     continue;
                   }
@@ -660,8 +668,12 @@ class PhysicsWorld {
                 normals[key] = A.layer.id.compareTo(B.layer.id) < 0 ? hit.$1 : [-hit.$1[0], -hit.$1[1]];
                 // one that grows to hold takes its share by growing - even
                 // Immovable.
-                final wA = A.layer.physics.immovable && !A.layer.physics.grows ? double.infinity : A.layer.physics.weight;
-                final wB = B.layer.physics.immovable && !B.layer.physics.grows ? double.infinity : B.layer.physics.weight;
+                // (an Immovable one with a bend that gives under pushes takes
+                // its share too - in its bend: two bends meeting both bend.)
+                final fixedA = A.layer.physics.immovable && !A.layer.physics.grows && !reacts.containsKey(A.layer.id);
+                final fixedB = B.layer.physics.immovable && !B.layer.physics.grows && !reacts.containsKey(B.layer.id);
+                final wA = fixedA ? double.infinity : A.layer.physics.weight;
+                final wB = fixedB ? double.infinity : B.layer.physics.weight;
                 if (wA.isInfinite && wB.isInfinite) continue;
                 // A moves by B's share, B by A's (inverse weight).
                 final shareA = wA.isInfinite ? 0.0 : (wB.isInfinite ? 1.0 : wB / (wA + wB));
@@ -679,13 +691,27 @@ class PhysicsWorld {
                 // the middle of where their sides meet - a box resting flat
                 // isn't turned by one of its corners.)
                 final atB = A.support(n, offA), atA = B.support([-n[0], -n[1]], offB);
-                if (shareA > 0 && !grow(A, offA, [-n[0], -n[1]], d * shareA, atA) && !A.layer.physics.immovable) {
-                  push(A.layer.id, offA, -n[0] * d * shareA, -n[1] * d * shareA);
-                  spin(A, offA, [-n[0] * d * shareA, -n[1] * d * shareA], _contactMid(B, offB, A, offA, [-n[0], -n[1]]));
+                if (shareA > 0 && !grow(A, offA, [-n[0], -n[1]], d * shareA, atA)) {
+                  if (!A.layer.physics.immovable && _byHandles(A, offA, [-n[0], -n[1]], d * shareA, growing: false)) {
+                    // its scale handle gave instead.
+                  } else if (!A.layer.physics.immovable) {
+                    push(A.layer.id, offA, -n[0] * d * shareA, -n[1] * d * shareA);
+                    spin(A, offA, [-n[0] * d * shareA, -n[1] * d * shareA], _contactMid(B, offB, A, offA, [-n[0], -n[1]]));
+                  } else if (reacts.containsKey(A.layer.id) && it == 0 && s == steps) {
+                    // (its bend takes it once a frame: bending moves its
+                    // outline only from the next frame on.)
+                    push(A.layer.id, offA, -n[0] * d * shareA, -n[1] * d * shareA);
+                  }
                 }
-                if (shareB > 0 && !grow(B, offB, n, d * shareB, atB) && !B.layer.physics.immovable) {
-                  push(B.layer.id, offB, n[0] * d * shareB, n[1] * d * shareB);
-                  spin(B, offB, [n[0] * d * shareB, n[1] * d * shareB], _contactMid(A, offA, B, offB, n));
+                if (shareB > 0 && !grow(B, offB, n, d * shareB, atB)) {
+                  if (!B.layer.physics.immovable && _byHandles(B, offB, n, d * shareB, growing: false)) {
+                    // its scale handle gave instead.
+                  } else if (!B.layer.physics.immovable) {
+                    push(B.layer.id, offB, n[0] * d * shareB, n[1] * d * shareB);
+                    spin(B, offB, [n[0] * d * shareB, n[1] * d * shareB], _contactMid(A, offA, B, offB, n));
+                  } else if (reacts.containsKey(B.layer.id) && it == 0 && s == steps) {
+                    push(B.layer.id, offB, n[0] * d * shareB, n[1] * d * shareB);
+                  }
                 }
                 moved = true;
                 if (s == steps) {
@@ -695,7 +721,10 @@ class PhysicsWorld {
                   if (A.layer.physics.immovable) againstFixed.add(B.layer.id);
                   if (B.layer.physics.immovable) againstFixed.add(A.layer.id);
                   final blocked = (A.layer.pendulum.enabled && B.layer.physics.immovable) || (B.layer.pendulum.enabled && A.layer.physics.immovable);
-                  contacts.add(PhysicsContact(A.layer.id, B.layer.id, A.support(n, offA), n, blocked: blocked));
+                  // (in the middle of where they touch: a flat side against a
+                  // flat side has no one farthest corner - picking one made
+                  // the contact jump from corner to corner frame to frame.)
+                  contacts.add(PhysicsContact(A.layer.id, B.layer.id, _contactMid(A, offA, B, offB, n), n, blocked: blocked));
                 }
               }
             }
@@ -709,7 +738,7 @@ class PhysicsWorld {
         for (var j = i + 1; j < bodies.length; j++) {
           final A = bodies[i], B = bodies[j];
           if (!armed.contains(_pairKey(A.layer.id, B.layer.id))) continue;
-          final gap = math.max(A.layer.physics.gap, B.layer.physics.gap) + 0.5;
+          final gap = pairGap(A.layer, B.layer) + 0.5;
           final inner = _innerPair(A, induced[A.layer.id]!, B, induced[B.layer.id]!);
           final touches = inner != null ? _inner(inner.$1, inner.$2, inner.$3, inner.$4, gap) != null : _sat(A, induced[A.layer.id]!, B, induced[B.layer.id]!, gap) != null;
           if (touches) {
@@ -762,6 +791,65 @@ class PhysicsWorld {
     return _Frame(induced, keyedT, armed, touching, contacts, normals, _frameSig(f), velocity, bend, spinVel);
   }
 
+  /// Scale handles that give (PhysicsSettings.handles): `b`, pushed along
+  /// `m` (unit) by `d`, changes size instead of moving - squashed on the
+  /// side facing the push, or (`growing`) grown on the side the push
+  /// heads to. The side's own handle must be picked (the corner: the
+  /// whole size, about its middle, any side). The middle stays, both
+  /// sides moving; with 'far' the side across stays. False when no picked
+  /// handle takes it (it is pushed as usual).
+  static bool _byHandles(_Body b, List<double> off, List<double> m, double d, {required bool growing}) {
+    final ph = b.layer.physics;
+    if (ph.handles.isEmpty || d <= 1e-9) return false;
+    final lin = b.linear;
+    final lx = math.sqrt(lin[0] * lin[0] + lin[1] * lin[1]), ly = math.sqrt(lin[2] * lin[2] + lin[3] * lin[3]);
+    if (lx < 1e-9 || ly < 1e-9) return false;
+    final ux = [lin[0] / lx, lin[1] / lx], uy = [lin[2] / ly, lin[3] / ly];
+    final px = m[0] * ux[0] + m[1] * ux[1], py = m[0] * uy[0] + m[1] * uy[1];
+    final alongX = px.abs() >= py.abs();
+    final u = alongX ? ux : uy, pu = alongX ? px : py;
+    // squashed: the side facing the push; grown: the side it heads to.
+    final toward = growing ? pu > 0 : pu < 0; // the side on +u
+    final side = alongX ? (toward ? 'right' : 'left') : (toward ? 'bottom' : 'top');
+    final corner = ph.handles.contains('corner');
+    if (!ph.handles.contains(side) && !corner) return false;
+    // its extent along u (with the offset).
+    var lo = double.infinity, hi = -double.infinity;
+    for (final p in b.world) {
+      final v = (p[0] + off[0]) * u[0] + (p[1] + off[1]) * u[1];
+      lo = math.min(lo, v);
+      hi = math.max(hi, v);
+    }
+    if (hi - lo < 1e-6) return false;
+    final move = d * pu.abs();
+    final mid = (lo + hi) / 2;
+    final whole = corner && !ph.handles.contains(side);
+    final far = !whole && ph.handlesKeep == 'far';
+    // what stays (along u) and how far the moving side is from it.
+    final keep = far ? (toward ? lo : hi) : mid;
+    final r = far ? hi - lo : (hi - lo) / 2;
+    final k = ((growing ? r + move : r - move) / r).clamp(0.05, 4.0);
+    while (off.length < 6) {
+      off.add(off.length == 2 || off.length >= 4 ? 1 : 0);
+    }
+    final t = b.pivot;
+    if (whole) {
+      // the whole size about its middle.
+      final c = b.centre(off);
+      off[0] += (k - 1) * (t[0] + off[0] - c[0]);
+      off[1] += (k - 1) * (t[1] + off[1] - c[1]);
+      b.rescale(k);
+      off[2] *= k;
+      return true;
+    }
+    final along = (t[0] + off[0]) * u[0] + (t[1] + off[1]) * u[1] - keep;
+    off[0] += (k - 1) * along * u[0];
+    off[1] += (k - 1) * along * u[1];
+    b.scaleAxis(alongX ? 0 : 1, k);
+    off[alongX ? 4 : 5] *= k;
+    return true;
+  }
+
   /// Where `a` (pushing along `n`, unit) holds `b`: the middle of where
   /// their facing sides overlap - a box resting on a floor is held under
   /// its middle; one hanging past the floor's edge, at the edge (it tips).
@@ -810,6 +898,14 @@ class PhysicsWorld {
       if ((a[1] > p[1]) != (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
     }
     return inside;
+  }
+
+  /// The gap two colliding layers keep: the larger push-apart and the
+  /// deeper sink-in of the two (a negative gap on either lets them sink
+  /// in that far, even when the other keeps none).
+  static double pairGap(Layer a, Layer b) {
+    final x = a.physics.gap, y = b.physics.gap;
+    return math.max(0.0, math.max(x, y)) + math.min(0.0, math.min(x, y));
   }
 
   /// The one inside `o` against the hollow `h`'s walls from within: the
@@ -865,7 +961,10 @@ class PhysicsWorld {
         y0 = math.min(y0, p[1] + off[1]);
         y1 = math.max(y1, p[1] + off[1]);
       }
-      double fix(double lo, double hi, double max) => hi - lo > max ? 0 : (lo < 0 ? -lo : (hi > max ? max - hi : 0));
+      // its gap from the edges too (negative: it may sink past them).
+      final g = b.layer.physics.gap;
+      double fix(double lo, double hi, double max) =>
+          hi - lo > max - 2 * g ? 0 : (lo < g ? g - lo : (hi > max - g ? max - g - hi : 0));
       final dx = fix(x0, x1, w), dy = fix(y0, y1, h);
       if (dx.abs() > 1e-9 || dy.abs() > 1e-9) {
         off[0] += dx;
@@ -1179,6 +1278,13 @@ class _Body {
       ..[1] = sn * a + cs * b
       ..[2] = cs * c - sn * d
       ..[3] = sn * c + cs * d;
+    place(_t);
+  }
+
+  /// Its own x (`axis` 0) or y (1) scaled by `k` about its pivot.
+  void scaleAxis(int axis, double k) {
+    linear[axis * 2] *= k;
+    linear[axis * 2 + 1] *= k;
     place(_t);
   }
 

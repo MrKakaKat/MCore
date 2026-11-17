@@ -1345,14 +1345,19 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                           final open = !widget.app.collapsedTimelineFolders.contains(e.value);
                                           return Positioned(
                                             key: ValueKey('timeline-folder-${e.value}-${e.key}'),
-                                            left: a0 * pixelsPerFrame,
-                                            top: rowTop(e.key) + 5,
-                                            width: math.max(24.0, (b0 - a0) * pixelsPerFrame),
-                                            height: _rowHeight - 10,
+                                            // (the touch area is the whole row and
+                                            // reaches past both ends; the box is
+                                            // drawn inside it.)
+                                            left: a0 * pixelsPerFrame - 14,
+                                            top: rowTop(e.key),
+                                            width: math.max(40.0, (b0 - a0) * pixelsPerFrame) + 28,
+                                            height: _rowHeight,
                                             child: GestureDetector(
                                               behavior: HitTestBehavior.opaque,
                                               onTap: () => widget.app.toggleTimelineFolder(e.value),
-                                              child: Container(
+                                              child: Padding(
+                                                padding: const EdgeInsets.fromLTRB(14, 5, 14, 5),
+                                                child: Container(
                                                 decoration: BoxDecoration(
                                                   border: Border.all(color: Colors.white54, width: 1.5),
                                                   borderRadius: BorderRadius.circular(6),
@@ -1369,6 +1374,7 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                                     ),
                                                   ),
                                                 ]),
+                                              ),
                                               ),
                                             ),
                                           );
@@ -1685,7 +1691,9 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                 ),
                               // pinned: the whole playhead is an (invisible)
                               // play / pause button.
-                              if (pinned && widget.app.playOnPlayheadTap)
+                              // holding it puts a ruler mark at its frame
+                              // (or takes the one there away), as unpinned.
+                              if (pinned)
                                 Positioned(
                                   key: const ValueKey('playhead-play'),
                                   left: halfViewport - 12,
@@ -1694,7 +1702,8 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                   height: effectiveHeight,
                                   child: GestureDetector(
                                     behavior: HitTestBehavior.translucent,
-                                    onTap: widget.app.togglePlay,
+                                    onTap: widget.app.playOnPlayheadTap ? widget.app.togglePlay : null,
+                                    onLongPress: () => widget.app.toggleMarker(widget.app.currentFrame),
                                   ),
                                 ),
                               // the layer action row, under the focused lane.

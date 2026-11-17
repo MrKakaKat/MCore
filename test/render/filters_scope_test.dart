@@ -85,6 +85,40 @@ void main() {
     expect(back[2], closeTo(0.1, 1e-9));
   });
 
+  test('chromatic blur: red and blue pulled apart along the angle', () async {
+    final l = rect('a', '#ffffff', 100, 50, 40)
+      ..filters.blur = Track(40.0, false)
+      ..filters.blurKind = 'chromatic'
+      ..filters.blurCentered = false;
+    final at = await render(Project(layers: [l]));
+    int ch(int v, int i) => (v >> (24 - 8 * i)) & 0xff;
+    final right = at(126, 50), left = at(74, 50);
+    expect(ch(right, 2), greaterThan(ch(right, 0) + 60), reason: 'blue reaches further right');
+    expect(ch(left, 0), greaterThan(ch(left, 2) + 60), reason: 'red further left');
+    final mid = at(100, 50);
+    expect([ch(mid, 0), ch(mid, 1), ch(mid, 2)].every((c) => c > 200), isTrue, reason: 'together in the middle: white');
+  });
+
+  test('blur focus: sharp at the point, blurred away from it', () async {
+    Layer dot(String id, double x) => rect(id, '#ffffff', x, 50, 8)
+      ..filters.blur = Track(30.0, false)
+      ..filters.blurFocus = 'point'
+      ..filters.blurFocusX = 0.2
+      ..filters.blurFocusY = 0.5
+      ..filters.blurFocusSize = 0.08
+      ..filters.blurFocusSoft = 0.05;
+    final at = await render(Project(layers: [dot('a', 40), dot('b', 160)]));
+    expect(at(40, 50) & 0xff, greaterThan(250), reason: 'in focus');
+    expect(at(160, 50) & 0xff, lessThan(150), reason: 'out of focus');
+    // a focus line through the far one instead.
+    final b2 = dot('b', 160)
+      ..filters.blurFocus = 'line'
+      ..filters.blurFocusX = 0.8
+      ..filters.blurFocusAngle = 90;
+    final at2 = await render(Project(layers: [b2]));
+    expect(at2(160, 50) & 0xff, greaterThan(250));
+  });
+
   test('filters round-trip through the project file', () {
     final l = rect('a', '#ffffff', 50, 50, 40)
       ..filters.scope = 'glass'
@@ -96,6 +130,14 @@ void main() {
     expect(back.scope, 'glass');
     expect(back.blur.defaultValue, 5.0);
     expect(back.blurKind, 'zoom');
+    final c = layerFromJson(layerToJson(l
+          ..filters.blurFocus = 'line'
+          ..filters.blurFocusAngle = 30
+          ..filters.blurCentered = false))
+        .filters;
+    expect(c.blurFocus, 'line');
+    expect(c.blurFocusAngle, 30);
+    expect(c.blurCentered, isFalse);
     expect(back.gamma, [0.1, 0, -0.2]);
     expect(back.lightWrap, 0.5);
   });

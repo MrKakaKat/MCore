@@ -59,7 +59,7 @@ class _ExportViewState extends State<ExportView> {
   int _gifStart = 0;
   late int _gifEnd = widget.app.maxFrame;
   // the project's frame rate by default (GIF tops out at 50).
-  double _gifFps = fps.clamp(1, 50).toDouble();
+  double _gifFps = fps.clamp(1, 30).toDouble();
   bool _gifLoopForever = true;
   // GIF transparency: on for a transparent project; turning it on for a
   // project with a background colour leaves that colour out of the GIF.
@@ -69,13 +69,15 @@ class _ExportViewState extends State<ExportView> {
   double _gifQuality = 100;
   int? _gifShort = 480;
 
-  double _videoFps = fps.clamp(1, 60).toDouble();
+  // 30 at most by default (a 60 fps project exports at 30 unless asked).
+  double _videoFps = fps.clamp(1, 30).toDouble();
 
   /// Output resolution (short side px) for video and images; null: the
   /// project's own size.
   int? _outShort;
-  // 'vp9' (WebM) or 'h264' (MP4) - both by the phone's own encoders.
-  String _videoCodec = 'vp9';
+  // 'h264' (MP4) or 'vp9' (WebM) - both by the phone's own encoders. MP4
+  // first; WebM for a transparent project (it keeps the see-through).
+  late String _videoCodec = widget.app.background == null ? 'vp9' : 'h264';
   bool? _hwH264; // null until checked
   bool? _vp9; // null until checked
   // 'low' | 'medium' | 'high' | 'max' (from the size and frame rate), or
@@ -98,7 +100,11 @@ class _ExportViewState extends State<ExportView> {
     _applyAuto(initial: true);
     final vs = widget.app.videoService;
     vs.hardwareH264Available().then((ok) {
-      if (mounted) setState(() => _hwH264 = ok);
+      if (!mounted) return;
+      setState(() {
+        _hwH264 = ok;
+        if (!ok && _videoCodec == 'h264' && _vp9 != false) _videoCodec = 'vp9';
+      });
     }).catchError((_) {
       if (mounted) setState(() => _hwH264 = false);
     });
@@ -155,7 +161,7 @@ class _ExportViewState extends State<ExportView> {
     _ExportKind.gif: ('GIF', Icons.gif_box_outlined, 'A short looping animation, no sound'),
     _ExportKind.video: ('Video', Icons.movie_outlined, 'The whole animation, with its sound'),
     _ExportKind.svg: ('SVG', Icons.polyline_outlined, 'Vectors as the stage shows them: sharp at any size'),
-    _ExportKind.audio: ('Sound', Icons.music_note_outlined, 'Only the sound, all of it mixed'),
+    _ExportKind.audio: ('Audio only', Icons.music_note_outlined, 'Only the sound, all of it mixed'),
   };
 
   @override
@@ -165,7 +171,7 @@ class _ExportViewState extends State<ExportView> {
       _ExportKind.gif,
       _ExportKind.video,
       _ExportKind.svg,
-      if (widget.app.hasAudio) _ExportKind.audio,
+      _ExportKind.audio,
     ];
     final theme = Theme.of(context);
     Widget section(String title, Widget child) => Padding(
@@ -189,7 +195,7 @@ class _ExportViewState extends State<ExportView> {
               // the formats: compact chips, one tap each.
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Wrap(spacing: 6, runSpacing: 6, children: [
+                child: _chipRow([
                   for (final k in kinds)
                     ChoiceChip(
                       key: ValueKey('export-kind-${k.name}'),
@@ -297,6 +303,7 @@ class _ExportViewState extends State<ExportView> {
           size,
         ];
       case _ExportKind.audio:
+        if (!app.hasAudio) return ['Audio only - this project has no sound yet'];
         return [
           _audioFormat == 'wav' ? 'Sound - WAV (exact), ${_sec(_seconds)}' : 'Sound - Opus or AAC, ${_sec(_seconds)}',
           _audioFormat == 'wav'
@@ -340,7 +347,7 @@ class _ExportViewState extends State<ExportView> {
           _kind = _ExportKind.video;
       }
       // the video settings follow the project whichever format leads.
-      _videoFps = math.min(fps, 60).toDouble();
+      _videoFps = math.min(fps, 30).toDouble();
       _videoQualityPreset = 'max';
       _videoSound = true;
       _autoRuns++; // the frame fields show the new range
@@ -363,7 +370,7 @@ class _ExportViewState extends State<ExportView> {
 
   /// Frames per second: the usual rates first (one tap), the slider for
   /// any other.
-  Widget _fpsPresets(double value, double max, String kind, ValueChanged<double> set) => Wrap(spacing: 6, runSpacing: 4, children: [
+  Widget _fpsPresets(double value, double max, String kind, ValueChanged<double> set) => _chipRow([
         for (final r in const [12, 15, 24, 25, 30, 50, 60])
           if (r <= max)
             ChoiceChip(
@@ -374,6 +381,18 @@ class _ExportViewState extends State<ExportView> {
               onSelected: (_) => set(r.toDouble()),
             ),
       ]);
+
+  /// One row of chips that scrolls sideways (like Resolution) instead of
+  /// wrapping onto more lines.
+  Widget _chipRow(List<Widget> chips) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          for (var i = 0; i < chips.length; i++) ...[
+            if (i > 0) const SizedBox(width: 6),
+            chips[i],
+          ],
+        ]),
+      );
 
   Widget _summary(List<String> lines, {Key key = const ValueKey('export-summary')}) => Container(
         key: key,
@@ -397,7 +416,7 @@ class _ExportViewState extends State<ExportView> {
     }
 
     return _group('Resolution: ${size(_outShort)} px', [
-      SingleChildScrollView(scrollDirection: Axis.horizontal, child: Wrap(spacing: 6, children: [
+      _chipRow([
         ChoiceChip(
           key: const ValueKey('export-res-project'),
           label: const Text('Project'),
@@ -411,7 +430,7 @@ class _ExportViewState extends State<ExportView> {
             selected: _outShort == px,
             onSelected: (_) => setState(() => _outShort = px),
           ),
-      ])),
+      ]),
     ], hint: 'Shapes and text stay sharp at any size; pictures and video layers are only as sharp as they came in');
   }
 
@@ -421,7 +440,7 @@ class _ExportViewState extends State<ExportView> {
       children: [
         _resolutionGroup(),
         _group('Format', [
-          Wrap(spacing: 6, children: [
+          _chipRow([
             ChoiceChip(label: const Text('PNG'), selected: _imageFormat == 'png', onSelected: (_) => setState(() => _imageFormat = 'png')),
             ChoiceChip(label: const Text('JPG'), selected: _imageFormat == 'jpg', onSelected: (_) => setState(() => _imageFormat = 'jpg')),
           ]),
@@ -510,7 +529,7 @@ class _ExportViewState extends State<ExportView> {
     }
 
     return _group('Size: ${size(_gifShort)} px', [
-      SingleChildScrollView(scrollDirection: Axis.horizontal, child: Wrap(spacing: 6, children: [
+      _chipRow([
         for (final px in const [240, 360, 480, 720])
           if (px < short)
             ChoiceChip(
@@ -525,7 +544,7 @@ class _ExportViewState extends State<ExportView> {
           selected: _gifShort == null || _gifShort! >= short,
           onSelected: (_) => setState(() => _gifShort = null),
         ),
-      ])),
+      ]),
     ], hint: 'Smaller is much faster and lighter; GIFs are usually 360-480p');
   }
 
@@ -537,18 +556,18 @@ class _ExportViewState extends State<ExportView> {
       children: [
         _resolutionGroup(),
         _group('File type', [
-          Wrap(spacing: 6, children: [
-            ChoiceChip(
-              key: const ValueKey('codec-vp9'),
-              label: Text(_vp9 == false ? 'WebM (VP9) - not on this phone' : 'WebM (VP9)'),
-              selected: _videoCodec == 'vp9',
-              onSelected: _vp9 == false ? null : (_) => setState(() => _videoCodec = 'vp9'),
-            ),
+          _chipRow([
             ChoiceChip(
               key: const ValueKey('codec-h264'),
               label: Text(_hwH264 == false ? 'MP4 (H.264) - not on this phone' : 'MP4 (H.264)'),
               selected: _videoCodec == 'h264',
               onSelected: _hwH264 == false ? null : (_) => setState(() => _videoCodec = 'h264'),
+            ),
+            ChoiceChip(
+              key: const ValueKey('codec-vp9'),
+              label: Text(_vp9 == false ? 'WebM (VP9) - not on this phone' : 'WebM (VP9)'),
+              selected: _videoCodec == 'vp9',
+              onSelected: _vp9 == false ? null : (_) => setState(() => _videoCodec = 'vp9'),
             ),
           ]),
         ]),
@@ -557,7 +576,7 @@ class _ExportViewState extends State<ExportView> {
           Slider(value: _videoFps, min: 1, max: 60, divisions: 59, onChanged: (v) => setState(() => _videoFps = v)),
         ]),
         _group('Picture quality', [
-          Wrap(spacing: 6, children: [
+          _chipRow([
             for (final (key, label) in const [('low', 'Low'), ('medium', 'Medium'), ('high', 'High'), ('max', 'Best'), ('custom', 'Custom')])
               ChoiceChip(
                 key: ValueKey('quality-$key'),
@@ -594,7 +613,7 @@ class _ExportViewState extends State<ExportView> {
 
   /// The sound's quality, kbit/s.
   Widget _audioQualityGroup() => _group('Sound quality: $_audioKbps kbit/s', [
-        Wrap(spacing: 6, children: [
+        _chipRow([
           for (final k in const [96, 128, 160, 256, 320])
             ChoiceChip(
               key: ValueKey('audio-kbps-$k'),
@@ -607,7 +626,7 @@ class _ExportViewState extends State<ExportView> {
 
   Widget _buildAudioSection() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         _group('File type', [
-          Wrap(spacing: 6, children: [
+          _chipRow([
             ChoiceChip(
               key: const ValueKey('audio-format-compressed'),
               label: const Text('Opus / AAC'),
@@ -986,7 +1005,7 @@ final Set<String> _issuedExportNames = {};
   }
   final big = math.max(width, height) > 720;
   if (!hasSound && !hasMedia && seconds <= 8 && !big) {
-    final gifFps = (seconds <= 3 ? math.min(projectFps, 50) : math.min(projectFps, 25)).toDouble();
+    final gifFps = (seconds <= 3 ? math.min(projectFps, 30) : math.min(projectFps, 25)).toDouble();
     return (
       kind: 'gif',
       fps: gifFps,
@@ -995,7 +1014,7 @@ final Set<String> _issuedExportNames = {};
       reason: 'short (${seconds.toStringAsFixed(1)} s), small, no sound - GIF at ${gifFps.round()} fps'
     );
   }
-  final videoFps = math.min(projectFps, 60).toDouble();
+  final videoFps = math.min(projectFps, 30).toDouble();
   final kbps = ((width * height * videoFps * 0.1 / 1000).clamp(800, 16000) / 100).round() * 100;
   return (
     kind: 'video',

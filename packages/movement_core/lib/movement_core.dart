@@ -11,6 +11,7 @@ export 'core/state_cache.dart';
 export 'effects/builtins/builtins.dart';
 export 'effects/builtins/corner_pin.dart' show isPinEffect, pinEdges;
 export 'effects/builtins/outline.dart' show outlineSmoothness;
+export 'effects/builtins/wave.dart' show waveGrid;
 export 'effects/builtins/origami_fold.dart'
     show
         origamiGrid,

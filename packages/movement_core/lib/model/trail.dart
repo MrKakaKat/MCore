@@ -69,3 +69,46 @@ List<List<List<double>>> trailPolylines(Project project, Layer layer, int global
   }
   return out;
 }
+
+/// The trail as it shows: with a length limit only its newest `limit` px
+/// (the oldest part gone; a run cut through where the limit falls).
+List<List<List<double>>> trimTrail(List<List<List<double>>> lines, double limit) {
+  if (limit <= 0) return lines;
+  final out = <List<List<double>>>[];
+  var left = limit;
+  for (var r = lines.length - 1; r >= 0 && left > 0; r--) {
+    final run = lines[r];
+    final kept = <List<double>>[run.last];
+    for (var i = run.length - 1; i > 0 && left > 0; i--) {
+      final a = run[i], b = run[i - 1];
+      final d = math.sqrt(math.pow(a[0] - b[0], 2) + math.pow(a[1] - b[1], 2));
+      if (d <= left) {
+        kept.add(b);
+        left -= d;
+      } else {
+        final t = left / d;
+        kept.add([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+        left = 0;
+      }
+    }
+    out.insert(0, kept.reversed.toList());
+  }
+  return out;
+}
+
+/// The trail the point shows at `globalFrame` (its length limit applied).
+List<List<List<double>>> visibleTrail(Project project, Layer layer, int globalFrame) =>
+    trimTrail(trailPolylines(project, layer, globalFrame), layer.content.trailLength);
+
+/// Points closer than `minGap` px to the last kept one dropped (the ends
+/// kept): a trail made into a line keeps its shape with fewer points.
+List<List<double>> thinPolyline(List<List<double>> pts, double minGap) {
+  if (pts.length <= 2) return pts;
+  final out = <List<double>>[pts.first];
+  for (var i = 1; i < pts.length - 1; i++) {
+    final p = pts[i], q = out.last;
+    if ((p[0] - q[0]).abs() + (p[1] - q[1]).abs() >= minGap) out.add(p);
+  }
+  out.add(pts.last);
+  return out;
+}
