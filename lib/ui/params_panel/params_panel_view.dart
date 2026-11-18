@@ -640,8 +640,23 @@ class ParamsPanelView extends StatelessWidget {
   /// else the position's own keys.
   Track _pathTrack(Layer layer) {
     final base = layer.transform.anchor;
-    if (activeAnimLayerOf(base) != null) return editTrackOf(base);
-    return latestFreeMove(layer) ?? base;
+    if (activeAnimLayerOf(base) != null && editTrackOf(base).keyframes.where((k) => !k.passive).length >= 2) {
+      return editTrackOf(base);
+    }
+    // the keys round the playhead (the object's own, a free move's, any
+    // key layer's), else any with two keys, else its own.
+    final f = layerLocalFrame(layer, app.currentFrame).toDouble();
+    final fm = latestFreeMove(layer);
+    final all = [base, if (fm != null) fm, for (final a in base.animLayers.reversed) if (a.enabled) a.track];
+    List<Keyframe> keys(Track t) => [for (final k in t.keyframes) if (!k.passive) k];
+    for (final t in all) {
+      final ks = keys(t);
+      if (ks.length >= 2 && f >= ks.first.frame && f <= ks.last.frame) return t;
+    }
+    for (final t in all) {
+      if (keys(t).length >= 2) return t;
+    }
+    return base;
   }
 
   Widget _pathControls(BuildContext context, Track anchor) {
@@ -701,9 +716,8 @@ class ParamsPanelView extends StatelessWidget {
         // handle dragged by hand to bend the path; off: worked out from
         // the tension again.
         Builder(builder: (context) {
-          final l = findLayer(app.project, app.selection.selectedLayer);
-          final t = l == null ? null : editTrackOf(l.transform.anchor);
-          if (t == null || !t.spatial && activeAnimLayerOf(l!.transform.anchor) == null) return const SizedBox.shrink();
+          final t = anchor;
+          if (!t.spatial) return const SizedBox.shrink();
           return Row(children: [
             const SizedBox(width: 90, child: Text('Curve handles')),
             Checkbox(

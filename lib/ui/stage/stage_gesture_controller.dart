@@ -530,7 +530,7 @@ class StageGestureController {
       return ActiveDragInfo(
           family: 'path',
           activeKey: null,
-          op: TangentDragOp(layer: layer, idx: bestTan.idx, out: bestTan.out, station: bestTan.station));
+          op: TangentDragOp(layer: layer, idx: bestTan.idx, out: bestTan.out, station: bestTan.station, track: bestTan.track));
     }
 
     // tier 2: existing path stations - on a tie, the LATER keyframe

@@ -23,4 +23,29 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('param-ease')), findsWidgets);
   });
+
+  testWidgets('anchor keyed only in a key layer that is not being edited: its way settings are there', (tester) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    activeAnimLayer = 0;
+    final app = AppState();
+    final l = findLayer(app.project, app.selection.selectedLayer)!;
+    l.transform.anchor.keyframes.clear();
+    addTransformAnimLayer(l);
+    final n = addTransformAnimLayer(l);
+    l.transform.anchor.animLayers[n - 2].track.keyframes = [
+      Keyframe(frame: 0, value: <double>[0.0, 0.0]),
+      Keyframe(frame: 20, value: <double>[0.1, 0.0]),
+    ];
+    activeAnimLayer = 0;
+    app.setFrame(l.startFrame + 10);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: SizedBox(height: 2300, child: ParamsPanelView(app: app)))));
+    await tester.pumpAndSettle();
+    // the anchor fold opened.
+    await tester.tap(find.text('Anchor').first);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('path-hand-tangents')), findsOneWidget);
+    expect(find.text('Constant speed'), findsOneWidget);
+  });
 }

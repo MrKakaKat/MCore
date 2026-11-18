@@ -173,4 +173,23 @@ void main() {
     expect(ks.map((k) => k.frame), contains(7));
     expect(ks.map((k) => k.frame).toList(), equals([...ks.map((k) => k.frame)]..sort()));
   });
+
+  testWidgets('loop: which key it repeats from and until when', (tester) async {
+    layer.transform.rotation.keyframes.add(Keyframe(frame: 70, value: 30.0));
+    await pumpView(tester);
+    await tester.tap(find.byKey(const ValueKey('loop-all')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('loop-range')), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('loop-from-${layer.startFrame + 40}')));
+    await tester.pumpAndSettle();
+    expect(layer.transform.rotation.loopFrom, 40);
+    app.setFrame(layer.startFrame + 150);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('loop-until-here')));
+    await tester.pumpAndSettle();
+    expect(layer.transform.rotation.loopEnd, 150);
+    await tester.tap(find.byKey(const ValueKey('loop-until-clear')));
+    await tester.pumpAndSettle();
+    expect(layer.transform.rotation.loopEnd, isNull);
+  });
 }

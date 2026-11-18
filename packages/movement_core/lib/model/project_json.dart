@@ -78,6 +78,8 @@ Map<String, dynamic> trackToJson(Track t) => {
       if (t.freeMoveSpan != null) 'freeMoveSpan': t.freeMoveSpan,
       if (t.loopMin != null) 'loopMin': t.loopMin,
       if (t.loopMax != null) 'loopMax': t.loopMax,
+      if (t.loopFrom != null) 'loopFrom': t.loopFrom,
+      if (t.loopEnd != null) 'loopEnd': t.loopEnd,
       if (t.tension != null) 'tension': t.tension,
       if (t.handTangents) 'handTangents': true,
       if (t.openedAt != null) 'openedAt': t.openedAt,
@@ -102,6 +104,8 @@ Track trackFromJson(Map<String, dynamic> j) {
   t.freeMoveSpan = (j['freeMoveSpan'] as List?)?.map((e) => (e as num).toInt()).toList();
   t.loopMin = (j['loopMin'] as num?)?.toDouble();
   t.loopMax = (j['loopMax'] as num?)?.toDouble();
+  t.loopFrom = (j['loopFrom'] as num?)?.toInt();
+  t.loopEnd = (j['loopEnd'] as num?)?.toInt();
   t.tension = (j['tension'] as num?)?.toDouble();
   t.handTangents = j['handTangents'] == true;
   t.openedAt = (j['openedAt'] as num?)?.toInt();

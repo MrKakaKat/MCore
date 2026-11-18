@@ -231,9 +231,10 @@ int? loopOffsetPasses(Track trk) {
   final kfs = trk.keyframes;
   if (!trk.loop || trk.loopMode != 'offset' || kfs.length < 2) return null;
   if (trk.loopMin == null && trk.loopMax == null) return null;
-  if (!_numericKey(kfs.first.value) || !_numericKey(kfs.last.value)) return null;
+  final start = loopStartKey(trk);
+  if (!_numericKey(start.value) || !_numericKey(kfs.last.value)) return null;
   List<double> asList(dynamic v) => v is List ? [for (final e in v) (e as num).toDouble()] : [(v as num).toDouble()];
-  final a = asList(kfs.first.value), b = asList(kfs.last.value);
+  final a = asList(start.value), b = asList(kfs.last.value);
   int? best;
   for (var i = 0; i < b.length && i < a.length; i++) {
     final d = b[i] - a[i];
@@ -252,7 +253,20 @@ int? loopStopFrame(Track trk) {
   final passes = loopOffsetPasses(trk);
   if (passes == null) return null;
   final kfs = trk.keyframes;
-  return kfs.last.frame + passes * (kfs.last.frame - kfs.first.frame);
+  return kfs.last.frame + passes * (kfs.last.frame - loopStartKey(trk).frame);
+}
+
+/// Loop: the key it repeats from - `loopFrom`'s (or the last key before
+/// it), else its first; never its last.
+Keyframe loopStartKey(Track trk) {
+  final kfs = trk.keyframes;
+  final from = trk.loopFrom;
+  if (from == null) return kfs.first;
+  var k = kfs.first;
+  for (var i = 0; i < kfs.length - 1; i++) {
+    if (kfs[i].frame <= from) k = kfs[i];
+  }
+  return k;
 }
 
 /// `base` with the track's enabled animation layers on top (all of them,
@@ -377,17 +391,24 @@ dynamic _evaluateOwn(Project? project, Track trk, double localFrame, [Layer? lay
   if (kfs.isEmpty) return trk.defaultValue;
 
   var frame = localFrame;
+  // a loop stopping at a frame: after it, where it got to there.
+  final stop = trk.loopEnd;
+  if (trk.loop && kfs.length >= 2 && stop != null && stop > kfs.last.frame && frame > stop) {
+    return _evaluateOwn(project, trk, stop.toDouble(), layer);
+  }
   // loop: once past the last keyframe, wrap localFrame back into the
   // [first,last] span instead of holding at the final value - needs
-  // 2+ keyframes to define a cycle length at all.
+  // 2+ keyframes to define a cycle length at all. (From its loop key:
+  // the keys before it play once.)
   if (trk.loop && kfs.length >= 2 && frame > kfs.last.frame) {
-    final first = kfs.first.frame, last = kfs.last.frame;
+    final startKey = loopStartKey(trk);
+    final first = startKey.frame, last = kfs.last.frame;
     final span = last - first;
     // offset: each pass goes on from where the one before ended.
-    if (span > 0 && trk.loopMode == 'offset' && _numericKey(kfs.first.value) && _numericKey(kfs.last.value)) {
+    if (span > 0 && trk.loopMode == 'offset' && _numericKey(startKey.value) && _numericKey(kfs.last.value)) {
       final n = ((frame - first) / span).floor();
       final passes = loopOffsetPasses(trk);
-      final delta = residualValue(kfs.last.value, kfs.first.value, false);
+      final delta = residualValue(kfs.last.value, startKey.value, false);
       dynamic times(dynamic d, int k) => d is List ? [for (final x in d) (x as num) * k] : (d as num) * k;
       // stopped: held where the last allowed pass ended.
       if (passes != null && n > passes) {

@@ -290,6 +290,14 @@ class Track {
   String loopMode = 'repeat';
   double? loopMin, loopMax;
 
+  /// Loop: the key it repeats from (local frame; the keys before it play
+  /// once) - null: its first key.
+  int? loopFrom;
+
+  /// Loop: the local frame it stops repeating at - after it, it holds
+  /// where it got to. Null: on to the end.
+  int? loopEnd;
+
   /// A free move's way (Movement, Free move): its passive keys belong to
   /// its two end keys - they keep their share of the time between them
   /// when those move, and go with them when one is taken away.
@@ -2603,6 +2611,8 @@ Track cloneTrack(Track src) {
   t.freeMoveSpan = src.freeMoveSpan == null ? null : [...src.freeMoveSpan!];
   t.loopMin = src.loopMin;
   t.loopMax = src.loopMax;
+  t.loopFrom = src.loopFrom;
+  t.loopEnd = src.loopEnd;
   t.tension = src.tension;
   t.handTangents = src.handTangents;
   t.openedAt = src.openedAt;

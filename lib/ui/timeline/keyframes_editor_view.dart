@@ -187,7 +187,78 @@ class KeyframesEditorView extends StatelessWidget {
             app.commitEdit();
           },
         ),
+      // which keys repeat (from which key to the last) and until when.
+      if (anyLoop) _loopRange(layer, tracks),
     ]);
+  }
+
+  Widget _loopRange(Layer layer, Map<String, Track> tracks) {
+    final starts = loopStartFrames(layer);
+    final looping = tracks.values.where((t) => t.loop).toList();
+    final from = looping.map((t) => t.loopFrom).firstWhere((f) => f != null, orElse: () => null);
+    final end = looping.map((t) => t.loopEnd).firstWhere((f) => f != null, orElse: () => null);
+    void set({required int? from, required int? end}) {
+      app.pushUndo();
+      setLayerLoopRange(layer, from: from, end: end);
+      app.commitEdit();
+    }
+
+    final g0 = layer.startFrame;
+    return Padding(
+      key: const ValueKey('loop-range'),
+      padding: const EdgeInsets.only(left: 4, top: 2, bottom: 4),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Repeats from key', style: TextStyle(fontSize: 12)),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: [
+            for (final f in starts)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: ChoiceChip(
+                  key: ValueKey('loop-from-${f + g0}'),
+                  label: Text('${f + g0}', style: const TextStyle(fontSize: 12)),
+                  visualDensity: VisualDensity.compact,
+                  selected: (from ?? starts.first) == f,
+                  onSelected: (_) => set(from: f == starts.first ? null : f, end: end),
+                ),
+              ),
+          ]),
+        ),
+        const SizedBox(height: 4),
+        Row(children: [
+          const Text('until frame', style: TextStyle(fontSize: 12)),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 72,
+            child: TextField(
+              key: ValueKey('loop-until-$end'),
+              controller: TextEditingController(text: end == null ? '' : '${end + g0}'),
+              keyboardType: TextInputType.number,
+              style: const TextStyle(fontSize: 13),
+              decoration: const InputDecoration(isDense: true, hintText: 'the end'),
+              onSubmitted: (v) {
+                final g = int.tryParse(v.trim());
+                set(from: from, end: g == null ? null : g - g0);
+              },
+            ),
+          ),
+          TextButton(
+            key: const ValueKey('loop-until-here'),
+            onPressed: () => set(from: from, end: app.currentFrame - g0),
+            child: Text('here (${app.currentFrame})'),
+          ),
+          if (end != null)
+            IconButton(
+              key: const ValueKey('loop-until-clear'),
+              tooltip: 'on to the end',
+              icon: const Icon(Icons.close, size: 16),
+              visualDensity: VisualDensity.compact,
+              onPressed: () => set(from: from, end: null),
+            ),
+        ]),
+      ]),
+    );
   }
 
   /// A parameter whose key at `localFrame` ends a transition (one before

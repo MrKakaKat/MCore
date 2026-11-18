@@ -294,3 +294,28 @@ Map<String, ({List<int> keys, List<(int, int)> spans})> keyDetailLoopGhosts(Laye
   });
   return out;
 }
+
+/// Loop range for every looping keyed parameter of `layer`: it repeats
+/// from its key at local frame `from` (the keys before play once; null:
+/// from its first) and stops repeating at local frame `end` (null: on to
+/// the end). Each parameter takes its own key at or before `from`.
+void setLayerLoopRange(Layer layer, {required int? from, required int? end}) {
+  keyedTracksOf(layer).forEach((_, t) {
+    if (!t.loop) return;
+    t.loopFrom = from == null || from <= t.keyframes.first.frame ? null : from;
+    t.loopEnd = end;
+  });
+}
+
+/// The frames (local) a loop can start from: keys of the looping
+/// parameters, their last ones left out.
+List<int> loopStartFrames(Layer layer) {
+  final out = <int>{};
+  keyedTracksOf(layer).forEach((_, t) {
+    if (!t.loop) return;
+    for (var i = 0; i < t.keyframes.length - 1; i++) {
+      if (!t.keyframes[i].passive) out.add(t.keyframes[i].frame);
+    }
+  });
+  return out.toList()..sort();
+}

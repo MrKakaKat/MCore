@@ -822,7 +822,10 @@ class PathTangentHandle {
   final int idx;
   final bool out;
   final List<double> station, screen;
-  PathTangentHandle({required this.idx, required this.out, required this.station, required this.screen});
+
+  /// The position track its key is in.
+  final Track track;
+  PathTangentHandle({required this.idx, required this.out, required this.station, required this.screen, required this.track});
 }
 
 /// How the position's own values change per stage px at `screen`, frame
@@ -837,25 +840,28 @@ List<double> _screenPerLocal(Project project, Layer layer, List<double> screen, 
   return [d / det, -b / det, -c / det, a / det];
 }
 
-/// The path's curve handles, when they are set by hand (the edited
-/// position track's `handTangents`): two a key, its passive ones left out.
+/// The path's curve handles, where they are set by hand (a position
+/// track's `handTangents` - the object's own, or a key layer's): two a
+/// key, its passive ones left out.
 List<PathTangentHandle> getPathTangentHandlesScreen(Project project, Layer layer) {
-  final trk = editTrackOf(layer.transform.anchor);
-  final kfs = trk.keyframes;
-  if (!trk.handTangents || kfs.length < 2 || kfs.first.value is! List) return const [];
+  final anchor = layer.transform.anchor;
   final out = <PathTangentHandle>[];
-  for (var i = 0; i < kfs.length; i++) {
-    final k = kfs[i];
-    if (k.passive) continue;
-    final g = k.frame + layer.startFrame;
-    final st = pathPointAt(project, layer, g);
-    final m = _screenPerLocal(project, layer, st, g);
-    List<double> at(List<double> t) => [st[0] + m[0] * t[0] + m[2] * t[1], st[1] + m[1] * t[0] + m[3] * t[1]];
-    // a handle pulled onto its key is left out (the key is picked there).
-    bool apart(List<double> p) => math.sqrt(math.pow(p[0] - st[0], 2) + math.pow(p[1] - st[1], 2)) > 4;
-    final hi = at(k.spatialTangent.inTan), ho = at(k.spatialTangent.outTan);
-    if (i > 0 && apart(hi)) out.add(PathTangentHandle(idx: i, out: false, station: st, screen: hi));
-    if (i < kfs.length - 1 && apart(ho)) out.add(PathTangentHandle(idx: i, out: true, station: st, screen: ho));
+  for (final trk in [anchor, for (final a in anchor.animLayers) if (a.enabled) a.track]) {
+    final kfs = trk.keyframes;
+    if (!trk.handTangents || kfs.length < 2 || kfs.first.value is! List) continue;
+    for (var i = 0; i < kfs.length; i++) {
+      final k = kfs[i];
+      if (k.passive) continue;
+      final g = k.frame + layer.startFrame;
+      final st = pathPointAt(project, layer, g);
+      final m = _screenPerLocal(project, layer, st, g);
+      List<double> at(List<double> t) => [st[0] + m[0] * t[0] + m[2] * t[1], st[1] + m[1] * t[0] + m[3] * t[1]];
+      // a handle pulled onto its key is left out (the key is picked there).
+      bool apart(List<double> p) => math.sqrt(math.pow(p[0] - st[0], 2) + math.pow(p[1] - st[1], 2)) > 4;
+      final hi = at(k.spatialTangent.inTan), ho = at(k.spatialTangent.outTan);
+      if (i > 0 && apart(hi)) out.add(PathTangentHandle(idx: i, out: false, station: st, screen: hi, track: trk));
+      if (i < kfs.length - 1 && apart(ho)) out.add(PathTangentHandle(idx: i, out: true, station: st, screen: ho, track: trk));
+    }
   }
   return out;
 }
@@ -867,14 +873,17 @@ class TangentDragOp implements DragOp {
   final int idx;
   final bool out;
   final List<double> station;
-  TangentDragOp({required this.layer, required this.idx, required this.out, required this.station});
+
+  /// The position track its key is in (null: the one being edited).
+  final Track? track;
+  TangentDragOp({required this.layer, required this.idx, required this.out, required this.station, this.track});
 
   @override
   List<SnapGuideLine> get snapGuides => const [];
 
   @override
   void apply(Project project, int globalFrame, List<double> framePoint) {
-    final trk = editTrackOf(layer.transform.anchor);
+    final trk = track ?? editTrackOf(layer.transform.anchor);
     if (idx >= trk.keyframes.length) return;
     final k = trk.keyframes[idx];
     final g = k.frame + layer.startFrame;
