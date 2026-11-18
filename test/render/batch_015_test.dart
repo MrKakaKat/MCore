@@ -194,9 +194,9 @@ void main() {
     expect((m.transform.anchor.defaultValue as List)[0], closeTo(0.5, 0.01));
   });
 
-  test('a new parent link follows position only', () {
+  test('a new parent link takes nothing from the parent until switched on', () {
     final l = createLayer('rect');
     newParentLinkDefaults(l);
-    expect([l.inheritPosition, l.inheritRotation, l.inheritScale], [true, false, false]);
+    expect([l.inheritPosition, l.inheritRotation, l.inheritScale], [false, false, false]);
   });
 }

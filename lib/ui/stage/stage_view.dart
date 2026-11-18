@@ -287,6 +287,7 @@ class _StageViewState extends State<StageView> {
               key: const ValueKey('free-move-path'),
               painter: _FreeMovePathPainter(
                   [for (final p in widget.app.freeMoveShownPath) _camera.frameToScreen(Offset(p[0], p[1]))],
+                  ghost: [for (final p in widget.app.freeMoveSilhouette) _camera.frameToScreen(Offset(p[0], p[1]))],
                   end: widget.app.freeMoveReplace && widget.app.freeMoveEnd != null
                       ? _camera.frameToScreen(Offset(widget.app.freeMoveEnd![0], widget.app.freeMoveEnd![1]))
                       : null),
@@ -741,10 +742,23 @@ class _FreeMovePathPainter extends CustomPainter {
 
   /// Drawing anew between keys: where the way must end (a ring there).
   final Offset? end;
-  _FreeMovePathPainter(this.points, {this.end});
+
+  /// The object's outline where the way has got to.
+  final List<Offset> ghost;
+  _FreeMovePathPainter(this.points, {this.end, this.ghost = const []});
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (ghost.length >= 3) {
+      final g = Path()..addPolygon(ghost, true);
+      canvas.drawPath(g, Paint()..color = const Color(0x33FFB74D));
+      canvas.drawPath(
+          g,
+          Paint()
+            ..color = const Color(0xCCFFB74D)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5);
+    }
     final e = end;
     if (e != null) {
       canvas.drawCircle(e, 11, Paint()..color = const Color(0x55FFB74D));
@@ -780,5 +794,5 @@ class _FreeMovePathPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_FreeMovePathPainter old) => old.points != points || old.end != end;
+  bool shouldRepaint(_FreeMovePathPainter old) => old.points != points || old.end != end || old.ghost != ghost;
 }

@@ -360,8 +360,23 @@ List<double> parentMatrixFor(Project project, Layer layer, num globalFrame) {
   if (layer.inheritPosition && layer.inheritRotation && layer.inheritScale && !layer.parentKeepDifference) return now;
   final ref = getLayerStateAt(project, pid, layer.startFrame).matrix;
   final a = decomposeAffine(now), r = decomposeAffine(ref);
+  var pos = layer.inheritPosition ? a.pos : r.pos;
+  // its turn not followed: the parent turning round a point of its own
+  // (not its anchor) moves its anchor round that point - the child follows
+  // where that point is instead, so the parent's turn doesn't move it.
+  final ro = findLayer(project, pid)?.rotateOrigin;
+  if (layer.inheritPosition && !layer.inheritRotation && ro != null) {
+    List<double> pivot(({List<double> pos, double rot, List<double> scale}) d, double rot) {
+      final x = ro[0] * d.scale[0], y = ro[1] * d.scale[1];
+      final t = rot * math.pi / 180, cs = math.cos(t), sn = math.sin(t);
+      return [(x * cs - y * sn) / stageSize.width, (x * sn + y * cs) / stageSize.height];
+    }
+
+    final now = pivot(a, a.rot), kept = pivot(a, r.rot);
+    pos = [a.pos[0] + now[0] - kept[0], a.pos[1] + now[1] - kept[1]];
+  }
   return mm.matFromTRS(
-    layer.inheritPosition ? a.pos : r.pos,
+    pos,
     layer.inheritRotation ? a.rot : r.rot,
     // keep the difference: the parent's growth is added to the child's
     // size (see keepDifferenceScale), not to the distances.

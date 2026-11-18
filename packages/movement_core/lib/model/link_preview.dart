@@ -50,3 +50,10 @@ List<List<double>>? linkPreviewOutline(Project project, Layer layer, int globalF
   if (pts.length < 2) return null;
   return [for (final p in pts) mm.applyAffine(f, p)];
 }
+
+/// The layer's outline (frame px) as it is at `globalFrame`.
+List<List<double>> layerOutlineAt(Project project, Layer layer, int globalFrame) {
+  final m = getLayerStateAt(project, layer.id, globalFrame).matrix;
+  final f = [m[0], m[1], m[2], m[3], m[4] * stageSize.width, m[5] * stageSize.height];
+  return [for (final p in getContentOutline(layer.content, layer, globalFrame, project: project)) mm.applyAffine(f, p)];
+}

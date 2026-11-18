@@ -426,11 +426,11 @@ void deleteLayer(Project project, Selection selection, String layerId, int globa
 }
 
 /// Frame rates the project can run at (Settings).
-/// A layer getting a parent: it follows the parent's position only - its
-/// turn and size are switched on by hand (Movement tab).
+/// A layer getting a parent: it takes nothing from it yet - its place,
+/// turn and size are each switched on by hand (Movement tab).
 void newParentLinkDefaults(Layer layer) {
   layer
-    ..inheritPosition = true
+    ..inheritPosition = false
     ..inheritRotation = false
     ..inheritScale = false;
 }

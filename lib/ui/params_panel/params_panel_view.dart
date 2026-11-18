@@ -336,6 +336,12 @@ class ParamsPanelView extends StatelessWidget {
             ],
           ),
         ),
+        if (!layer.inheritPosition && !layer.inheritRotation && !layer.inheritScale)
+          const Padding(
+            padding: EdgeInsets.only(left: 56, top: 2),
+            child: Text('It takes nothing from the parent yet: switch on what it should follow.',
+                style: TextStyle(fontSize: 11, color: Colors.grey)),
+          ),
         // a link for a time only: it starts / ends at a frame, and the
         // child keeps its place there.
         Padding(

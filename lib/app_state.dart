@@ -1845,6 +1845,18 @@ class AppState extends ChangeNotifier {
           if (findLayer(project, id) != null) id,
       };
 
+  /// `ids` become the selection together (they move together on the
+  /// timeline); the selected layer stays the main one when it is among
+  /// them.
+  void selectLayerGroup(List<String> ids) {
+    final ok = [for (final id in ids) if (findLayer(project, id) != null) id];
+    if (ok.isEmpty) return;
+    final main = ok.contains(selection.selectedLayer) ? selection.selectedLayer! : ok.first;
+    if (main != selection.selectedLayer) selectLayer(main);
+    multiSelection = ok.where((id) => id != main).toSet();
+    notifyListeners();
+  }
+
   /// Adds `id` to the selection (or takes it out). With nothing selected
   /// yet it just becomes the selected layer.
   void toggleMultiSelect(String id) {
@@ -3145,6 +3157,16 @@ class AppState extends ChangeNotifier {
     final end = freeMoveEnd;
     if (!freeMoveReplace || end == null || freeMovePath.length < 2) return freeMovePath;
     return fitWayToEnds(freeMovePath, freeMovePath.first, end);
+  }
+
+  /// Drawing a move: the object's outline where the way has got to (its
+  /// outline now, carried along).
+  List<List<double>> get freeMoveSilhouette {
+    final way = freeMoveShownPath;
+    final l = findLayer(project, selection.selectedLayer);
+    if (way.length < 2 || l == null) return const [];
+    final dx = way.last[0] - way.first[0], dy = way.last[1] - way.first[1];
+    return [for (final p in layerOutlineAt(project, l, currentFrame)) [p[0] + dx, p[1] + dy]];
   }
 
   /// Starts drawing the way between the two picked keys anew (from the

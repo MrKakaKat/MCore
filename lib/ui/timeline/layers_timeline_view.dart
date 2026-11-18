@@ -961,6 +961,37 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
   /// The selection last seen (see build: focus follows it).
   String? _seenSelected;
 
+  /// A folder row held: where the finger started (its layers move by as
+  /// much).
+  double? _folderDragX;
+
+  void _holdFolder(List<Layer> members, double x) {
+    if (members.isEmpty || widget.app.timelineHandlesLocked) return;
+    final ids = [for (final l in members) l.id];
+    widget.app.selectLayerGroup(ids);
+    setState(() => _focusedLayerId = widget.app.selection.selectedLayer);
+    _folderDragX = x;
+    widget.app.beginLayerDrag(widget.app.selection.selectedLayer!, LayerDragMode.move);
+  }
+
+  void _endFolderHold() {
+    if (_folderDragX == null) return;
+    _folderDragX = null;
+    widget.app.endLayerDrag();
+  }
+
+  /// Picking several: a folder's layers added together (taken out when
+  /// they are all in already).
+  void _pickFolder(List<Layer> members) {
+    if (members.isEmpty) return;
+    final group = widget.app.selectedGroup;
+    final ids = [for (final l in members) l.id];
+    final allIn = ids.every(group.contains);
+    final next = allIn ? [for (final id in group) if (!ids.contains(id)) id] : [...group, ...ids.where((id) => !group.contains(id))];
+    if (next.isEmpty) return;
+    widget.app.selectLayerGroup(next);
+  }
+
   /// The rows' own (up / down) scroll.
   final ScrollController _vScrollController = ScrollController();
 
@@ -1396,11 +1427,28 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                             height: _rowHeight,
                                             child: GestureDetector(
                                               behavior: HitTestBehavior.opaque,
-                                              onTap: () => widget.app.toggleTimelineFolder(e.value),
+                                              // picking several: a tap takes the folder's layers in (or out).
+                                              onTap: () => widget.app.timelineGroupPick
+                                                  ? _pickFolder(members)
+                                                  : widget.app.toggleTimelineFolder(e.value),
+                                              // held: its layers selected together; held and
+                                              // dragged: they move in time together.
+                                              onLongPressStart: (d) => _holdFolder(members, d.globalPosition.dx),
+                                              onLongPressMoveUpdate: (d) {
+                                                final x0 = _folderDragX;
+                                                if (x0 == null) return;
+                                                widget.app.updateLayerDrag(((d.globalPosition.dx - x0) / (_pixelsPerFrameAtZoom1 * _zoom)).round());
+                                              },
+                                              onLongPressEnd: (_) => _endFolderHold(),
+                                              onLongPressCancel: _endFolderHold,
                                               child: Padding(
                                                 padding: const EdgeInsets.fromLTRB(14, 5, 14, 5),
                                                 child: Container(
+                                                key: ValueKey('timeline-folder-box-${e.value}'),
                                                 decoration: BoxDecoration(
+                                                  color: members.isNotEmpty && members.every((l) => widget.app.selectedGroup.contains(l.id))
+                                                      ? Colors.white24
+                                                      : null,
                                                   border: Border.all(color: Colors.white54, width: 1.5),
                                                   borderRadius: BorderRadius.circular(6),
                                                 ),
@@ -3332,6 +3380,22 @@ class _LayerActionRow extends StatelessWidget {
             padding: const EdgeInsets.all(4),
             constraints: const BoxConstraints(minWidth: 32, minHeight: 28),
           ),
+          ),
+          // every layer selected together: held and dragged, they all
+          // move in time at once.
+          IconButton(
+            key: const ValueKey('group-all'),
+            icon: const Icon(Icons.select_all, size: 18),
+            tooltip: 'select all layers (they move together)',
+            isSelected: app.selectedGroup.length == app.project.layers.length && app.project.layers.length > 1,
+            onPressed: app.project.layers.length > 1
+                ? () => app.selectedGroup.length == app.project.layers.length
+                    ? app.selectLayerGroup([app.selection.selectedLayer!])
+                    : app.selectLayerGroup([for (final l in app.project.layers) l.id])
+                : null,
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.all(4),
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 28),
           ),
           // a selected key line: a way out of it right here.
           if (span != null)

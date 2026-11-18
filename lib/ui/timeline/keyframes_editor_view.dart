@@ -73,6 +73,7 @@ class KeyframesEditorView extends StatelessWidget {
               },
             ),
             _loopRow(layer),
+            _marksRow(),
             const Divider(height: 16),
             KeyModePanel(app: app, layer: layer),
             const Divider(height: 16),
@@ -90,6 +91,58 @@ class KeyframesEditorView extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+
+  /// Every mark on the ruler: a tap goes there, its cross takes it away;
+  /// one more at the playhead.
+  Widget _marksRow() {
+    final marks = app.project.markers;
+    final here = marks.contains(app.currentFrame);
+    return Padding(
+      key: const ValueKey('marks-field'),
+      padding: const EdgeInsets.only(left: 4, top: 4),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.bookmark_outline, size: 16, color: Colors.redAccent),
+          const SizedBox(width: 6),
+          Text('Marks (${marks.length})', style: const TextStyle(fontSize: 13)),
+          const Spacer(),
+          TextButton.icon(
+            key: const ValueKey('marks-here'),
+            onPressed: () => app.toggleMarker(app.currentFrame),
+            icon: Icon(here ? Icons.bookmark_remove_outlined : Icons.bookmark_add_outlined, size: 16),
+            label: Text(here ? 'Unmark ${app.currentFrame}' : 'Mark ${app.currentFrame}'),
+          ),
+          if (marks.isNotEmpty)
+            IconButton(
+              key: const ValueKey('marks-clear'),
+              tooltip: 'take every mark away',
+              icon: const Icon(Icons.clear_all, size: 18),
+              visualDensity: VisualDensity.compact,
+              onPressed: () {
+                for (final f in [...marks]) {
+                  app.toggleMarker(f);
+                }
+              },
+            ),
+        ]),
+        if (marks.isEmpty)
+          const Text('None yet: hold the playhead, or Mark here.', style: TextStyle(fontSize: 11, color: Colors.grey))
+        else
+          Wrap(spacing: 6, runSpacing: 4, children: [
+            for (final f in marks)
+              InputChip(
+                key: ValueKey('mark-$f'),
+                label: Text('$f', style: const TextStyle(fontSize: 12)),
+                selected: f == app.currentFrame,
+                visualDensity: VisualDensity.compact,
+                onPressed: () => app.setFrame(f),
+                deleteIcon: const Icon(Icons.close, size: 14),
+                onDeleted: () => app.toggleMarker(f),
+              ),
+          ]),
+      ]),
     );
   }
 
