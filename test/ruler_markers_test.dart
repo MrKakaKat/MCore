@@ -57,16 +57,34 @@ void main() {
     app.timelineCenterPlayheadEnabled = true;
     app.setFrame(50);
     await pump(tester);
-    await tester.longPress(find.byKey(const ValueKey('playhead-play')));
+    // held below the lanes (on no layer).
+    Offset ruler() => tester.getRect(find.byKey(const ValueKey('playhead-play'))).bottomCenter - const Offset(0, 8);
+    await tester.longPressAt(ruler());
     await tester.pumpAndSettle();
     expect(app.project.markers, [50]);
     // drawn over the pinned playhead.
     expect(find.descendant(of: find.byKey(const ValueKey('pinned-playhead-mark')), matching: find.byType(CustomPaint)),
         findsOneWidget);
-    await tester.longPress(find.byKey(const ValueKey('playhead-play')));
+    await tester.longPressAt(ruler());
     await tester.pumpAndSettle();
     expect(app.project.markers, isEmpty);
   });
+
+  for (final pinned in [false, true])
+    testWidgets('held on the selected layer\'s lane (pinned: $pinned): no mark - the hold is the layer\'s', (tester) async {
+      app.timelineCenterPlayheadEnabled = pinned;
+      final l = findLayer(app.project, app.selection.selectedLayer) ?? app.project.layers.first;
+      app.selectLayer(l.id);
+      app.setFrame(l.startFrame + 5);
+      await pump(tester);
+      final lane = tester.getRect(find.byKey(ValueKey(l.id)).first);
+      final x = pinned
+          ? tester.getRect(find.byKey(const ValueKey('playhead-play'))).center.dx
+          : tester.getRect(playhead().first).center.dx;
+      await tester.longPressAt(Offset(x, lane.center.dy));
+      await tester.pumpAndSettle();
+      expect(app.project.markers, isEmpty);
+    });
 
   testWidgets('dragging the playhead puts no mark', (tester) async {
     app.setFrame(40);

@@ -290,6 +290,9 @@ class _StageViewState extends State<StageView> {
                   ghost: [for (final p in widget.app.freeMoveSilhouette) _camera.frameToScreen(Offset(p[0], p[1]))],
                   end: widget.app.freeMoveReplace && widget.app.freeMoveEnd != null
                       ? _camera.frameToScreen(Offset(widget.app.freeMoveEnd![0], widget.app.freeMoveEnd![1]))
+                      : null,
+                  start: widget.app.freeMoveReplace && widget.app.freeMoveStart != null
+                      ? _camera.frameToScreen(Offset(widget.app.freeMoveStart![0], widget.app.freeMoveStart![1]))
                       : null),
             ),
           ),
@@ -745,7 +748,11 @@ class _FreeMovePathPainter extends CustomPainter {
 
   /// The object's outline where the way has got to.
   final List<Offset> ghost;
-  _FreeMovePathPainter(this.points, {this.end, this.ghost = const []});
+
+  /// Drawing anew between keys: where the first key puts it (the way
+  /// starts there).
+  final Offset? start;
+  _FreeMovePathPainter(this.points, {this.end, this.start, this.ghost = const []});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -769,6 +776,19 @@ class _FreeMovePathPainter extends CustomPainter {
             ..color = const Color(0xFFFFB74D)
             ..style = PaintingStyle.stroke
             ..strokeWidth = 2);
+    }
+    // the way's start: on the first key's place, before a finger is down too.
+    final s0 = start;
+    if (s0 != null && points.isEmpty) canvas.drawCircle(s0, 5, Paint()..color = const Color(0xFFFFB74D));
+    // joined to the key: a fainter line from where the finger got to.
+    if (e != null && points.isNotEmpty) {
+      canvas.drawLine(
+          points.last,
+          e,
+          Paint()
+            ..color = const Color(0x55FFB74D)
+            ..strokeWidth = 2
+            ..strokeCap = StrokeCap.round);
     }
     if (points.isEmpty) return;
     final path = Path()..moveTo(points.first.dx, points.first.dy);
@@ -794,5 +814,5 @@ class _FreeMovePathPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_FreeMovePathPainter old) => old.points != points || old.end != end || old.ghost != ghost;
+  bool shouldRepaint(_FreeMovePathPainter old) => old.points != points || old.end != end || old.start != start || old.ghost != ghost;
 }

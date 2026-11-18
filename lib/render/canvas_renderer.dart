@@ -2938,6 +2938,9 @@ class CanvasRenderer implements Renderer {
   final Map<String, ({String sig, ui.Image image})> _keyed = {};
   final Map<String, Future<void>> _keyingInFlight = {};
 
+  /// Keyed pictures whose pixels are kept (the newest).
+  static const _keyedPixelsKept = 6;
+
   String _keySig(String sourceKey, ChromaKey ck, {bool matte = false}) =>
       '$sourceKey|${jsonEncode(chromaKeyToJson(ck))}${matte ? '|matte' : ''}';
 
@@ -2987,6 +2990,15 @@ class CanvasRenderer implements Renderer {
         if (data == null) return null;
         final px = (rgba: data.buffer.asUint8List(), width: image.width, height: image.height);
         _sourcePixels[key] = px;
+        // keyed pictures' pixels (for their contours): only the latest
+        // few are kept - a played keyed video made a new one every frame
+        // and they were never let go.
+        if (key.startsWith('keyed|')) {
+          final keyed = [for (final k in _sourcePixels.keys) if (k.startsWith('keyed|')) k];
+          for (var i = 0; i < keyed.length - _keyedPixelsKept; i++) {
+            _sourcePixels.remove(keyed[i]);
+          }
+        }
         return px;
       } catch (_) {
         return null; // e.g. a video frame that left the window meanwhile

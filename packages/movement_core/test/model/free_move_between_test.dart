@@ -44,14 +44,28 @@ void main() {
 
   test('a drawn way set between the keys stays exactly as drawn and is joined to the key at its end', () {
     final path = [for (var i = 0; i <= 100; i++) <double>[i * 3.0, 50 * math.sin(math.pi * i / 50)]];
-    // the hand ended 10 px off the key.
-    final out = fitWayToEnds(path, [0, 0], [300, 10]);
+    // the hand ended 40 px off the key: all of it kept, then the key.
+    final out = fitWayToEnds(path, [0, 0], [300, 40]);
     expect(out.length, path.length + 1);
     for (var i = 0; i < path.length; i++) {
       expect(out[i], path[i]);
     }
-    expect(out.last, [300, 10]);
-    // ended on the key: nothing added.
-    expect(fitWayToEnds(path, [0, 0], [300, 0]).length, path.length);
+    expect(out.last, [300, 40]);
+    // ended on the key: it ends there.
+    expect(fitWayToEnds(path, [0, 0], [300, 0]).last, [300, 0]);
+  });
+
+  test('a drawn way that went round the key at its end stops where it reached it: no loop back', () {
+    // straight to (300, 0), then on past it and round.
+    final path = <List<double>>[
+      for (var i = 0; i <= 60; i++) [i * 5.0, 0],
+      for (var i = 1; i <= 30; i++) [300 + 40 * math.sin(i / 30 * 2 * math.pi), 40 - 40 * math.cos(i / 30 * 2 * math.pi)],
+    ];
+    final out = fitWayToEnds(path, [0, 0], [300, 0]);
+    expect(out.last, [300, 0]);
+    expect(out.every((p) => p[0] <= 300 + 1e-9), isTrue, reason: 'nothing of the round past it');
+    // started off its key: moved onto it as a whole.
+    final moved = fitWayToEnds([for (final p in path.take(61)) [p[0] + 7, p[1] - 3]], [0, 0], [300, 0]);
+    expect(moved.first, [0, 0]);
   });
 }

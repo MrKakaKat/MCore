@@ -23,6 +23,11 @@ class ContourCache {
 
   final LinkedHashMap<String, Contour> _lru = LinkedHashMap();
   final Set<String> _pending = {};
+
+  /// Layers with an extraction running: one at a time each - while it
+  /// runs, newer frames of that layer wait (the last contour is held),
+  /// so playing several pictures never piles up isolates and copies.
+  final Set<String> _busyLayers = {};
   final Map<String, Contour> _held = {};
 
   // the HUD line: extractions and cache hits in the last second, and the
@@ -97,7 +102,9 @@ class ContourCache {
   }) {
     final hit = _get(key);
     if (hit != null) return _held[layerId] = hit;
+    if (_busyLayers.contains(layerId)) return _held[layerId];
     if (_pending.add(key)) {
+      _busyLayers.add(layerId);
       () async {
         try {
           final px = await pixels();
@@ -115,6 +122,7 @@ class ContourCache {
           onReady?.call();
         } finally {
           _pending.remove(key);
+          _busyLayers.remove(layerId);
         }
       }();
     }

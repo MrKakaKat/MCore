@@ -457,13 +457,39 @@ void holdAroundFreeMoves(Project project, Layer layer, int f) {
 
 dynamic _copyValue(dynamic v) => v is List ? [for (final e in v) (e as num).toDouble()] : v;
 
-/// A drawn way set between two points: exactly as the finger went, from
-/// `pa`; at its end it is joined to `pb` (the next key) - nothing of the
-/// drawn line is moved or cut.
-List<List<double>> fitWayToEnds(List<List<double>> path, List<double> pa, List<double> pb) {
+/// The drawn way as the finger went, from `pa`, up to where it reaches
+/// the key at `pb`: where it comes close to it near its end (it went on
+/// past it, or circled round it), it ends there - joined to the key
+/// after, never looping back to it.
+List<List<double>> drawnWayToEnd(List<List<double>> path, List<double> pa, List<double> pb) {
   if (path.isEmpty) return [];
   final dx = pa[0] - path.first[0], dy = pa[1] - path.first[1];
   final way = [for (final p in path) <double>[p[0] + dx, p[1] + dy]];
+  if (way.length < 3) return way;
+  double dist(List<double> p, List<double> q) => math.sqrt(math.pow(p[0] - q[0], 2) + math.pow(p[1] - q[1], 2));
+  final d = <double>[0];
+  var x0 = double.infinity, y0 = double.infinity, x1 = -double.infinity, y1 = -double.infinity;
+  for (var i = 0; i < way.length; i++) {
+    if (i > 0) d.add(d.last + dist(way[i], way[i - 1]));
+    x0 = math.min(x0, way[i][0]);
+    x1 = math.max(x1, way[i][0]);
+    y0 = math.min(y0, way[i][1]);
+    y1 = math.max(y1, way[i][1]);
+  }
+  final near = math.max(16.0, 0.04 * math.sqrt(math.pow(x1 - x0, 2) + math.pow(y1 - y0, 2)));
+  // the first point of its later part close to the key.
+  for (var i = 1; i < way.length; i++) {
+    if (d[i] < d.last * 0.5) continue;
+    if (dist(way[i], pb) <= near) return way.sublist(0, i + 1);
+  }
+  return way;
+}
+
+/// A drawn way set between two points: as the finger went, from `pa`,
+/// joined at its end to `pb` (the next key) - see drawnWayToEnd.
+List<List<double>> fitWayToEnds(List<List<double>> path, List<double> pa, List<double> pb) {
+  final way = drawnWayToEnd(path, pa, pb);
+  if (way.isEmpty) return way;
   final last = way.last;
   if ((last[0] - pb[0]).abs() > 0.5 || (last[1] - pb[1]).abs() > 0.5) way.add([pb[0], pb[1]]);
   return way;

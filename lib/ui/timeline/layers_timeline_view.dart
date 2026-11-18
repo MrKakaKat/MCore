@@ -790,6 +790,7 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
     widget.app.scrollToPlayheadRequest.removeListener(_scrollToPlayhead);
     _hScrollController.dispose();
     _vScrollController.dispose();
+    _pinnedHold?.cancel();
     super.dispose();
   }
 
@@ -992,6 +993,10 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
     widget.app.selectLayerGroup(next);
   }
 
+  /// The pinned playhead held: its timer, where the finger went down.
+  Timer? _pinnedHold;
+  bool _pinnedHeld = false;
+
   /// The rows' own (up / down) scroll.
   final ScrollController _vScrollController = ScrollController();
 
@@ -1166,6 +1171,12 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
           }
           return null;
         };
+
+        // a hold at content y (at the playhead): on a selected layer's lane.
+        bool onSelectedLane(double y) {
+          final id = _laneAt?.call(Offset(widget.app.currentFrame * ppfNow, y));
+          return id != null && widget.app.selectedGroup.contains(id);
+        }
 
         // (deleting the focused layer permanently dims every other layer) -
         // confirmed root cause: `dimmed` below is `_focusedLayerId != null &&
@@ -1641,7 +1652,8 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                       ignoreTouch: false,
                                       onDragActiveChanged: _setScrubDragActive,
                                       hScrollController: _hScrollController,
-                                      viewportKey: _viewportKey),
+                                      viewportKey: _viewportKey,
+                                      onSelectedLane: onSelectedLane),
                                 // above the playhead: selecting a key moves
                                 // the playhead onto it, and the key must
                                 // still be the thing you grab there.
@@ -1808,10 +1820,34 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                   top: 0,
                                   width: 24,
                                   height: effectiveHeight,
-                                  child: GestureDetector(
+                                  // the hold is timed by hand (no long-press
+                                  // in the gesture arena): a held selected
+                                  // layer under it still moves.
+                                  child: Listener(
                                     behavior: HitTestBehavior.translucent,
-                                    onTap: widget.app.playOnPlayheadTap ? widget.app.togglePlay : null,
-                                    onLongPress: () => widget.app.toggleMarker(widget.app.currentFrame),
+                                    onPointerDown: (d) {
+                                      _pinnedHold?.cancel();
+                                      _pinnedHeld = false;
+                                      final y = d.localPosition.dy, frame = widget.app.currentFrame;
+                                      _pinnedHold = Timer(kLongPressTimeout, () {
+                                        _pinnedHold = null;
+                                        _pinnedHeld = true;
+                                        // the timeline scrolled meanwhile: a drag, no hold.
+                                        if (widget.app.currentFrame != frame || onSelectedLane(y)) return;
+                                        widget.app.toggleMarker(widget.app.currentFrame);
+                                      });
+                                    },
+                                    onPointerUp: (_) => _pinnedHold?.cancel(),
+                                    onPointerCancel: (_) => _pinnedHold?.cancel(),
+                                    child: GestureDetector(
+                                      behavior: HitTestBehavior.translucent,
+                                      // (a hold is no tap: it doesn't play)
+                                      onTap: widget.app.playOnPlayheadTap
+                                          ? () {
+                                              if (!_pinnedHeld) widget.app.togglePlay();
+                                            }
+                                          : null,
+                                    ),
                                   ),
                                 ),
                               // the layer action row, under the focused lane.
@@ -2905,8 +2941,13 @@ class _Playhead extends StatefulWidget {
   final ValueChanged<bool> onDragActiveChanged;
   final ScrollController hScrollController;
   final GlobalKey viewportKey;
+
+  /// A hold here (content y) is on a selected layer: it moves the layer,
+  /// no mark.
+  final bool Function(double y)? onSelectedLane;
   const _Playhead(
       {required this.app,
+      this.onSelectedLane,
       required this.pixelsPerFrame,
       required this.totalHeight,
       this.originX = 0,
@@ -3001,8 +3042,11 @@ class _PlayheadState extends State<_Playhead>
             _lastGlobalPosition = d.position;
             _downAt = d.position;
             _endHold();
+            final y = d.localPosition.dy;
             _holdTimer = Timer(kLongPressTimeout, () {
               _holdTimer = null;
+              // held on the selected layer: that's its move, not a mark.
+              if (widget.onSelectedLane?.call(y) ?? false) return;
               widget.app.toggleMarker(widget.app.currentFrame);
             });
             widget.onDragActiveChanged(true);

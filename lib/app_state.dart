@@ -3148,15 +3148,17 @@ class AppState extends ChangeNotifier {
   /// new key layer.
   bool freeMoveReplace = false;
 
-  /// Drawing anew: where the way must end (the middle at the second key).
-  List<double>? freeMoveEnd;
+  /// Drawing anew: where the way must end (the middle at the second key)
+  /// and start (at the first).
+  List<double>? freeMoveEnd, freeMoveStart;
 
   /// The way as it will be: drawn anew, already set to end at the second
   /// key (what Confirm makes); else as drawn.
   List<List<double>> get freeMoveShownPath {
     final end = freeMoveEnd;
     if (!freeMoveReplace || end == null || freeMovePath.length < 2) return freeMovePath;
-    return fitWayToEnds(freeMovePath, freeMovePath.first, end);
+    // the joining line to the key is drawn apart (fainter).
+    return drawnWayToEnd(freeMovePath, freeMovePath.first, end);
   }
 
   /// Drawing a move: the object's outline where the way has got to (its
@@ -3177,6 +3179,7 @@ class AppState extends ChangeNotifier {
     if (l == null || r == null) return;
     setFrame(l.startFrame + r.a);
     freeMoveEnd = computeLayerFrameGeometry(project, l, l.startFrame + r.b, includeVertices: false).center;
+    freeMoveStart = computeLayerFrameGeometry(project, l, l.startFrame + r.a, includeVertices: false).center;
     freeMoveReplace = true;
     freeMoveRecording = true;
     freeMovePath = [];
@@ -3216,6 +3219,7 @@ class AppState extends ChangeNotifier {
     if (findLayer(project, selection.selectedLayer) == null) return;
     freeMoveReplace = false;
     freeMoveEnd = null;
+    freeMoveStart = null;
     freeMoveRecording = true;
     freeMovePath = [];
     stageNotice.value = 'Drag the object along its way, then Confirm';
@@ -3226,6 +3230,7 @@ class AppState extends ChangeNotifier {
     freeMoveRecording = false;
     freeMoveReplace = false;
     freeMoveEnd = null;
+    freeMoveStart = null;
     freeMovePath = [];
     notifyListeners();
   }
@@ -3242,7 +3247,10 @@ class AppState extends ChangeNotifier {
   void beginFreeMoveStroke(List<double> p, {Duration? at}) {
     final l = findLayer(project, selection.selectedLayer);
     if (l == null) return;
-    final c = computeLayerFrameGeometry(project, l, currentFrame, includeVertices: false).center;
+    // drawing anew between keys: from the first key's place, whatever
+    // frame is showing.
+    final c = (freeMoveReplace ? freeMoveStart : null) ??
+        computeLayerFrameGeometry(project, l, currentFrame, includeVertices: false).center;
     _freeMoveGrab = [c[0] - p[0], c[1] - p[1]];
     freeMovePath = [c];
     _freeMoveClock
@@ -3284,6 +3292,7 @@ class AppState extends ChangeNotifier {
     }
     final range = freeMoveReplace ? freeMoveRange : null;
     freeMoveEnd = null;
+    freeMoveStart = null;
     if (range != null) {
       pushUndo();
       final ok = replaceMoveBetweenKeys(project, l, range.trk, range.a, range.b, freeMovePath, smoothing: freeMoveSmoothing);
