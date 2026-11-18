@@ -4109,6 +4109,43 @@ class AppState extends ChangeNotifier {
 
   /// A copy of a whole folder ("<name> copy"), right above it; parents
   /// inside the folder follow their copies.
+  /// The folder taken away: its layers stay, out of any folder - or, with
+  /// `withLayers`, they go too. One undo step.
+  void deleteFolder(String folder, {bool withLayers = false}) {
+    final ls = [for (final l in project.layers) if (l.folder == folder) l];
+    if (ls.isEmpty) return;
+    undo.pushUndoState(project);
+    if (withLayers) {
+      for (final l in ls) {
+        deleteLayer(project, selection, l.id, currentFrame);
+      }
+      multiSelection.removeWhere((id) => findLayer(project, id) == null);
+      _fitTimeline();
+      _render();
+    } else {
+      for (final l in ls) {
+        l.folder = null;
+      }
+      collapsedTimelineFolders.remove(folder);
+    }
+    notifyListeners();
+  }
+
+  /// Every layer of `folder` into `to` (null: out of any folder).
+  void moveFolderLayers(String folder, String? to) {
+    if (to == folder) return;
+    setLayersFolder([for (final l in project.layers) if (l.folder == folder) l.id], to);
+  }
+
+  /// Layers tab: picking several - after a hold, a tap takes a layer in or
+  /// out of the selection (instead of selecting it alone).
+  bool layerListPicking = false;
+
+  void setLayerListPicking(bool on) {
+    layerListPicking = on;
+    notifyListeners();
+  }
+
   void duplicateFolder(String folder) {
     final ls = [for (final l in project.layers) if (l.folder == folder) l];
     if (ls.isEmpty) return;

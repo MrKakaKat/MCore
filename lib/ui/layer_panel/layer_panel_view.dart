@@ -63,6 +63,16 @@ class LayerPanelView extends StatelessWidget {
                       onPressed: () => showAddLayerDialog(context, app),
                     ),
                   ),
+                  // picking several: tap layers; done ends it.
+                  if (app.layerListPicking) ...[
+                    const SizedBox(width: 8),
+                    TextButton.icon(
+                      key: const ValueKey('picking-done'),
+                      icon: const Icon(Icons.check, size: 16),
+                      label: Text('${app.selectedGroup.length} picked'),
+                      onPressed: () => app.setLayerListPicking(false),
+                    ),
+                  ],
                   // several selected: put them into a folder at once.
                   if (app.selectedGroup.length > 1) ...[
                     const SizedBox(width: 8),
@@ -122,7 +132,11 @@ class LayerPanelView extends StatelessWidget {
                 key: ValueKey('tile-${layer.id}'),
                 selected: app.selectedGroup.contains(layer.id),
                 // long-press: select it together with the selected one.
-                onLongPress: () => app.toggleMultiSelect(layer.id),
+                // then (picking) a tap adds / takes out one more.
+                onLongPress: () {
+                  app.layerListPicking = true;
+                  app.toggleMultiSelect(layer.id);
+                },
                 dense: true,
                 // in the wide/tablet layout's fixed 220px column, 3
                 // default-sized (~48px tap target each) trailing IconButtons
@@ -190,7 +204,11 @@ class LayerPanelView extends StatelessWidget {
                     _layerMenu(context, layer),
                   ],
                 ),
-                onTap: () => app.selectLayer(layer.id),
+                onTap: () {
+                  if (!app.layerListPicking) return app.selectLayer(layer.id);
+                  app.toggleMultiSelect(layer.id);
+                  if (app.selectedGroup.length <= 1) app.setLayerListPicking(false);
+                },
               )),
           ],
         );
@@ -234,11 +252,7 @@ class LayerPanelView extends StatelessWidget {
                   tooltip: allHidden ? 'Show the folder' : 'Hide the folder',
                   onPressed: () => app.toggleFolderHidden(f),
                 ),
-                _compactIconButton(
-                  icon: Icons.copy,
-                  tooltip: 'Copy the folder',
-                  onPressed: () => app.duplicateFolder(f),
-                ),
+                _folderMenu(context, f),
                 // its layers into as few timeline rows as their times allow.
                 _compactIconButton(
                   icon: Icons.view_agenda_outlined,
@@ -261,6 +275,50 @@ class LayerPanelView extends StatelessWidget {
       ],
     );
   }
+
+  /// A folder's own actions: copy it, its layers into another folder,
+  /// delete it (its layers stay) or with its layers.
+  Widget _folderMenu(BuildContext context, String f) => PopupMenuButton<String>(
+        key: ValueKey('folder-menu-$f'),
+        tooltip: 'Folder actions',
+        icon: const Icon(Icons.more_vert, size: 18),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        style: const ButtonStyle(visualDensity: VisualDensity.compact),
+        itemBuilder: (_) => const [
+          PopupMenuItem(value: 'copy', child: Text('Copy the folder')),
+          PopupMenuItem(value: 'move', child: Text('Move its layers to a folder...')),
+          PopupMenuItem(value: 'delete', child: Text('Delete the folder (keep its layers)')),
+          PopupMenuItem(value: 'deleteAll', child: Text('Delete the folder and its layers')),
+        ],
+        onSelected: (v) async {
+          switch (v) {
+            case 'copy':
+              app.duplicateFolder(f);
+            case 'move':
+              final picked = await _pickFolder(context, 'Move the layers of $f to');
+              if (picked != null) app.moveFolderLayers(f, picked.isEmpty ? null : picked);
+            case 'delete':
+              app.deleteFolder(f);
+            case 'deleteAll':
+              if (!context.mounted) return;
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (d) => AlertDialog(
+                  title: Text('Delete $f and its layers?'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+                    FilledButton(
+                        key: const ValueKey('folder-delete-all-ok'),
+                        onPressed: () => Navigator.pop(d, true),
+                        child: const Text('Delete')),
+                  ],
+                ),
+              );
+              if (ok == true) app.deleteFolder(f, withLayers: true);
+          }
+        },
+      );
 
   Future<void> _rename(BuildContext context, Layer layer) async {
     final c = TextEditingController(text: layer.name);

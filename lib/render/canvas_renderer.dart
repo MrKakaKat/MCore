@@ -795,8 +795,9 @@ class CanvasRenderer implements Renderer {
 
     // motion blur only where the layer moves across the shutter (a still
     // one would be drawn `samples` times for nothing).
+    final window = mb.enabled ? motionBlurWindow(project, layer, globalFrame) : 0.0;
     bool movesAcrossShutter() {
-      final half = mb.shutterAngle / 360 / 2;
+      final half = window / 2;
       // its ends and middle (a turn back at a key looks the same at both ends).
       final a = getLayerStateAt(project, layerId, globalFrame - half),
           m = getLayerStateAt(project, layerId, globalFrame),
@@ -810,8 +811,9 @@ class CanvasRenderer implements Renderer {
 
     if (mb.enabled && mb.samples > 1 && effectActiveAt(layer, 'motionBlur', globalFrame - layer.startFrame) &&
         movesAcrossShutter()) {
-      final shutterFrames = mb.shutterAngle /
-          360; // shutter angle as a fraction of one frame's duration
+      // the shutter angle as a fraction of one frame's duration (longer
+      // for a slow move with sensitivity on).
+      final shutterFrames = window;
       final samples = mb.samples;
       final sampleFrames = <double>[];
       for (var s = 0; s < samples; s++) {
@@ -2722,7 +2724,7 @@ class CanvasRenderer implements Renderer {
       final mb = layer.motionBlur;
       if (mb.enabled && mb.samples > 1 && effectActiveAt(layer, 'motionBlur', globalFrame - layer.startFrame)) {
         for (var s = 0; s < mb.samples; s++) {
-          frames.add((globalFrame + ((s / (mb.samples - 1)) - 0.5) * mb.shutterAngle / 360).round());
+          frames.add((globalFrame + ((s / (mb.samples - 1)) - 0.5) * motionBlurWindow(project, layer, globalFrame)).round());
         }
       }
       for (final f in frames) {

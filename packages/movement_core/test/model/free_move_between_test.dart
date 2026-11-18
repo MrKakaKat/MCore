@@ -42,23 +42,16 @@ void main() {
     expect(best, lessThan(3), reason: 'through the drawn way (bent to its end key)');
   });
 
-  test('a drawn way set between the keys stays as drawn: only its end is led onto the key', () {
+  test('a drawn way set between the keys stays exactly as drawn and is joined to the key at its end', () {
     final path = [for (var i = 0; i <= 100; i++) <double>[i * 3.0, 50 * math.sin(math.pi * i / 50)]];
     // the hand ended 10 px off the key.
     final out = fitWayToEnds(path, [0, 0], [300, 10]);
-    expect(out.first, [0, 0]);
-    expect(out.last[0], closeTo(300, 1e-9));
-    expect(out.last[1], closeTo(10, 1e-9));
-    for (var i = 0; i <= 80; i++) {
-      expect(out[i][0], closeTo(path[i][0], 1e-9));
-      expect(out[i][1], closeTo(path[i][1], 1e-9));
+    expect(out.length, path.length + 1);
+    for (var i = 0; i < path.length; i++) {
+      expect(out[i], path[i]);
     }
-  });
-
-  test('drawn on past the key and back: cut where it came closest to the key', () {
-    final path = [for (var i = 0; i <= 60; i++) <double>[i * 5.0, 0], for (var i = 1; i <= 10; i++) <double>[300, i * 5.0]];
-    final out = fitWayToEnds(path, [0, 0], [200, 0]);
-    expect(out.length, 41);
-    expect(out.last, [200, 0]);
+    expect(out.last, [300, 10]);
+    // ended on the key: nothing added.
+    expect(fitWayToEnds(path, [0, 0], [300, 0]).length, path.length);
   });
 }

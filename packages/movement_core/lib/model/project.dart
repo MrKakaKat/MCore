@@ -297,6 +297,11 @@ class Track {
   bool freeMove = false;
   List<int>? freeMoveSpan;
   double? tension;
+
+  /// The path's curve handles set by hand (Movement, under the anchor):
+  /// its keys' in / out handles are dragged on the stage and never worked
+  /// out again from the tension.
+  bool handTangents = false;
   Easing? globalEasing;
 
   /// Spatial tracks: the keys keep their places, but the object moves
@@ -1169,7 +1174,13 @@ class MotionBlur {
   bool enabled;
   double shutterAngle;
   int samples;
-  MotionBlur({this.enabled = false, this.shutterAngle = 180, this.samples = 8});
+
+  /// How much a slow move is blurred too (0..1): 0 - by the shutter only
+  /// (a slow move barely shows it); more - a slow move's streak is drawn
+  /// longer (up to as long as `sensitivity` × 40 px), as if the shutter
+  /// stayed open longer for it.
+  double sensitivity;
+  MotionBlur({this.enabled = false, this.shutterAngle = 180, this.samples = 8, this.sensitivity = 0});
 }
 
 /// Echo: copies of the layer where it was a little earlier, trailing
@@ -2587,6 +2598,7 @@ Track cloneTrack(Track src) {
   t.loopMin = src.loopMin;
   t.loopMax = src.loopMax;
   t.tension = src.tension;
+  t.handTangents = src.handTangents;
   t.globalEasing = src.globalEasing?.copy();
   t.constantSpeed = src.constantSpeed;
   t.animLayers = [
@@ -2737,7 +2749,8 @@ Layer cloneLayer(Layer src) {
     motionBlur: MotionBlur(
         enabled: src.motionBlur.enabled,
         shutterAngle: src.motionBlur.shutterAngle,
-        samples: src.motionBlur.samples),
+        samples: src.motionBlur.samples,
+        sensitivity: src.motionBlur.sensitivity),
     wiggle: Wiggle(
         enabled: src.wiggle.enabled,
         speed: src.wiggle.speed,

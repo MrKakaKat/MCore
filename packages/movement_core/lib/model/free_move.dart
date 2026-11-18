@@ -317,38 +317,15 @@ void holdAroundFreeMoves(Project project, Layer layer, int f) {
 
 dynamic _copyValue(dynamic v) => v is List ? [for (final e in v) (e as num).toDouble()] : v;
 
-/// A drawn way set between two points as drawn: the hand's line kept,
-/// only its very end led onto `pb` (its start onto `pa`) - the stretch
-/// bent is as short as the miss allows. Drawn on past `pb` and back, it is
-/// cut where it came closest to it.
+/// A drawn way set between two points: exactly as the finger went, from
+/// `pa`; at its end it is joined to `pb` (the next key) - nothing of the
+/// drawn line is moved or cut.
 List<List<double>> fitWayToEnds(List<List<double>> path, List<double> pa, List<double> pb) {
-  if (path.length < 2) return [for (final p in path) [...p]];
-  double dist(List<double> p, List<double> q) => math.sqrt(math.pow(p[0] - q[0], 2) + math.pow(p[1] - q[1], 2));
-  final d = <double>[0];
-  for (var i = 1; i < path.length; i++) {
-    d.add(d.last + dist(path[i], path[i - 1]));
-  }
-  // where it ends: the point nearest pb in its later half.
-  var cut = path.length - 1;
-  for (var i = path.length - 1; i >= 1 && d[i] >= d.last / 2; i--) {
-    if (dist(path[i], pb) < dist(path[cut], pb) - 1e-9) cut = i;
-  }
-  final way = [for (var i = 0; i <= cut; i++) [...path[i]]];
-  final len = d[cut];
-  final p0 = way.first, pn = way.last;
-  final e0 = [pa[0] - p0[0], pa[1] - p0[1]], e1 = [pb[0] - pn[0], pb[1] - pn[1]];
-  double reach(List<double> e) => math.min(len / 2, math.max(1.0, 3 * math.sqrt(e[0] * e[0] + e[1] * e[1])));
-  final t0 = reach(e0), t1 = reach(e1);
-  double smooth(double x) {
-    final t = x.clamp(0.0, 1.0);
-    return t * t * (3 - 2 * t);
-  }
-
-  for (var i = 0; i < way.length; i++) {
-    final w0 = len <= 1e-9 ? 1 - i / math.max(1, way.length - 1) : 1 - smooth(d[i] / t0);
-    final w1 = len <= 1e-9 ? i / math.max(1, way.length - 1) : smooth(1 - (len - d[i]) / t1);
-    way[i] = [way[i][0] + e0[0] * w0 + e1[0] * w1, way[i][1] + e0[1] * w0 + e1[1] * w1];
-  }
+  if (path.isEmpty) return [];
+  final dx = pa[0] - path.first[0], dy = pa[1] - path.first[1];
+  final way = [for (final p in path) <double>[p[0] + dx, p[1] + dy]];
+  final last = way.last;
+  if ((last[0] - pb[0]).abs() > 0.5 || (last[1] - pb[1]).abs() > 0.5) way.add([pb[0], pb[1]]);
   return way;
 }
 

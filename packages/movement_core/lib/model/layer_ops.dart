@@ -77,7 +77,7 @@ void copyLayerParams(Layer source, Layer target) {
         for (final entry in i.params.entries) entry.key: entry.value is Track ? cloneTrack(entry.value as Track) : entry.value,
       }),
   ];
-  target.motionBlur = MotionBlur(enabled: source.motionBlur.enabled, shutterAngle: source.motionBlur.shutterAngle, samples: source.motionBlur.samples);
+  target.motionBlur = MotionBlur(enabled: source.motionBlur.enabled, shutterAngle: source.motionBlur.shutterAngle, samples: source.motionBlur.samples, sensitivity: source.motionBlur.sensitivity);
   target.wiggle = Wiggle(enabled: source.wiggle.enabled, speed: source.wiggle.speed, amplitude: source.wiggle.amplitude, smoothness: source.wiggle.smoothness, wiggleSeed: source.wiggle.wiggleSeed);
   target.pendulum = Pendulum(
     enabled: source.pendulum.enabled, frequency: source.pendulum.frequency, damping: source.pendulum.damping,

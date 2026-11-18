@@ -79,6 +79,7 @@ Map<String, dynamic> trackToJson(Track t) => {
       if (t.loopMin != null) 'loopMin': t.loopMin,
       if (t.loopMax != null) 'loopMax': t.loopMax,
       if (t.tension != null) 'tension': t.tension,
+      if (t.handTangents) 'handTangents': true,
       if (t.globalEasing != null) 'globalEasing': easingToJson(t.globalEasing!),
       if (t.constantSpeed) 'constantSpeed': true,
       if (t.animLayers.isNotEmpty)
@@ -101,6 +102,7 @@ Track trackFromJson(Map<String, dynamic> j) {
   t.loopMin = (j['loopMin'] as num?)?.toDouble();
   t.loopMax = (j['loopMax'] as num?)?.toDouble();
   t.tension = (j['tension'] as num?)?.toDouble();
+  t.handTangents = j['handTangents'] == true;
   t.constantSpeed = j['constantSpeed'] == true;
   t.animLayers = [
     for (final a in (j['animLayers'] as List? ?? const []))
@@ -464,12 +466,14 @@ EffectInstance effectInstanceFromJson(Map<String, dynamic> j) => EffectInstance(
 Map<String, dynamic> motionBlurToJson(MotionBlur m) => {
       'enabled': m.enabled,
       'shutterAngle': m.shutterAngle,
-      'samples': m.samples
+      'samples': m.samples,
+      if (m.sensitivity != 0) 'sensitivity': m.sensitivity
     };
 MotionBlur motionBlurFromJson(Map<String, dynamic> j) => MotionBlur(
       enabled: j['enabled'] as bool? ?? false,
       shutterAngle: (j['shutterAngle'] as num?)?.toDouble() ?? 180,
       samples: j['samples'] as int? ?? 8,
+      sensitivity: (j['sensitivity'] as num?)?.toDouble() ?? 0,
     );
 
 Map<String, dynamic> wiggleToJson(Wiggle w) => {

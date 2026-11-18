@@ -1720,6 +1720,36 @@ class EffectsView extends StatelessWidget {
           }),
         ],
       ),
+      // slow moves blurred too: their streak drawn longer.
+      ParamEditor(
+        key: const ValueKey('motion-blur-sensitivity'),
+        prefKey: 'effect.motionBlur.sensitivity',
+        label: 'slow moves',
+        values: [mb.sensitivity],
+        scale: const ParamScale.slider(0, 1, decimals: 2),
+        onEditStart: app.pushUndo,
+        onChanged: (v) {
+          mb.sensitivity = v.first.clamp(0.0, 1.0).toDouble();
+          app.commitEdit();
+        },
+        onCommit: (v) {
+          app.pushUndo();
+          mb.sensitivity = v.first.clamp(0.0, 1.0).toDouble();
+          app.commitEdit();
+        },
+        trailing: [
+          ResetIconButton(onPressed: () {
+            app.pushUndo();
+            mb.sensitivity = 0;
+            app.commitEdit();
+          }),
+        ],
+      ),
+      const Align(
+        alignment: Alignment.centerLeft,
+        child: Text('slow moves: how much a slow move is blurred too (off: by the shutter only)',
+            style: TextStyle(fontSize: 11, color: Colors.grey)),
+      ),
       ParamEditor(
         prefKey: 'effect.motionBlur.samples',
         label: 'samples',

@@ -514,6 +514,23 @@ class StageGestureController {
       }
     }
 
+    // the path's curve handles (set by hand), over its stations.
+    PathTangentHandle? bestTan;
+    var bestTDist = handleRadius;
+    for (final h in getPathTangentHandlesScreen(project, layer)) {
+      final d = _dist(fp, h.screen);
+      if (d <= bestTDist) {
+        bestTDist = d;
+        bestTan = h;
+      }
+    }
+    if (bestTan != null) {
+      return ActiveDragInfo(
+          family: 'path',
+          activeKey: null,
+          op: TangentDragOp(layer: layer, idx: bestTan.idx, out: bestTan.out, station: bestTan.station));
+    }
+
     // tier 2: existing path stations - on a tie, the LATER keyframe
     // wins (it's drawn on top), so <= rather than <.
     final stations = getAnchorStationsScreen(project, layer, globalFrame);

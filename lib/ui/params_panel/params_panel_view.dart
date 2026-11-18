@@ -676,6 +676,35 @@ class ParamsPanelView extends StatelessWidget {
             ],
           ),
         ),
+        // curve handles on the stage (as a line's): each key's in / out
+        // handle dragged by hand to bend the path; off: worked out from
+        // the tension again.
+        Builder(builder: (context) {
+          final l = findLayer(app.project, app.selection.selectedLayer);
+          final t = l == null ? null : editTrackOf(l.transform.anchor);
+          if (t == null || !t.spatial && activeAnimLayerOf(l!.transform.anchor) == null) return const SizedBox.shrink();
+          return Row(children: [
+            const SizedBox(width: 90, child: Text('Curve handles')),
+            Checkbox(
+              key: const ValueKey('path-hand-tangents'),
+              value: t.handTangents,
+              onChanged: (on) {
+                app.pushUndo();
+                // they start from the curve as it is (a straight one gets
+                // smooth handles to drag); off: from the tension again.
+                if (on ?? false) {
+                  startHandTangents(t);
+                } else {
+                  t.handTangents = false;
+                  autoComputeTangents(t);
+                }
+                clearStateCaches();
+                app.commitEdit();
+              },
+            ),
+            if (t.handTangents) const Expanded(child: Hint('drag the squares on the stage')),
+          ]);
+        }),
         // one speed along the whole path; the keys stay where they are,
         // their own times are set aside (not changed) while this is on.
         Row(

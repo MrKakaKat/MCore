@@ -447,7 +447,8 @@ List<double> catmullRomTangent(List<List<double>> points, int i, double tension)
 
 void autoComputeTangents(Track trk) {
   final kfs = trk.keyframes;
-  if (kfs.length < 2) return;
+  // handles set by hand stay as they are.
+  if (kfs.length < 2 || trk.handTangents) return;
   final tension = trk.tension ?? 1.0;
   final points = [for (final k in kfs) k.value as List<double>];
   for (var i = 0; i < kfs.length; i++) {
@@ -456,6 +457,23 @@ void autoComputeTangents(Track trk) {
       outTan: [m[0] / 3, m[1] / 3],
       inTan: [-m[0] / 3, -m[1] / 3],
     );
+  }
+}
+
+/// Curve handles to be set by hand: each key keeps the handles it has;
+/// one with none (a straight path) gets a smooth pair along its
+/// neighbours, to be dragged from. Then they are the track's own.
+void startHandTangents(Track trk) {
+  final kfs = trk.keyframes;
+  trk.handTangents = true;
+  if (kfs.length < 2 || kfs.first.value is! List) return;
+  final points = [for (final k in kfs) [for (final v in k.value as List) (v as num).toDouble()]];
+  for (var i = 0; i < kfs.length; i++) {
+    final st = kfs[i].spatialTangent;
+    final none = st.inTan.every((v) => v.abs() < 1e-9) && st.outTan.every((v) => v.abs() < 1e-9);
+    if (!none) continue;
+    final m = catmullRomTangent(points, i, 0);
+    kfs[i].spatialTangent = SpatialTangent(outTan: [m[0] / 3, m[1] / 3], inTan: [-m[0] / 3, -m[1] / 3]);
   }
 }
 

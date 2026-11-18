@@ -438,3 +438,23 @@ List<double> inheritedBlurMatrix(Project project, Layer layer, num sampleFrame, 
   final sy = sx < 1e-12 ? math.sqrt(m[2] * m[2] + m[3] * m[3]) : (m[0] * m[3] - m[1] * m[2]) / sx;
   return (pos: [m[4], m[5]], rot: rot, scale: [sx, sy]);
 }
+
+/// Motion blur: how many frames the shutter is open for `layer` at
+/// `globalFrame` - its shutter angle, or longer for a slow move with
+/// sensitivity on (its streak at least `sensitivity` × 40 px long, open at
+/// most 8 frames).
+double motionBlurWindow(Project project, Layer layer, num globalFrame) {
+  final mb = layer.motionBlur;
+  final shutter = mb.shutterAngle / 360;
+  if (mb.sensitivity <= 0) return shutter;
+  final a = getLayerStateAt(project, layer.id, globalFrame - 0.5).matrix,
+      b = getLayerStateAt(project, layer.id, globalFrame + 0.5).matrix;
+  // px a frame (its middle's way, and its corners' turn / size change).
+  final c = layer.content.size;
+  final r = math.max(c.isEmpty ? 0.0 : c[0], c.length > 1 ? c[1] : 0.0) / 2;
+  final dx = (a[4] - b[4]) * stageSize.width, dy = (a[5] - b[5]) * stageSize.height;
+  final dl = math.sqrt(math.pow(a[0] - b[0], 2) + math.pow(a[1] - b[1], 2)) * r;
+  final speed = math.sqrt(dx * dx + dy * dy) + dl;
+  if (speed < 1e-6) return shutter;
+  return math.max(shutter, math.min(8.0, mb.sensitivity * 40 / speed));
+}

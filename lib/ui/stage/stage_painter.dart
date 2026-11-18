@@ -963,6 +963,20 @@ void _paintPathVisual(ui.Canvas canvas, Project project, Layer layer,
           ..style = ui.PaintingStyle.stroke
           ..strokeWidth = 1.2 * inv);
   }
+  // curve handles set by hand: a line from its key, a small square.
+  for (final h in getPathTangentHandlesScreen(project, layer)) {
+    final a = ui.Offset(h.station[0], h.station[1]), b = ui.Offset(h.screen[0], h.screen[1]);
+    canvas.drawLine(a, b, ui.Paint()
+      ..color = _stationStroke
+      ..strokeWidth = inv);
+    canvas.drawRect(ui.Rect.fromCenter(center: b, width: 7 * inv, height: 7 * inv), ui.Paint()..color = _stationFill);
+    canvas.drawRect(
+        ui.Rect.fromCenter(center: b, width: 7 * inv, height: 7 * inv),
+        ui.Paint()
+          ..color = _stationStroke
+          ..style = ui.PaintingStyle.stroke
+          ..strokeWidth = 1.2 * inv);
+  }
   for (final st in stations) {
     final p = ui.Offset(st.screen[0], st.screen[1]);
     canvas.drawCircle(p, 4 * inv, ui.Paint()..color = _stationFill);

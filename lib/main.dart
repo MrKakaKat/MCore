@@ -314,10 +314,37 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 4),
-                              child: LayersTimelineView(
-                                  app: widget.appState,
-                                  // the half-open sheet lies over its lower part.
-                                  coveredBottom: narrow ? math.max(0.0, math.min(dock - reserved, sectionHeight)) : 0),
+                              child: Stack(children: [
+                                Positioned.fill(
+                                  child: LayersTimelineView(
+                                      app: widget.appState,
+                                      // the half-open sheet lies over its lower part.
+                                      coveredBottom: narrow ? math.max(0.0, math.min(dock - reserved, sectionHeight)) : 0),
+                                ),
+                                // how many keys are selected, in its corner.
+                                Positioned(
+                                  left: 0,
+                                  top: 0,
+                                  child: IgnorePointer(
+                                    child: AnimatedBuilder(
+                                      animation: widget.appState,
+                                      builder: (context, _) => kfSelectedFrames.isEmpty
+                                          ? const SizedBox.shrink()
+                                          : Container(
+                                              key: const ValueKey('selected-keys-count'),
+                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                              decoration: BoxDecoration(
+                                                color: Colors.amber.withValues(alpha: 0.85),
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                  '${kfSelectedFrames.length} key${kfSelectedFrames.length == 1 ? '' : 's'}',
+                                                  style: const TextStyle(fontSize: 10, color: Colors.black)),
+                                            ),
+                                    ),
+                                  ),
+                                ),
+                              ]),
                             ),
                           ),
                         ],
