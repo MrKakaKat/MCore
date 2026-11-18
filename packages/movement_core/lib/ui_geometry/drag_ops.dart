@@ -304,11 +304,15 @@ class StationDragOp implements DragOp {
   final int keyframeIdx;
   final List<double> startLocal;
   final List<double> startValue;
+
+  /// The position track its key is in (null: the one being edited).
+  final Track? track;
   StationDragOp(
       {required this.layer,
       required this.keyframeIdx,
       required this.startLocal,
-      required this.startValue});
+      required this.startValue,
+      this.track});
 
   @override
   List<SnapGuideLine> get snapGuides =>
@@ -316,8 +320,9 @@ class StationDragOp implements DragOp {
 
   @override
   void apply(Project project, int globalFrame, List<double> framePoint) {
-    // the keys being edited (the base's or an animation layer's).
-    final trk = editTrackOf(layer.transform.anchor);
+    // the keys being edited (the base's or an animation layer's), or
+    // the track the picked key is in.
+    final trk = track ?? editTrackOf(layer.transform.anchor);
     final nowLocal = anchorLocalFromScreen(
         project, layer, framePoint[0], framePoint[1], globalFrame);
     trk.keyframes[keyframeIdx].value = [
@@ -328,16 +333,17 @@ class StationDragOp implements DragOp {
   }
 
   factory StationDragOp.grab(Project project, Layer layer, int keyframeIdx,
-      int globalFrame, List<double> grabFramePoint) {
+      int globalFrame, List<double> grabFramePoint, {Track? track}) {
     final startLocal = anchorLocalFromScreen(
         project, layer, grabFramePoint[0], grabFramePoint[1], globalFrame);
     final startValue = List<double>.from(
-        editTrackOf(layer.transform.anchor).keyframes[keyframeIdx].value as List<double>);
+        (track ?? editTrackOf(layer.transform.anchor)).keyframes[keyframeIdx].value as List<double>);
     return StationDragOp(
         layer: layer,
         keyframeIdx: keyframeIdx,
         startLocal: startLocal,
-        startValue: startValue);
+        startValue: startValue,
+        track: track);
   }
 }
 
@@ -854,9 +860,8 @@ List<PathTangentHandle> getPathTangentHandlesScreen(Project project, Layer layer
   return out;
 }
 
-/// Dragging a path key's curve handle: it goes where the finger is, the
-/// one across turns with it (a smooth curve through the key) keeping its
-/// own length.
+/// Dragging a path key's curve handle: it goes where the finger is; the
+/// key's other handle stays (each is set on its own).
 class TangentDragOp implements DragOp {
   final Layer layer;
   final int idx;
@@ -876,10 +881,9 @@ class TangentDragOp implements DragOp {
     final o = anchorLocalFromScreen(project, layer, station[0], station[1], g);
     final p = anchorLocalFromScreen(project, layer, framePoint[0], framePoint[1], g);
     final t = [p[0] - o[0], p[1] - o[1]];
-    final other = out ? k.spatialTangent.inTan : k.spatialTangent.outTan;
-    final len = math.sqrt(other[0] * other[0] + other[1] * other[1]);
-    final tl = math.sqrt(t[0] * t[0] + t[1] * t[1]);
-    final across = tl < 1e-12 ? other : [-t[0] / tl * len, -t[1] / tl * len];
-    k.spatialTangent = out ? SpatialTangent(inTan: across, outTan: t) : SpatialTangent(inTan: t, outTan: across);
+    // only this handle: the one across stays where it is (no mirroring).
+    k.spatialTangent = out
+        ? SpatialTangent(inTan: [...k.spatialTangent.inTan], outTan: t)
+        : SpatialTangent(inTan: t, outTan: [...k.spatialTangent.outTan]);
   }
 }

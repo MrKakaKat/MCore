@@ -126,7 +126,8 @@ void mergeAnimLayerInto(Layer layer, int into, int from) {
 /// number.
 int addTransformAnimLayer(Layer layer) {
   final t = layer.transform;
-  t.anchor.animLayers.add(AnimLayer(track: Track([0.0, 0.0])));
+  // a key layer's place is a way on the stage too (curves, handles).
+  t.anchor.animLayers.add(AnimLayer(track: Track([0.0, 0.0], true)));
   t.rotation.animLayers.add(AnimLayer(track: Track(0.0)));
   t.scale.animLayers.add(AnimLayer(track: Track([1.0, 1.0]), multiply: true));
   t.opacity.animLayers.add(AnimLayer(track: Track(1.0), multiply: true));
@@ -351,6 +352,14 @@ bool tidyAnimLayers(Layer layer, {bool selected = false}) {
   final t = layer.transform;
   final all = [t.anchor, t.rotation, t.scale, t.opacity];
   var changed = false;
+  // key layers made before their place was a way: one now (flat handles
+  // move it just as before).
+  for (final a in t.anchor.animLayers) {
+    if (!a.track.spatial && !a.multiply) {
+      a.track.spatial = true;
+      changed = true;
+    }
+  }
   for (var n = t.anchor.animLayers.length; n >= 1; n--) {
     final tracks = [for (final x in all) if (x.animLayers.length >= n) x.animLayers[n - 1].track];
     if (tracks.every((x) => x.keyframes.isEmpty)) {
@@ -389,4 +398,25 @@ bool tidyAnimLayers(Layer layer, {bool selected = false}) {
     }
   }
   return changed;
+}
+
+/// Order keys: which keys an edit on the stage at local frame `f` goes
+/// into - the range waiting for its second key, else the range `f` is
+/// in, else the object's own (Base) keys: its place before / between the
+/// ranges is its own, not a range's.
+void orderEditLayerAt(Layer layer, int f) {
+  final open = openOrderLayer(layer);
+  if (open != null) {
+    activeAnimLayer = open;
+    return;
+  }
+  for (var n = layer.transform.anchor.animLayers.length; n >= 1; n--) {
+    final fs = animLayerKeyFrames(layer, n);
+    if (fs.length < 2) continue;
+    if (f >= fs.reduce(math.min) && f <= fs.reduce(math.max)) {
+      activeAnimLayer = n;
+      return;
+    }
+  }
+  activeAnimLayer = 0;
 }

@@ -79,7 +79,7 @@ class KeyframesEditorView extends StatelessWidget {
             const Divider(height: 16),
             // the parameters with keys, folded away until opened (the
             // header's list button).
-            if (app.showKeyParams) ...[
+            ...[
               if (tracks.isEmpty)
                 const Padding(
                   padding: EdgeInsets.all(8),
@@ -120,11 +120,7 @@ class KeyframesEditorView extends StatelessWidget {
               tooltip: 'take every mark away',
               icon: const Icon(Icons.clear_all, size: 18),
               visualDensity: VisualDensity.compact,
-              onPressed: () {
-                for (final f in [...marks]) {
-                  app.toggleMarker(f);
-                }
-              },
+              onPressed: app.clearMarkers,
             ),
         ]),
         if (marks.isEmpty)
@@ -237,17 +233,22 @@ class KeyframesEditorView extends StatelessWidget {
           visualDensity: VisualDensity.compact,
         ),
         // the master key's one ease: every parameter's transition into it.
-        if (allKeyed && _masterEaseTrack(layer, localFrame) != null)
-          IconButton(
-            key: const ValueKey('master-key-ease'),
-            icon: const Icon(Icons.show_chart, size: 18),
-            tooltip: 'ease of the shared key (all parameters)',
-            onPressed: () {
-              final (trk, seg) = _masterEaseTrack(layer, localFrame)!;
-              openEase(context, app: app, track: trk, componentCount: trk.defaultValue is List ? 2 : 1, segment: seg, shared: true);
-            },
-            visualDensity: VisualDensity.compact,
-          ),
+        // the shared ease (all parameters at a multi-key) - by the
+        // multi-key button; each parameter has its own below.
+        IconButton(
+          key: const ValueKey('master-key-ease'),
+          icon: const Icon(Icons.show_chart, size: 18),
+          tooltip: allKeyed && _masterEaseTrack(layer, localFrame) != null
+              ? 'ease of the multi-key here (all parameters)'
+              : 'ease of a multi-key: put the playhead on one',
+          onPressed: allKeyed && _masterEaseTrack(layer, localFrame) != null
+              ? () {
+                  final (trk, seg) = _masterEaseTrack(layer, localFrame)!;
+                  openEase(context, app: app, track: trk, componentCount: trk.defaultValue is List ? 2 : 1, segment: seg, shared: true);
+                }
+              : null,
+          visualDensity: VisualDensity.compact,
+        ),
         // ordinary keys made multi-keys (every parameter keyed there).
         IconButton(
           key: const ValueKey('make-multi-keys'),
@@ -276,15 +277,6 @@ class KeyframesEditorView extends StatelessWidget {
           icon: const Icon(Icons.paste, size: 18),
           tooltip: 'paste keyframes at current frame',
           onPressed: app.pasteKfsAtCurrentFrame,
-          visualDensity: VisualDensity.compact,
-        ),
-        // (multiselect lives in the top toolbar) - show / fold the
-        // parameters with keys.
-        IconButton(
-          key: const ValueKey('key-params-toggle'),
-          icon: Icon(app.showKeyParams ? Icons.expand_less : Icons.list, size: 18),
-          tooltip: app.showKeyParams ? 'fold the parameters with keys' : 'show the parameters with keys',
-          onPressed: app.toggleShowKeyParams,
           visualDensity: VisualDensity.compact,
         ),
       ],
@@ -369,6 +361,22 @@ class KeyframesEditorView extends StatelessWidget {
     );
   }
 
+  /// The segment (key index from) the playhead is in, or the first.
+  static int _segmentAt(Track t, int f) {
+    final ks = t.keyframes;
+    for (var i = 0; i + 1 < ks.length; i++) {
+      if (f >= ks[i].frame && f < ks[i + 1].frame) {
+        // in a drawn way: its ease is its end key's (the whole way).
+        var j = i;
+        while (j + 1 < ks.length - 1 && ks[j + 1].passive) {
+          j++;
+        }
+        return j;
+      }
+    }
+    return 0;
+  }
+
   Widget _trackSection(
       BuildContext context, Layer layer, String label, Track track) {
     // a drawn way's own points (free move) aren't listed: only its keys.
@@ -398,6 +406,19 @@ class KeyframesEditorView extends StatelessWidget {
                 },
               ),
               const Spacer(),
+              // its own ease (this parameter only).
+              if (sortedKfs.length >= 2)
+                IconButton(
+                  key: ValueKey('track-ease-$label'),
+                  icon: const Icon(Icons.show_chart, size: 18),
+                  tooltip: 'its own ease',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => openEase(context,
+                      app: app,
+                      track: track,
+                      componentCount: track.defaultValue is List ? (track.defaultValue as List).length : 1,
+                      segment: _segmentAt(track, layerLocalFrame(layer, app.currentFrame).round())),
+                ),
               // show / hide its keys on the timeline.
               IconButton(
                 key: ValueKey('track-eye-$label'),

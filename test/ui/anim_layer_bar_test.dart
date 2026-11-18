@@ -52,14 +52,11 @@ void main() {
     expect(activeAnimLayer, 0);
   });
 
-  testWidgets('the parameters with keys fold away behind the list button', (tester) async {
+  testWidgets('the parameters with keys are listed right away', (tester) async {
     final app = AppState();
     final layer = findLayer(app.project, app.selection.selectedLayer)!;
     layer.transform.rotation.keyframes.add(Keyframe(frame: 5, value: 1.0));
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: KeyframesEditorView(app: app))));
-    expect(find.text('Rotation'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('key-params-toggle')));
-    await tester.pump();
     expect(find.text('Rotation'), findsOneWidget);
   });
 

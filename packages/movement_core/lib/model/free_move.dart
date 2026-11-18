@@ -610,7 +610,6 @@ bool replaceMoveBetweenKeys(Project project, Layer layer, Track trk, int a, int 
   // the ends' handles toward the drawn way; the key at b keeps its value.
   final st = ka.spatialTangent;
   ka.spatialTangent = SpatialTangent(inTan: st.inTan, outTan: [local[0][1][0] - local[0][0][0], local[0][1][1] - local[0][0][1]]);
-  ka.temporal = linear;
   final sb = kb.spatialTangent;
   kb.spatialTangent = SpatialTangent(inTan: [local.last[2][0] - local.last[3][0], local.last[2][1] - local.last[3][1]], outTan: sb.outTan);
   trk.keyframes.sort((x, y) => x.frame.compareTo(y.frame));

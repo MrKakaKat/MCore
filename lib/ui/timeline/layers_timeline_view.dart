@@ -3679,7 +3679,16 @@ class TimelineVolumePainter extends CustomPainter {
       final f = x / pixelsPerFrame;
       var level = 0.0;
       for (final l in sounds) {
-        level = math.max(level, soundLevelAt(l, f));
+        // as loud as it plays: its volume (keys too), nothing when muted.
+        final vol = l.content.volume;
+        final gain = l.content.audioMuted
+            ? 0.0
+            : vol == null
+                ? 1.0
+                : (evaluateTrack(null, vol, (f - l.startFrame).clamp(0, l.durationFrames).toDouble(), l) as num)
+                    .toDouble()
+                    .clamp(0.0, 4.0);
+        level = math.max(level, (soundLevelAt(l, f) * gain).clamp(0.0, 1.0));
       }
       path.lineTo(x, level * size.height);
     }

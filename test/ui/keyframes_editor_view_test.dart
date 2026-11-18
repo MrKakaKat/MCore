@@ -132,13 +132,11 @@ void main() {
     expect(layer.transform.rotation.keyframes.map((k) => k.frame), contains(100));
   });
 
-  testWidgets('the list button folds and opens the parameters with keys (multiselect is in the top toolbar)',
-      (tester) async {
+  testWidgets('the parameters with keys are always listed, each with its own ease (no folding)', (tester) async {
     await pumpView(tester);
     expect(find.text('Rotation'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('key-params-toggle')));
-    await tester.pump();
-    expect(find.text('Rotation'), findsNothing);
+    expect(find.byKey(const ValueKey('key-params-toggle')), findsNothing);
+    expect(find.byKey(const ValueKey('master-key-ease')), findsOneWidget, reason: 'by the multi-key button');
     expect(find.widgetWithIcon(IconButton, Icons.check_box_outline_blank), findsNothing);
   });
 

@@ -252,6 +252,8 @@ class StageGestureController {
   ActiveDragInfo? _magnetCapture(Layer layer, List<double> fp, {bool tabToolsOnly = false}) {
     final project = app.project;
     final globalFrame = app.currentFrame;
+    // order keys: a range at the playhead takes the edit, else its own keys.
+    if (keyMode == 'order') orderEditLayerAt(layer, globalFrame - layer.startFrame);
     final handleRadius = camera.radiusInFrameSpace(16);
     final pathBodyRadius = camera.radiusInFrameSpace(8);
 
@@ -544,7 +546,10 @@ class StageGestureController {
       }
     }
     if (bestStation != null) {
-      return ActiveDragInfo(family: 'path', activeKey: null, op: StationDragOp.grab(project, layer, bestStation.idx, globalFrame, fp));
+      return ActiveDragInfo(
+          family: 'path',
+          activeKey: null,
+          op: StationDragOp.grab(project, layer, bestStation.idx, globalFrame, fp, track: bestStation.track));
     }
 
     // tier 4: the path's own body (drag every keyframe + default by a

@@ -502,7 +502,10 @@ Rotate3dPivotHandle getRotate3dPivotHandle(Project project, Layer layer, EffectI
 class PathStation {
   final int idx;
   final List<double> screen;
-  PathStation({required this.idx, required this.screen});
+
+  /// The position track the key is in (null: the one being edited).
+  final Track? track;
+  PathStation({required this.idx, required this.screen, this.track});
 }
 
 /// Where the path is drawn through: the middle of the object's box (on
@@ -517,12 +520,21 @@ List<PathStation> getAnchorStationsScreen(Project project, Layer layer, int glob
   // each stop where the object really is at its key (on its path: key
   // layers, parents and all - they used to sit at the bare key value, off
   // the path once a key layer or a moved centre came in).
-  final layered = activeAnimLayerOf(layer.transform.anchor);
-  final trk = layered?.track ?? layer.transform.anchor;
-  if (layered == null && !trk.spatial) return const [];
+  final anchor = layer.transform.anchor;
+  final layered = activeAnimLayerOf(anchor);
+  final trk = layered?.track ?? anchor;
+  if (layered == null && !trk.spatial && anchor.animLayers.isEmpty) return const [];
   return [
-    for (var idx = 0; idx < trk.keyframes.length; idx++)
-      PathStation(idx: idx, screen: pathPointAt(project, layer, trk.keyframes[idx].frame + layer.startFrame)),
+    // the other position tracks' keys (the base's, every key layer's) can
+    // be picked too - under the edited one's (they win a tie).
+    for (final t in [anchor, for (final a in anchor.animLayers) if (a.enabled) a.track])
+      if (!identical(t, trk) && (t.spatial || !identical(t, anchor)))
+        for (var idx = 0; idx < t.keyframes.length; idx++)
+          if (!t.keyframes[idx].passive)
+            PathStation(idx: idx, track: t, screen: pathPointAt(project, layer, t.keyframes[idx].frame + layer.startFrame)),
+    if (layered != null || trk.spatial)
+      for (var idx = 0; idx < trk.keyframes.length; idx++)
+        PathStation(idx: idx, screen: pathPointAt(project, layer, trk.keyframes[idx].frame + layer.startFrame)),
   ];
 }
 

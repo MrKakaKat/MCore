@@ -446,6 +446,35 @@ dynamic _evaluateOwn(Project? project, Track trk, double localFrame, [Layer? lay
     i++;
   }
   final k0 = kfs[i], k1 = kfs[i + 1];
+  // inside a drawn way (free move: its own points between two keys): one
+  // ease - the end key's - over the whole way, its points at an even pace
+  // in between (they were laid out by length).
+  if (k0.passive || k1.passive) {
+    var s = i, e = i + 1;
+    while (s > 0 && kfs[s].passive) {
+      s--;
+    }
+    while (e < kfs.length - 1 && kfs[e].passive) {
+      e++;
+    }
+    if (!kfs[s].passive && !kfs[e].passive) {
+      final whole = applyTemporalEasing(kfs[s], kfs[e], frame);
+      final at = kfs[s].frame + whole * (kfs[e].frame - kfs[s].frame);
+      var j = s;
+      while (j < e - 1 && kfs[j + 1].frame < at) {
+        j++;
+      }
+      final a = kfs[j], b = kfs[j + 1];
+      final span = b.frame - a.frame;
+      final t = span == 0 ? 0.0 : (at - a.frame) / span;
+      if (a.value is List<double>) {
+        if (trk.spatial) return spatialLerpVec2(a, b, t);
+        final v0 = a.value as List<double>, v1 = b.value as List<double>;
+        return [for (var idx = 0; idx < v0.length; idx++) lerp(v0[idx], v1[idx], t)];
+      }
+      return lerp((a.value as num).toDouble(), (b.value as num).toDouble(), t);
+    }
+  }
   final easedT = applyTemporalEasing(k0, k1, frame);
 
   if (k0.value is List<double>) {

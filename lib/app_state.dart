@@ -1011,6 +1011,8 @@ class AppState extends ChangeNotifier {
           line: keyDetailSelection,
           lines: [...keyDetailExtra],
           held: {for (final e in heldKeys.entries) e.key: {...e.value}},
+          // the ruler's marks are the project's own, outside its layers.
+          marks: [...project.markers],
         );
     undo.restoreExtra = (e) {
       if (e is! ({
@@ -1019,9 +1021,13 @@ class AppState extends ChangeNotifier {
         ({String layerId, String tab, int a, int b, String? track})? line,
         List<({String layerId, String tab, int a, int b, String? track})> lines,
         Map<String, Set<int>> held,
+        List<int> marks,
       })) {
         return;
       }
+      project.markers
+        ..clear()
+        ..addAll(e.marks);
       timeRange = e.range;
       kfSelectedFrames = e.keys;
       keyDetailSelection = e.line;
@@ -1770,7 +1776,16 @@ class AppState extends ChangeNotifier {
   }
 
   /// Puts a red mark on the ruler at `frame`, or takes the one there away.
+  /// Every ruler mark taken away (one undo step).
+  void clearMarkers() {
+    if (project.markers.isEmpty) return;
+    pushUndo();
+    project.markers.clear();
+    notifyListeners();
+  }
+
   void toggleMarker(int frame) {
+    pushUndo();
     final m = project.markers;
     if (!m.remove(frame)) {
       m.add(frame);
@@ -3136,9 +3151,12 @@ class AppState extends ChangeNotifier {
     if (ks.length == 2) {
       final a = ks[0] - l.startFrame, b = ks[1] - l.startFrame;
       if (adjacent(l.transform.anchor, a, b)) return (trk: l.transform.anchor, a: a, b: b);
-      // a free move's own two keys.
+      // a key layer's two keys (a free move's, an order range's) - the
+      // edited one first.
+      final edited = activeAnimLayerOf(l.transform.anchor);
+      if (edited != null && adjacent(edited.track, a, b)) return (trk: edited.track, a: a, b: b);
       for (final al in l.transform.anchor.animLayers.reversed) {
-        if (al.track.freeMove && adjacent(al.track, a, b)) return (trk: al.track, a: a, b: b);
+        if (adjacent(al.track, a, b)) return (trk: al.track, a: a, b: b);
       }
     }
     return null;
@@ -3217,6 +3235,9 @@ class AppState extends ChangeNotifier {
 
   void startFreeMove() {
     if (findLayer(project, selection.selectedLayer) == null) return;
+    // two keys picked: their way, from one to the other (no new move
+    // that would go on from the second back round).
+    if (freeMoveRange != null) return startFreeMoveBetween();
     freeMoveReplace = false;
     freeMoveEnd = null;
     freeMoveStart = null;

@@ -105,4 +105,18 @@ void main() {
     expect((await loadProjectFromFile(f)).project.markers, [12, 90]);
     await dir.delete(recursive: true);
   });
+
+  test('a mark put or taken away is one undo step; clearing them all is one too', () {
+    app.toggleMarker(10);
+    app.toggleMarker(20);
+    expect(app.project.markers, [10, 20]);
+    app.performUndo();
+    expect(app.project.markers, [10]);
+    app.performRedo();
+    expect(app.project.markers, [10, 20]);
+    app.clearMarkers();
+    expect(app.project.markers, isEmpty);
+    app.performUndo();
+    expect(app.project.markers, [10, 20]);
+  });
 }

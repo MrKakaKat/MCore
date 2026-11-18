@@ -933,6 +933,8 @@ void _paintPathVisual(ui.Canvas canvas, Project project, Layer layer,
   }
   final samples = samplePathScreen(project, layer, 60);
   final stations = getAnchorStationsScreen(project, layer, globalFrame);
+  // where it is on its way at the playhead.
+  final now = samples.length >= 2 ? pathPointAt(project, layer, globalFrame) : null;
   // the path's other stops (another key layer's, or the base's while a key
   // layer is edited): to see where they are, not to drag.
   final others = getOtherStationsScreen(project, layer);
@@ -953,6 +955,16 @@ void _paintPathVisual(ui.Canvas canvas, Project project, Layer layer,
         ..style = ui.PaintingStyle.stroke
         ..strokeWidth = inv,
     );
+  }
+  if (now != null) {
+    final r = ui.Rect.fromCenter(center: ui.Offset(now[0], now[1]), width: 8 * inv, height: 8 * inv);
+    canvas.drawRect(r, ui.Paint()..color = _pathLineColor);
+    canvas.drawRect(
+        r,
+        ui.Paint()
+          ..color = const ui.Color(0xFFFFFFFF)
+          ..style = ui.PaintingStyle.stroke
+          ..strokeWidth = 1.2 * inv);
   }
   for (final o in others) {
     canvas.drawCircle(

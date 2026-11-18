@@ -20,14 +20,14 @@ void main() {
     final hs = getPathTangentHandlesScreen(p, l);
     expect(hs.length, 4);
     final h = hs.firstWhere((h) => h.idx == 1 && h.out);
+    final inBefore = [...l.transform.anchor.keyframes[1].spatialTangent.inTan];
     final op = TangentDragOp(layer: l, idx: 1, out: true, station: h.station);
     op.apply(p, 0, [h.station[0] + 100, h.station[1] - 120]);
     final k = l.transform.anchor.keyframes[1];
     expect(k.spatialTangent.outTan[0], closeTo(0.1, 1e-9));
     expect(k.spatialTangent.outTan[1], closeTo(-0.2, 1e-9));
-    // the one across turned with it.
-    expect(k.spatialTangent.inTan[0], lessThan(0));
-    expect(k.spatialTangent.inTan[1], greaterThan(0));
+    // the one across stays as it was (no mirroring).
+    expect(k.spatialTangent.inTan, inBefore);
     clearStateCaches();
     final mid = evaluateTrack(p, l.transform.anchor, 75.0) as List<double>;
     expect(mid[1], lessThan(0.5), reason: 'the way bends up after the key');
