@@ -318,7 +318,8 @@ class KeyframesEditorView extends StatelessWidget {
 
   Widget _trackSection(
       BuildContext context, Layer layer, String label, Track track) {
-    final sortedKfs = [...track.keyframes]
+    // a drawn way's own points (free move) aren't listed: only its keys.
+    final sortedKfs = [for (final k in track.keyframes) if (!k.passive) k]
       ..sort((a, b) => a.frame.compareTo(b.frame));
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),

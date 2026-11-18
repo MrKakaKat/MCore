@@ -29,7 +29,7 @@ import '../core/math.dart';
 import '../core/stage_size.dart';
 import '../core/state_cache.dart';
 import '../model/project.dart';
-import '../model/free_move.dart' show holdAroundFreeMoves;
+import '../model/free_move.dart' show holdAroundFreeMoves, freeMoveBefore;
 import '../model/track_edit.dart';
 import '../effects/motion/pendulum.dart' show pendulumWeightPoint;
 import 'handles.dart';
@@ -359,6 +359,9 @@ class AnchorDragOp implements DragOp {
   @override
   List<SnapGuideLine> get snapGuides => _snapGuides;
 
+  // a free move going on: where it was when the drag began.
+  List<double>? _fmStart;
+
   @override
   void apply(Project project, int globalFrame, List<double> framePoint) {
     final trk = layer.transform.anchor;
@@ -378,9 +381,25 @@ class AnchorDragOp implements DragOp {
     // the stage's axis lock: only along x, or only along y.
     if (dragAxisLock == 'x') newLocal = [newLocal[0], startValue[1]];
     if (dragAxisLock == 'y') newLocal = [startValue[0], newLocal[1]];
-    // past a free move: only the stretch after it moves.
-    holdAroundFreeMoves(project, layer, localFrameOf(layer, globalFrame));
-    setTrackValueAt(trk, localFrameOf(layer, globalFrame), newLocal);
+    final f = localFrameOf(layer, globalFrame);
+    // past a free move: the move goes on in it (a key of its own here) -
+    // its drawn way stays, and its whole-path pace takes the rest too.
+    final fm = freeMoveBefore(layer, f);
+    if (fm != null) {
+      final s0 = _fmStart ??= [for (final v in evaluateTrack(null, fm, f.toDouble()) as List) (v as num).toDouble()];
+      var k = keyframeAt(fm, f);
+      if (k == null) {
+        k = Keyframe(frame: f, value: <double>[...s0], temporal: newKeyEasing());
+        fm.keyframes
+          ..add(k)
+          ..sort((x, y) => x.frame.compareTo(y.frame));
+      }
+      k.value = <double>[s0[0] + newLocal[0] - startValue[0], s0[1] + newLocal[1] - startValue[1]];
+      return;
+    }
+    // before one: only the stretch before it moves.
+    holdAroundFreeMoves(project, layer, f);
+    setTrackValueAt(trk, f, newLocal);
   }
 
   factory AnchorDragOp.grab(Project project, Layer layer, int globalFrame,

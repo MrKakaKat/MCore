@@ -17,16 +17,13 @@ class FreeMoveField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rec = app.freeMoveRecording;
-    return Card(
+    return Container(
       key: const ValueKey('free-move-field'),
-      margin: const EdgeInsets.symmetric(vertical: 4),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(8, 4, 8, 6),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const Icon(Icons.gesture, size: 18),
-            const SizedBox(width: 6),
-            const Expanded(child: Text('Free move', style: TextStyle(fontWeight: FontWeight.w600))),
+            const Expanded(child: Text('Its time', style: TextStyle(fontSize: 13))),
             // as drawn: the hand's own time instead.
             if (!app.freeMoveAsDrawn) ...[
               const Text('takes', style: TextStyle(fontSize: 12)),

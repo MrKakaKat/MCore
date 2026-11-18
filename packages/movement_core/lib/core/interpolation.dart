@@ -352,23 +352,6 @@ dynamic _evaluateOwn(Project? project, Track trk, double localFrame, [Layer? lay
 
   final spatialPath = trk.spatial && kfs.length >= 2 && kfs.first.value is List<double>;
 
-  // a free move with keys of its own beyond its time: its one pace and
-  // ease stay within its time; the keys beyond are plain keys.
-  final fms = trk.freeMoveSpan;
-  if (spatialPath && trk.freeMove && fms != null && (kfs.first.frame < fms[0] || kfs.last.frame > fms[1])) {
-    if (frame >= fms[0] && frame <= fms[1]) {
-      final own = [for (final k in kfs) if (k.frame >= fms[0] && k.frame <= fms[1]) k];
-      if (own.length >= 2) return _evaluateOwn(project, cloneTrack(trk)..keyframes = own, frame, layer);
-    }
-    final plain = cloneTrack(trk)
-      ..keyframes = [for (final k in kfs) if (!k.passive) k]
-      ..constantSpeed = false
-      ..globalEasing = null
-      ..freeMove = false;
-    // (its drawn way within its time; the rest key to key.)
-    if (frame < fms[0] || frame > fms[1]) return _evaluateOwn(project, plain, frame, layer);
-  }
-
   // constant speed: one pace along the whole path by length, shaped only
   // by the whole-path curve; the keys' own times don't matter.
   if (spatialPath && trk.constantSpeed) {

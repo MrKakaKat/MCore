@@ -95,7 +95,7 @@ void main() {
       expect([for (final k in l.transform.anchor.keyframes) if (!k.passive) k.frame], [0, 60], reason: 'the two keys stay the keys');
     });
 
-    test('a key after a free move: moving it moves only the stretch after - the drawn way stays', () {
+    test('dragged past a free move: the move goes on in it (a key of its own), the drawn way stays put', () {
       final l = _rect('A')..durationFrames = 120;
       final p = Project(layers: [l]);
       final path = [
@@ -104,25 +104,42 @@ void main() {
       addFreeMoveLayer(p, l, path, 0, 48, smoothing: 0);
       final trk = l.transform.anchor.animLayers.single.track;
       clearStateCaches();
-      final before = [for (var f = 0; f <= 48; f += 4) getLayerStateAt(p, l.id, f).matrix.sublist(4)];
-      // a third key at 90 (as it stands at the end), then dragged there.
-      final last = trk.keyframes.last;
-      trk.keyframes.add(Keyframe(frame: 90, value: [...last.value as List<double>]));
-      bindFreeMoveKeys(l);
-      holdAroundFreeMoves(p, l, 90);
-      setTrackValueAt(l.transform.anchor, 90, [0.9, 0.2]);
-      bindFreeMoveKeys(l);
+      final start = getLayerStateAt(p, l.id, 0).matrix.sublist(4);
+      final endBefore = getLayerStateAt(p, l.id, 48).matrix.sublist(4);
+      // at 90 the object stands at the free move's end: dragged 100 px right.
+      final grab = [endBefore[0] * 1000, endBefore[1] * 1000];
+      final op = AnchorDragOp.grab(p, l, 90, grab);
+      op.apply(p, 90, [grab[0] + 100, grab[1]]);
       clearStateCaches();
-      final after = [for (var f = 0; f <= 48; f += 4) getLayerStateAt(p, l.id, f).matrix.sublist(4)];
-      for (var i = 0; i < before.length; i++) {
-        expect(after[i][0], closeTo(before[i][0], 1e-6), reason: 'frame ${i * 4}');
-        expect(after[i][1], closeTo(before[i][1], 1e-6), reason: 'frame ${i * 4}');
-      }
+      expect(l.transform.anchor.keyframes, isEmpty, reason: 'the position\'s own track untouched');
+      expect([for (final k in trk.keyframes) if (!k.passive) k.frame], [0, 48, 90], reason: 'a key of the free move at 90');
+      final s2 = getLayerStateAt(p, l.id, 0).matrix.sublist(4);
+      expect(s2[0], closeTo(start[0], 1e-9), reason: 'its start stays');
+      final at90 = getLayerStateAt(p, l.id, 90).matrix.sublist(4);
+      expect(at90[0], closeTo(endBefore[0] + 0.1, 1e-6), reason: 'went where dragged');
       expect(trk.keyframes.where((k) => k.passive).every((k) => k.frame < 48), isTrue, reason: 'its points stay in its time');
+    });
+
+    test('drawing anew the way between two keys: their frames and places stay, the way between is the drawn one', () {
+      final l = _rect('A')..durationFrames = 100;
+      l.transform.anchor.keyframes = [
+        Keyframe(frame: 0, value: <double>[0.2, 0.5], temporal: const Easing(0, 0, 1, 1)),
+        Keyframe(frame: 60, value: <double>[0.8, 0.5], temporal: const Easing(0, 0, 1, 1)),
+      ];
+      final p = Project(layers: [l]);
       clearStateCaches();
-      final m90 = getLayerStateAt(p, l.id, 90).matrix;
-      final offset = (evaluateTrack(p, trk, 90) as List)[0] as double;
-      expect(m90[4], closeTo(0.9 + offset, 1e-6), reason: 'the stretch after it went where dragged (its own + the free move)');
+      // an arch drawn from where it stands, ending a little off the second key.
+      final path = [
+        for (var i = 0; i <= 40; i++) [200.0 + 15 * i, 500 - 300 * math.sin(math.pi * i / 40)]
+      ];
+      expect(replaceMoveBetweenKeys(p, l, l.transform.anchor, 0, 60, path, smoothing: 0), isTrue);
+      clearStateCaches();
+      List<double> at(int f) => getLayerStateAt(p, l.id, f).matrix.sublist(4);
+      expect(at(0)[0], closeTo(0.2, 1e-6));
+      expect(at(60)[0], closeTo(0.8, 1e-6), reason: 'ends where its second key is');
+      expect(at(60)[1], closeTo(0.5, 1e-6));
+      expect(at(30)[1], lessThan(0.3), reason: 'the arch in between');
+      expect([for (final k in l.transform.anchor.keyframes) if (!k.passive) k.frame], [0, 60], reason: 'the two keys stay the keys');
     });
 
     test('the way\'s own points are passive: faint on the line, not in the rows', () {

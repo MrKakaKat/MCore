@@ -239,6 +239,12 @@ class LayerPanelView extends StatelessWidget {
                   tooltip: 'Copy the folder',
                   onPressed: () => app.duplicateFolder(f),
                 ),
+                // its layers into as few timeline rows as their times allow.
+                _compactIconButton(
+                  icon: Icons.view_agenda_outlined,
+                  tooltip: 'Pack its rows on the timeline',
+                  onPressed: () => app.packFolder(f),
+                ),
                 Icon(open ? Icons.expand_less : Icons.expand_more, size: 18),
               ]),
             ),

@@ -87,9 +87,11 @@ class ParamsPanelView extends StatelessWidget {
               ),
             ),
             _parentSelector(context, layer),
+            // its way's settings inside its fold: the free move's way (and
+            // what goes on after it) when there is one.
             _vecParam(context, 'anchor', layer.transform.anchor, localFrame, [0.5, 0.5],
-                const ParamScale.ruler(unitsPerPixel: 0.0005, minorTick: 0.01, majorTick: 0.1, decimals: 4)),
-            _pathControls(context, layer.transform.anchor),
+                const ParamScale.ruler(unitsPerPixel: 0.0005, minorTick: 0.01, majorTick: 0.1, decimals: 4),
+                below: [_pathControls(context, _pathTrack(layer))]),
             // its switches inside its fold.
             _vecParam(context, 'scale', layer.transform.scale, localFrame, [1.0, 1.0],
                 const ParamScale.ruler(unitsPerPixel: 0.005, minorTick: 0.1, majorTick: 0.5),
@@ -101,8 +103,22 @@ class ParamsPanelView extends StatelessWidget {
             _scalarParam(context, 'opacity', layer.transform.opacity, localFrame, 1.0, const ParamScale.slider(0, 1)),
             // its centre: what it turns and scales round.
             PivotField(app: app),
-            // drag the object along a way: a key layer of it.
-            FreeMoveField(app: app),
+            // drag the object along a way: a key layer of it (folded until
+            // needed).
+            Card(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              child: ExpansionTile(
+                key: const ValueKey('free-move-fold'),
+                dense: true,
+                tilePadding: const EdgeInsets.symmetric(horizontal: 8),
+                childrenPadding: EdgeInsets.zero,
+                initiallyExpanded: app.freeMoveRecording || app.freeMoveRange != null,
+                leading: const Icon(Icons.gesture, size: 18),
+                title: Text(app.freeMoveRange != null ? 'Free move  ·  2 keys picked' : 'Free move',
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                children: [FreeMoveField(app: app)],
+              ),
+            ),
           ],
         );
       },
@@ -592,8 +608,17 @@ class ParamsPanelView extends StatelessWidget {
   /// both gated on `anchor.keyframes.length >= 2` (with exactly 2,
   /// tension has no visible effect - all 4 bezier control points stay
   /// collinear; it starts actually bending the path at 3+).
+  /// The way the path settings act on: the animation layer picked for
+  /// edits, else the latest free move (with what was keyed after it),
+  /// else the position's own keys.
+  Track _pathTrack(Layer layer) {
+    final base = layer.transform.anchor;
+    if (activeAnimLayerOf(base) != null) return editTrackOf(base);
+    return latestFreeMove(layer) ?? base;
+  }
+
   Widget _pathControls(BuildContext context, Track anchor) {
-    if (anchor.keyframes.length < 2) return const SizedBox.shrink();
+    if (anchor.keyframes.where((k) => !k.passive).length < 2) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

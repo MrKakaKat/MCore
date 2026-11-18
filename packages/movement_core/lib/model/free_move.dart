@@ -6,9 +6,9 @@ library;
 import 'dart:math' as math;
 
 import '../core/interpolation.dart';
-import '../core/stage_size.dart';
 import '../core/state_cache.dart';
 import '../ui_geometry/drag_ops.dart' show anchorLocalFromScreen;
+import '../ui_geometry/handles.dart' show computeLayerFrameGeometry;
 import 'project.dart';
 import 'track_edit.dart';
 
@@ -299,13 +299,24 @@ bool replaceMoveBetweenKeys(Project project, Layer layer, Track trk, int a, int 
   if (ka == null || kb == null || b - a < 1 || framePath.length < 2) return false;
   if (trk.keyframes.any((k) => k.frame > a && k.frame < b && !k.passive)) return false;
   final ga = layer.startFrame + a, gb = layer.startFrame + b;
-  // where the drawn way must start and end: the layer's middle there.
-  List<double> centreAt(int g) {
-    final m = getLayerStateAt(project, layer.id, g).matrix;
-    return [m[4] * stageSize.width, m[5] * stageSize.height];
-  }
+  // where the drawn way must start and end: the layer's middle there (as
+  // the drawing does).
+  List<double> centreAt(int g) => computeLayerFrameGeometry(project, layer, g, includeVertices: false).center;
 
   final pa = centreAt(ga), pb = centreAt(gb);
+  // what the rest of the position adds at each frame (its own track
+  // left out): the drawn way is the total, this track only its share.
+  final base = layer.transform.anchor;
+  List<double> v2(dynamic v) => [for (final e in v as List) (e as num).toDouble()];
+  final others = <int, List<double>>{
+    for (var f = a; f <= b; f++)
+      f: () {
+        final total = v2(evaluateTrack(project, base, f.toDouble(), layer));
+        final own = identical(trk, base) ? v2(evaluateTrackOwn(project, base, f.toDouble(), layer)) : v2(evaluateTrack(project, trk, f.toDouble()));
+        return [total[0] - own[0], total[1] - own[1]];
+      }()
+  };
+  final totalA = v2(evaluateTrack(project, base, a.toDouble(), layer));
   // bent to run from pa to pb (each point shifted by its share of the way).
   final d = <double>[0];
   for (var i = 1; i < framePath.length; i++) {
@@ -342,28 +353,31 @@ bool replaceMoveBetweenKeys(Project project, Layer layer, Track trk, int a, int 
   // in the track's own values: the key at a's value plus how far from pa
   // (in the position's own space at a).
   final o = anchorLocalFromScreen(project, layer, pa[0], pa[1], ga);
-  final va = [for (final v in ka.value as List) (v as num).toDouble()];
-  List<double> val(List<double> p) {
+  // the whole position for a point of the way (what this track's share
+  // is found from, frame by frame).
+  List<double> whole(List<double> p) {
     final q = anchorLocalFromScreen(project, layer, p[0], p[1], ga);
-    return [va[0] + q[0] - o[0], va[1] + q[1] - o[1]];
+    return [totalA[0] + q[0] - o[0], totalA[1] + q[1] - o[1]];
   }
 
-  final local = [for (final c in pieces) [for (final p in c.curve) val(p)]];
+  List<double> share(List<double> w, int f) => [w[0] - others[f]![0], w[1] - others[f]![1]];
+  final local = [for (final c in pieces) [for (final p in c.curve) whole(p)]];
   // the way's own points, timed by length.
   double len(List<List<double>> c) => math.sqrt(math.pow(c[3][0] - c[0][0], 2) + math.pow(c[3][1] - c[0][1], 2));
-  final whole = pieces.fold(0.0, (s, c) => s + len(c.curve));
+  final wholeLen = pieces.fold(0.0, (s, c) => s + len(c.curve));
   trk.keyframes.removeWhere((k) => k.frame > a && k.frame < b);
   final linear = easingPresets['linear']!;
   var acc = 0.0, lastF = a;
   for (var i = 0; i < pieces.length - 1; i++) {
     acc += len(pieces[i].curve);
     final left = pieces.length - 2 - i;
-    final f = (a + (whole == 0 ? (i + 1) * (b - a) / pieces.length : (b - a) * acc / whole)).round().clamp(lastF + 1, b - 1 - left);
+    final f = (a + (wholeLen == 0 ? (i + 1) * (b - a) / pieces.length : (b - a) * acc / wholeLen)).round().clamp(lastF + 1, b - 1 - left);
     lastF = f;
     final p = local[i][3];
+    final v = share(p, f);
     trk.keyframes.add(Keyframe(
         frame: f,
-        value: <double>[p[0], p[1]],
+        value: <double>[v[0], v[1]],
         temporal: linear,
         spatialTangent: SpatialTangent(
             inTan: [local[i][2][0] - p[0], local[i][2][1] - p[1]],
@@ -372,12 +386,25 @@ bool replaceMoveBetweenKeys(Project project, Layer layer, Track trk, int a, int 
   }
   // the ends' handles toward the drawn way; the key at b keeps its value.
   final st = ka.spatialTangent;
-  ka.spatialTangent = SpatialTangent(inTan: st.inTan, outTan: [local[0][1][0] - va[0], local[0][1][1] - va[1]]);
+  ka.spatialTangent = SpatialTangent(inTan: st.inTan, outTan: [local[0][1][0] - local[0][0][0], local[0][1][1] - local[0][0][1]]);
   ka.temporal = linear;
-  final vb = [for (final v in kb.value as List) (v as num).toDouble()];
   final sb = kb.spatialTangent;
-  kb.spatialTangent = SpatialTangent(inTan: [local.last[2][0] - vb[0], local.last[2][1] - vb[1]], outTan: sb.outTan);
+  kb.spatialTangent = SpatialTangent(inTan: [local.last[2][0] - local.last[3][0], local.last[2][1] - local.last[3][1]], outTan: sb.outTan);
   trk.keyframes.sort((x, y) => x.frame.compareTo(y.frame));
   clearStateCaches();
   return true;
+}
+
+/// The free move (its track) that local frame `f` comes after - the
+/// latest one ended before it - when no animation layer is picked for
+/// edits; null: none.
+Track? freeMoveBefore(Layer layer, int f) {
+  if (activeAnimLayerOf(layer.transform.anchor) != null) return null;
+  Track? best;
+  for (final al in layer.transform.anchor.animLayers) {
+    final t = al.track, span = t.freeMoveSpan;
+    if (!t.freeMove || !al.enabled || span == null || span[1] >= f) continue;
+    if (best == null || span[1] > best.freeMoveSpan![1]) best = t;
+  }
+  return best;
 }

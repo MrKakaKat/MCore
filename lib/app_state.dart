@@ -3956,6 +3956,18 @@ class AppState extends ChangeNotifier {
     if (l == null) return;
     undo.pushUndoState(project);
     _putInFolder(l, folder);
+    if (folder != null) packFolderRows(project, folder);
+    _render();
+    notifyListeners();
+  }
+
+  /// A folder's layers into as few timeline rows as their times allow.
+  void packFolder(String folder) {
+    undo.pushUndoState(project);
+    if (!packFolderRows(project, folder)) {
+      undo.discardLastUndoState();
+      return;
+    }
     _render();
     notifyListeners();
   }
@@ -3999,6 +4011,7 @@ class AppState extends ChangeNotifier {
     for (final l in ls) {
       _putInFolder(l, folder);
     }
+    if (folder != null) packFolderRows(project, folder);
     _render();
     notifyListeners();
   }

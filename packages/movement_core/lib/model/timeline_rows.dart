@@ -260,3 +260,31 @@ List<Layer>? _keepOnly(Project project, Selection selection, Layer layer, List<(
   }
   return kept;
 }
+
+/// A folder's layers packed into as few rows as their times allow: a
+/// row of the folder joins an earlier one of it wherever all its layers
+/// fit there (no staircase of one-layer rows for pieces one after the
+/// other). The rows keep their order otherwise. True: something moved.
+bool packFolderRows(Project project, String folder) {
+  final rows = timelineRows(project);
+  bool inFolder(List<Layer> r) => r.isNotEmpty && r.every((l) => l.folder == folder);
+  var moved = false;
+  for (var i = 0; i < rows.length; i++) {
+    if (!inFolder(rows[i])) continue;
+    for (var j = 0; j < i; j++) {
+      if (!inFolder(rows[j]) || rows[j].isEmpty) continue;
+      if (rows[i].every((l) => fitsInTimelineRow(rows[j], l))) {
+        rows[j]
+          ..addAll(rows[i])
+          ..sort((a, b) => a.startFrame.compareTo(b.startFrame));
+        rows[i] = [];
+        moved = true;
+        break;
+      }
+    }
+  }
+  if (!moved) return false;
+  rows.removeWhere((r) => r.isEmpty);
+  _writeRows(project, rows);
+  return true;
+}
