@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
@@ -228,6 +229,9 @@ class _ExportViewState extends State<ExportView> {
                   _ExportKind.audio => _buildAudioSection(),
                 },
               ),
+              // which layers go in: all, or the ones picked (sound
+              // layers only, for a sound).
+              section('Layers', _layersRow()),
               // where it is saved: a folder of your own, or asked each time.
               section('Save to', _saveToRow()),
             ],
@@ -657,7 +661,7 @@ class _ExportViewState extends State<ExportView> {
       }
       if (_audioFormat == 'wav') {
         final path = await _saveBytes(exportFileName(app.projectName, 'wav'), await wav.readAsBytes());
-        setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
+        setState(() => _status = path == null ? 'Cancelled' : _saved(path));
         return;
       }
       setState(() => _status = 'Encoding sound');
@@ -668,7 +672,7 @@ class _ExportViewState extends State<ExportView> {
       final out = await app.audioService.encodePcm(pcm, '${tempDir.path}/sound.ogg', kbps: _audioKbps);
       final ext = out.path.split('.').last;
       final path = await _saveBytes(exportFileName(app.projectName, ext), await out.readAsBytes());
-      setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
+      setState(() => _status = path == null ? 'Cancelled' : _saved(path));
     } finally {
       await tempDir.delete(recursive: true);
     }
@@ -699,7 +703,63 @@ class _ExportViewState extends State<ExportView> {
     );
   }
 
+  /// The layers that go into the export (null: all of them).
+  Set<String>? _only;
+
+  /// The layers it can take: sound layers for a sound, else every one.
+  List<Layer> get _exportable => [
+        for (final l in widget.app.project.layers)
+          if (_kind != _ExportKind.audio || isAudioShape(l.content.shape)) l
+      ];
+
+  Widget _layersRow() {
+    final ls = _exportable;
+    if (ls.isEmpty) return const Text('No layers', style: TextStyle(fontSize: 12));
+    final only = _only;
+    return _chipRow([
+      ChoiceChip(
+        key: const ValueKey('export-layers-all'),
+        label: const Text('All'),
+        selected: only == null,
+        onSelected: _busy ? null : (_) => setState(() => _only = null),
+      ),
+      for (final l in ls)
+        FilterChip(
+          key: ValueKey('export-layer-${l.id}'),
+          avatar: isAudioShape(l.content.shape) ? const Icon(Icons.music_note, size: 16) : null,
+          label: Text(l.name),
+          selected: only != null && only.contains(l.id),
+          onSelected: _busy
+              ? null
+              : (on) => setState(() {
+                    final next = {...?only};
+                    on ? next.add(l.id) : next.remove(l.id);
+                    _only = next.isEmpty ? null : next;
+                  }),
+        ),
+    ]);
+  }
+
   Future<void> _export() async {
+    // only the picked layers: the others are left out while it exports.
+    final only = _only;
+    final wasHidden = {for (final l in widget.app.project.layers) l.id: l.hidden};
+    if (only != null) {
+      for (final l in widget.app.project.layers) {
+        if (!only.contains(l.id)) l.hidden = true;
+      }
+    }
+    try {
+      await _exportAll();
+    } finally {
+      for (final l in widget.app.project.layers) {
+        final h = wasHidden[l.id];
+        if (h != null) l.hidden = h;
+      }
+    }
+  }
+
+  Future<void> _exportAll() async {
     setState(() {
       _busy = true;
       _cancelRequested = false;
@@ -769,7 +829,7 @@ class _ExportViewState extends State<ExportView> {
       jpegQuality: _jpegQuality.round(),
     );
     final path = await _saveBytes(exportFileName(widget.app.projectName, _imageFormat, frame: widget.app.currentFrame), bytes);
-    setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
+    setState(() => _status = path == null ? 'Cancelled' : _saved(path));
   }
 
   Future<void> _exportSvg() async {
@@ -782,7 +842,7 @@ class _ExportViewState extends State<ExportView> {
             mirrorX: app.stageMirrorX, mirrorY: app.stageMirrorY, mediaHref: svgMediaHref);
     final path = await _saveBytes(
         exportFileName(app.projectName, 'svg', frame: _svgAnimated ? null : app.currentFrame), utf8.encode(svg));
-    setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
+    setState(() => _status = path == null ? 'Cancelled' : _saved(path));
   }
 
   Future<void> _exportGif() async {
@@ -816,7 +876,7 @@ class _ExportViewState extends State<ExportView> {
     final path = await _saveBytes(exportFileName(widget.app.projectName, 'gif'), bytes);
     setState(() {
       _progress = null;
-      _status = path == null ? 'Cancelled' : 'Saved to $path';
+      _status = path == null ? 'Cancelled' : _saved(path);
     });
   }
 
@@ -887,7 +947,7 @@ class _ExportViewState extends State<ExportView> {
 
       final bytes = await encoded.readAsBytes();
       final path = await _saveBytes(fileName, bytes);
-      setState(() => _status = path == null ? 'Cancelled' : 'Saved to $path');
+      setState(() => _status = path == null ? 'Cancelled' : _saved(path));
     } finally {
       renderer.endExportReuse();
       await tempDir.delete(recursive: true);
@@ -904,7 +964,7 @@ class _ExportViewState extends State<ExportView> {
     return Row(children: [
       Expanded(
         child: Text(
-          dir ?? 'Asked each time (the system\'s save window)',
+          dir == null ? 'Asked each time (the system\'s save window)' : (widget.app.exportDirName ?? dir),
           key: const ValueKey('export-dir'),
           style: const TextStyle(fontSize: 12),
           overflow: TextOverflow.ellipsis,
@@ -914,8 +974,26 @@ class _ExportViewState extends State<ExportView> {
       TextButton(
         key: const ValueKey('export-dir-pick'),
         onPressed: () async {
+          // Android: the folder itself (kept), so files go straight in.
+          if (Platform.isAndroid) {
+            try {
+              final r = await _folders.invokeMapMethod<String, String>('pickFolder');
+              if (r != null && r['uri'] != null) {
+                setState(() {
+                  widget.app.setAppPreference('exportDir', r['uri']!);
+                  widget.app.setAppPreference('exportDirName', r['name'] ?? r['uri']!);
+                });
+              }
+              return;
+            } catch (_) {}
+          }
           final picked = await FilePicker.platform.getDirectoryPath(dialogTitle: 'Save exports to');
-          if (picked != null) setState(() => widget.app.setAppPreference('exportDir', picked));
+          if (picked != null) {
+            setState(() {
+              widget.app.setAppPreference('exportDir', picked);
+              widget.app.setAppPreference('exportDirName', picked);
+            });
+          }
         },
         child: const Text('Change'),
       ),
@@ -924,16 +1002,76 @@ class _ExportViewState extends State<ExportView> {
           key: const ValueKey('export-dir-clear'),
           tooltip: 'ask each time',
           icon: const Icon(Icons.close, size: 18),
-          onPressed: () => setState(() => widget.app.setAppPreference('exportDir', '')),
+          onPressed: () => setState(() {
+            widget.app.setAppPreference('exportDir', '');
+            widget.app.setAppPreference('exportDirName', '');
+          }),
         ),
     ]);
   }
 
+  static const _folders = MethodChannel('mcore/folders');
+
+  /// The status line once saved: where (the folder's own name, not a
+  /// content:// link).
+  String _saved(String path) =>
+      path.startsWith('content://') ? 'Saved to ${widget.app.exportDirName ?? 'the export folder'}' : 'Saved to $path';
+
+  /// Saved: what it saved and where, then the Done screen.
   Future<String?> _saveBytes(String suggestedName, List<int> bytes) async {
+    final path = await _write(suggestedName, bytes);
+    if (path != null && mounted) await _showDone(suggestedName);
+    return path;
+  }
+
+  /// The export confirmed: done, the file's name and the folder.
+  Future<void> _showDone(String name) => showDialog<void>(
+        context: context,
+        builder: (c) => AlertDialog(
+          key: const ValueKey('export-done'),
+          icon: const Icon(Icons.check_circle, size: 40, color: Colors.green),
+          title: const Text('Done'),
+          content: Text(widget.app.exportDir == null
+              ? 'Exported: $name'
+              : 'Exported to ${widget.app.exportDirName ?? widget.app.exportDir}:\n$name'),
+          actions: [
+            FilledButton(key: const ValueKey('export-done-ok'), onPressed: () => Navigator.pop(c), child: const Text('OK')),
+          ],
+        ),
+      );
+
+  static String _mimeOf(String name) => switch (name.split('.').last.toLowerCase()) {
+        'mp4' => 'video/mp4',
+        'webm' => 'video/webm',
+        'gif' => 'image/gif',
+        'png' => 'image/png',
+        'svg' => 'image/svg+xml',
+        'wav' => 'audio/wav',
+        'ogg' || 'opus' => 'audio/ogg',
+        'm4a' => 'audio/mp4',
+        'json' => 'application/json',
+        _ => 'application/octet-stream',
+      };
+
+  Future<String?> _write(String suggestedName, List<int> bytes) async {
     // a folder of its own: written straight there (a name the folder
     // refuses - ':' on some storage - gets '.' instead).
     final dir = widget.app.exportDir;
-    if (dir != null) {
+    if (dir != null && dir.startsWith('content://')) {
+      final tmp = await Directory.systemTemp.createTemp('mcore_save_');
+      try {
+        final src = File('${tmp.path}/out');
+        await src.writeAsBytes(bytes, flush: true);
+        for (final name in [suggestedName.replaceAll(':', '.'), suggestedName]) {
+          try {
+            final uri = await _folders.invokeMethod<String>('writeFile', {'tree': dir, 'name': name, 'mime': _mimeOf(name), 'src': src.path});
+            if (uri != null) return uri;
+          } catch (_) {}
+        }
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    } else if (dir != null) {
       for (final name in [suggestedName, suggestedName.replaceAll(':', '.')]) {
         try {
           final f = File('$dir/$name');

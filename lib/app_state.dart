@@ -1221,6 +1221,10 @@ class AppState extends ChangeNotifier {
   /// Export: the folder files are saved to (null: the save window asks).
   String? exportDir;
 
+  /// The export folder's readable name (a picked Android folder is a
+  /// content:// link).
+  String? exportDirName;
+
   /// Settings: the eyedropper takes the alpha of what it picks too (a
   /// see-through colour, and the layer's opacity) - off: always opaque.
   bool eyedropperAlpha = false;
@@ -5256,6 +5260,7 @@ class AppState extends ChangeNotifier {
     'scaleLinked': (() => scaleLinked, (v) => scaleLinked = v as bool, true),
     'eyedropperAlpha': (() => eyedropperAlpha, (v) => eyedropperAlpha = v as bool, false),
     'exportDir': (() => exportDir ?? '', (v) => exportDir = (v as String).isEmpty ? null : v, ''),
+    'exportDirName': (() => exportDirName ?? '', (v) => exportDirName = (v as String).isEmpty ? null : v, ''),
     'videoDecoder': (() => videoDecoder, (v) => videoDecoder = v as String, 'auto'),
     'timelineSnapFrames': (() => timelineSnapFrames, (v) => timelineSnapFrames = (v as num).toInt(), kLayerEdgeSnapThresholdFrames),
   };

@@ -160,7 +160,7 @@ Future<void> showAddLayerDialog(BuildContext context, AppState app, {String? rep
             ]),
           ),
         const Divider(),
-        // the phone's videos, pictures, GIFs and music, by album.
+        // the phone's videos, pictures and GIFs, by album.
         SimpleDialogOption(
           key: const ValueKey('add-media'),
           onPressed: () async {
@@ -173,6 +173,21 @@ Future<void> showAddLayerDialog(BuildContext context, AppState app, {String? rep
             Text('Media library...'),
           ]),
         ),
+        // sound: a window of its own (music, recent sounds, files, a
+        // video's sound).
+        if (replaceId == null)
+          SimpleDialogOption(
+            key: const ValueKey('add-audio'),
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await openMediaLibrary(context, app, audio: true);
+            },
+            child: const Row(children: [
+              Icon(Icons.audiotrack),
+              SizedBox(width: 8),
+              Text('Audio...'),
+            ]),
+          ),
         // the system's own file picker (files elsewhere).
         SimpleDialogOption(
           key: const ValueKey('add-from-files'),
@@ -213,7 +228,6 @@ Future<void> showFilePickers(BuildContext context, AppState app, {String? replac
           ('image', 'Image...', Icons.add_photo_alternate),
           ('video', 'Video...', Icons.video_library),
           ('gif', 'GIF...', Icons.gif_box),
-          if (replaceId == null) ('audio', 'Audio...', Icons.audiotrack),
         ])
           SimpleDialogOption(
             key: ValueKey('files-$k'),

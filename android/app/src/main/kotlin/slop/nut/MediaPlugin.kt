@@ -439,7 +439,11 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
         var format: MediaFormat? = null
 
         fun encodeAll(pcm: File): List<Sample> {
-            val f = MediaFormat.createAudioFormat(mime, rate, channels)
+            // Opus runs at 48 kHz only: fed 44.1 kHz as if it were 48, the
+            // sound came out shorter and higher - resampled to 48 kHz.
+            val outRate = if (mime == MediaFormat.MIMETYPE_AUDIO_OPUS && rate != 48000) 48000 else rate
+            val resampler = if (outRate != rate) Resampler(outRate, channels) else null
+            val f = MediaFormat.createAudioFormat(mime, outRate, channels)
             f.setInteger(MediaFormat.KEY_BIT_RATE, kbps * 1000)
             if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) f.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
             f.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
@@ -458,16 +462,22 @@ class MediaPlugin(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
                         val i = codec.dequeueInputBuffer(10000)
                         if (i >= 0) {
                             val buf = codec.getInputBuffer(i)!!
-                            val n = input.read(chunk, 0, min(chunk.size, buf.capacity()))
-                            val t = frames * 1_000_000L / rate
+                            // resampled up it grows: read less so it still fits.
+                            val room = if (resampler == null) buf.capacity()
+                                else ((buf.capacity() - 8 * channels).toLong() * rate / outRate).toInt()
+                            val want = (min(chunk.size, room) / (2 * channels)) * (2 * channels)
+                            val n = input.read(chunk, 0, want)
+                            val t = frames * 1_000_000L / outRate
                             if (n <= 0) {
                                 codec.queueInputBuffer(i, 0, 0, t, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                                 inputDone = true
                             } else {
+                                val bytes = resampler?.push(ByteBuffer.wrap(chunk, 0, n - n % (2 * channels)).order(ByteOrder.LITTLE_ENDIAN), rate, channels, false)
+                                    ?: chunk.copyOf(n)
                                 buf.clear()
-                                buf.put(chunk, 0, n)
-                                codec.queueInputBuffer(i, 0, n, t, 0)
-                                frames += n / (2 * channels)
+                                buf.put(bytes, 0, bytes.size)
+                                codec.queueInputBuffer(i, 0, bytes.size, t, 0)
+                                frames += bytes.size / (2 * channels)
                             }
                         }
                     }

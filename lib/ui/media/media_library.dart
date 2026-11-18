@@ -10,10 +10,11 @@ import '../layer_panel/add_layer_dialog.dart';
 /// The media library: the phone's own videos, pictures, GIFs and music,
 /// by album, with what each file is (MP4, PNG, GIF, MP3...) - one place to
 /// bring any of them in (Recently used first). Search by name.
-Future<void> openMediaLibrary(BuildContext context, AppState app, {String? replaceId, String section = 'recent'}) =>
+Future<void> openMediaLibrary(BuildContext context, AppState app, {String? replaceId, String section = 'recent', bool audio = false}) =>
     Navigator.of(context).push(MaterialPageRoute(
       fullscreenDialog: true,
-      builder: (_) => MediaLibraryScreen(app: app, replaceId: replaceId, section: section, hostContext: context),
+      builder: (_) => MediaLibraryScreen(
+          app: app, replaceId: replaceId, section: audio && section == 'recent' ? 'audio' : section, hostContext: context, audio: audio),
     ));
 
 /// What a file is, from its name / type: 'gif' | 'image' | 'video' | 'audio'.
@@ -49,21 +50,30 @@ class MediaLibraryScreen extends StatefulWidget {
   /// The page it was opened from: the imports' dialogs go there (this one
   /// closes first).
   final BuildContext hostContext;
+
+  /// Sound only (its own window): music and recently used sounds; the
+  /// pictures' and videos' window has no sound.
+  final bool audio;
   const MediaLibraryScreen(
-      {super.key, required this.app, this.replaceId, this.section = 'recent', required this.hostContext});
+      {super.key, required this.app, this.replaceId, this.section = 'recent', required this.hostContext, this.audio = false});
 
   @override
   State<MediaLibraryScreen> createState() => _MediaLibraryScreenState();
 }
 
 class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
-  static const sections = [
+  static const _all = [
     ('recent', 'Recently used', Icons.history),
     ('video', 'Videos', Icons.movie_outlined),
     ('image', 'Images', Icons.image_outlined),
     ('gif', 'GIFs', Icons.gif_box_outlined),
     ('audio', 'Music', Icons.music_note_outlined),
   ];
+
+  List<(String, String, IconData)> get sections => [
+        for (final s in _all)
+          if (widget.audio ? (s.$1 == 'audio' || s.$1 == 'recent') : s.$1 != 'audio') s
+      ];
 
   late String _section = widget.section;
   bool? _access; // null: asking
@@ -204,11 +214,11 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
   Widget build(BuildContext context) {
     final recent = [
       for (final r in widget.app.recentMedia)
-        if (_query.isEmpty || r.name.toLowerCase().contains(_query.toLowerCase())) r
+        if ((r.kind == 'audio') == widget.audio && (_query.isEmpty || r.name.toLowerCase().contains(_query.toLowerCase()))) r
     ];
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Media'),
+        title: Text(widget.audio ? 'Audio' : 'Media'),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(96),
           child: Column(children: [
@@ -260,7 +270,12 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
             onPressed: () async {
               final host = widget.hostContext;
               Navigator.of(context).pop();
-              if (host.mounted) await showFilePickers(host, widget.app, replaceId: widget.replaceId);
+              if (!host.mounted) return;
+              if (widget.audio) {
+                await importAudioFlow(host, widget.app);
+              } else {
+                await showFilePickers(host, widget.app, replaceId: widget.replaceId);
+              }
             },
             child: const Text('Files...'),
           ),
