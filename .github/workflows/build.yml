@@ -42,6 +42,31 @@ jobs:
           channel: stable
           cache: true
 
+      # Maven Central turns shared runners away now and then (429 Too
+      # Many Requests): every Maven Central repository - the plugins'
+      # own buildscripts too - goes to Google's mirror of it instead.
+      - name: Maven Central mirror
+        run: |
+          mkdir -p ~/.gradle
+          cat > ~/.gradle/init.gradle <<'EOF'
+          def mirror = 'https://maven-central.storage-download.googleapis.com/maven2/'
+          def toMirror = { repos ->
+            repos.all { r ->
+              if (r instanceof MavenArtifactRepository && r.url.toString().startsWith('https://repo.maven.apache.org')) {
+                r.url = mirror
+              }
+            }
+          }
+          settingsEvaluated { s ->
+            toMirror(s.pluginManagement.repositories)
+            toMirror(s.dependencyResolutionManagement.repositories)
+          }
+          gradle.beforeProject { p ->
+            toMirror(p.buildscript.repositories)
+            toMirror(p.repositories)
+          }
+          EOF
+
       - name: Gradle cache
         uses: actions/cache@v4
         with:
