@@ -92,4 +92,26 @@ void main() {
     expect(at(p, 30), [closeTo(0.6, 1e-9), closeTo(0.7, 1e-9)]);
     expect(at(p, 5)[1], closeTo(0.7, 1e-9));
   });
+
+  test('order keys: a key at 15, the object moved at 5 - a key at 5 closes the range, 15 stays where it was', () {
+    keyMode = 'order';
+    final l = layer();
+    final p = Project(layers: [l]);
+    orderKeyTarget(l, 15);
+    final t = l.transform.anchor.animLayers[activeAnimLayer - 1].track;
+    t.keyframes = [Keyframe(frame: 15, value: <double>[0.0, 0.0])];
+    tidyAnimLayers(l, selected: true);
+    clearStateCaches();
+    List<double> c(int f) => computeLayerFrameGeometry(p, l, f, includeVertices: false).center;
+    final at5 = c(5);
+    final op = AnchorDragOp.grab(p, l, 5, at5);
+    op.apply(p, 5, [at5[0] - 200, at5[1] + 80]);
+    tidyAnimLayers(l, selected: true);
+    clearStateCaches();
+    expect(t.keyframes.map((k) => k.frame), [5, 15]);
+    expect(c(15), [closeTo(500, 1e-6), closeTo(500, 1e-6)], reason: 'its end where it was');
+    expect(c(0), [closeTo(300, 1e-6), closeTo(580, 1e-6)], reason: 'before it: where it starts');
+    expect(c(5), [closeTo(300, 1e-6), closeTo(580, 1e-6)]);
+    keyMode = 'base';
+  });
 }

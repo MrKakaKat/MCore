@@ -221,6 +221,16 @@ void setTrackValueAt(Track trk, int localFrame, dynamic value) {
   if (al != null) {
     final f = localFrame.toDouble();
     final others = combineAnimLayers(null, trk, evaluateTrackOwn(null, trk, f), f, null, al);
+    // a key layer edited where it has no key: a key there (an order
+    // range's other end, a layer's next key) - never its end key moved,
+    // which shifted the whole movement.
+    final own = al.track;
+    if (own.keyframes.isNotEmpty && keyframeAt(own, localFrame) == null) {
+      final v = evaluateTrackOwn(null, own, f);
+      own.keyframes
+        ..add(Keyframe(frame: localFrame, value: v is List ? List<double>.from(v) : v, temporal: newKeyEasing()))
+        ..sort((a, b) => a.frame.compareTo(b.frame));
+    }
     setTrackValueAt(al.track, localFrame, residualValue(value, others, al.multiply));
     return;
   }
