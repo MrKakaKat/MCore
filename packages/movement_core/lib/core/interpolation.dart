@@ -261,27 +261,69 @@ dynamic combineAnimLayers(Project? project, Track trk, dynamic base, double loca
   var v = base;
   for (final a in trk.animLayers) {
     if (!a.enabled || identical(a, skip)) continue;
-    // a layer acts from its first key on - before it, nothing (it used to
-    // hold its first key's value back to the start: an order range's
-    // opening key moved the whole animation, its past too).
-    if (animLayerNotStarted(a.track, localFrame)) continue;
+    // before its first key: holding it, or coming in after what moves
+    // before it (see animLayerLeadIn).
+    final lead = animLayerLeadIn(trk, a, localFrame);
+    if (lead != null) {
+      if (localFrame <= lead.from) continue;
+      final t = (localFrame - lead.from) / (lead.at - lead.from);
+      final firstV = _evaluateOwn(project, a.track, lead.at.toDouble(), layer);
+      final neutral = a.multiply ? 1.0 : 0.0;
+      final part = firstV is List
+          ? <double>[for (final x in firstV) neutral + ((x as num) - neutral) * t]
+          : neutral + ((firstV as num) - neutral) * t;
+      v = combineValues(v, part, a.multiply);
+      continue;
+    }
     v = combineValues(v, _evaluateOwn(project, a.track, localFrame, layer), a.multiply);
   }
   return v;
 }
 
-/// An animation layer's keys start after `localFrame` (it does nothing yet).
-bool animLayerNotStarted(Track t, double localFrame) {
-  if (t.keyframes.isEmpty) return false;
-  var first = t.keyframes.first.frame;
-  for (final k in t.keyframes) {
+/// Animation layer `a` of `trk` before its first key, as the
+/// parameter's own keys behave there: with nothing else moving the
+/// parameter before it, it holds its first key (an appearance from 0
+/// opacity is hidden before it starts, a move waits at its start); with
+/// something moving before it (the parameter's own keys, another layer's
+/// range), it comes in from nothing at that movement's last key to its
+/// first key - what comes before is never shifted, and nothing jumps.
+/// Null: it acts as usual here (on or after its first key, or holding it).
+({double from, int at})? animLayerLeadIn(Track trk, AnimLayer a, double localFrame) {
+  final ks = a.track.keyframes;
+  if (ks.isEmpty) return null;
+  var first = ks.first.frame;
+  for (final k in ks) {
     if (k.frame < first) first = k.frame;
   }
-  // made from its end back (keys put before the one it began with): it
-  // holds where it starts before its first key.
-  final o = t.openedAt;
-  if (o != null && first < o) return false;
-  return localFrame < first;
+  if (localFrame >= first) return null;
+  // the last key before it of anything that moves the parameter.
+  int? last;
+  bool moves(List<Keyframe> kk) => kk.length >= 2 && kk.any((k) => !_sameValue(k.value, kk.first.value));
+  void see(List<Keyframe> kk) {
+    if (!moves(kk)) return;
+    for (final k in kk) {
+      if (k.frame < first && (last == null || k.frame > last!)) last = k.frame;
+    }
+  }
+
+  see(trk.keyframes);
+  for (final o in trk.animLayers) {
+    if (identical(o, a) || !o.enabled) continue;
+    see(o.track.keyframes);
+  }
+  if (last == null) return null;
+  return (from: last!.toDouble(), at: first);
+}
+
+bool _sameValue(dynamic x, dynamic y) {
+  if (x is List && y is List) {
+    for (var i = 0; i < x.length && i < y.length; i++) {
+      if (((x[i] as num) - (y[i] as num)).abs() > 1e-12) return false;
+    }
+    return true;
+  }
+  if (x is num && y is num) return (x - y).abs() <= 1e-12;
+  return x == y;
 }
 
 /// v + d (or v * d), number or per component.

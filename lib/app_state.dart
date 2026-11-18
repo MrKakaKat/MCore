@@ -3301,6 +3301,24 @@ class AppState extends ChangeNotifier {
     }
     freeMoveReplace = false;
     pushUndo();
+    // the keys being edited (Base keys: the position's own; a picked key
+    // layer: its keys) take it - Order keys: a range of its own.
+    if (keyMode != 'order') {
+      final ok = addFreeMoveInto(project, l, editTrackOf(l.transform.anchor), freeMovePath, currentFrame,
+          math.max(2, (freeMoveSeconds * fps).round()),
+          smoothing: freeMoveSmoothing);
+      freeMoveRecording = false;
+      freeMovePath = [];
+      if (!ok) {
+        undo.discardLastUndoState();
+        notifyListeners();
+        return;
+      }
+      _notice('Free move: into the keys');
+      _fitTimeline();
+      commitEdit();
+      return;
+    }
     final keep = activeAnimLayer;
     final n = addFreeMoveLayer(project, l, freeMovePath, currentFrame, math.max(1, (freeMoveSeconds * fps).round()),
         smoothing: freeMoveSmoothing,

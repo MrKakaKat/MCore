@@ -24,30 +24,42 @@ void main() {
     expect(l.startFrame, 12);
   });
 
-  test('free move: the dragged way becomes a key layer of two keys, a second apart', () {
-    final app = AppState()..setFrameSize(200, 100);
-    app.project.layers.clear();
-    app.addLayer('rect');
-    final l = app.project.layers.last;
-    l.transform.anchor.defaultValue = [0.25, 0.5];
-    clearStateCaches();
-    app.startFreeMove();
-    expect(app.freeMoveRecording, isTrue);
-    // grabbed 10 px off its middle, dragged right along an arc.
-    app.beginFreeMoveStroke([60, 50]);
-    for (var i = 1; i <= 20; i++) {
-      app.addFreeMovePoint([60.0 + 5 * i, 50 - 20 * (1 - ((i - 10) / 10) * ((i - 10) / 10))]);
-    }
-    expect(app.freeMovePath.first, [50, 50], reason: 'from where it stands');
-    app.confirmFreeMove();
-    expect(app.freeMoveRecording, isFalse);
-    final al = l.transform.anchor.animLayers.single.track;
-    expect(al.keyframes.length, greaterThanOrEqualTo(2));
-    expect(al.keyframes.last.frame - al.keyframes.first.frame, (app.freeMoveSeconds * fps).round());
-    expect((al.keyframes.last.value as List)[0], closeTo(100 / 200, 1e-6));
-    app.performUndo();
-    expect(findLayer(app.project, l.id)!.transform.anchor.animLayers, isEmpty, reason: 'one undo step');
-  });
+  for (final mode in ['base', 'order'])
+    test('free move ($mode keys): the dragged way goes into the keys of that mode, a second long', () {
+      keyMode = mode;
+      activeAnimLayer = 0;
+      final app = AppState()..setFrameSize(200, 100);
+      app.project.layers.clear();
+      app.addLayer('rect');
+      final l = app.project.layers.last;
+      l.transform.anchor.defaultValue = [0.25, 0.5];
+      clearStateCaches();
+      app.startFreeMove();
+      expect(app.freeMoveRecording, isTrue);
+      // grabbed 10 px off its middle, dragged right along an arc.
+      app.beginFreeMoveStroke([60, 50]);
+      for (var i = 1; i <= 20; i++) {
+        app.addFreeMovePoint([60.0 + 5 * i, 50 - 20 * (1 - ((i - 10) / 10) * ((i - 10) / 10))]);
+      }
+      expect(app.freeMovePath.first, [50, 50], reason: 'from where it stands');
+      app.confirmFreeMove();
+      expect(app.freeMoveRecording, isFalse);
+      final trk = mode == 'base' ? l.transform.anchor : l.transform.anchor.animLayers.single.track;
+      if (mode == 'base') expect(l.transform.anchor.animLayers, isEmpty, reason: 'no key layer of its own');
+      final ends = trk.keyframes.where((k) => !k.passive).toList();
+      expect(ends.length, 2);
+      expect(ends.last.frame - ends.first.frame, (app.freeMoveSeconds * fps).round());
+      final x0 = mode == 'base' ? 0.25 : 0.0;
+      expect((ends.last.value as List)[0] - x0, closeTo(100 / 200, 1e-6));
+      clearStateCaches();
+      final mid = getLayerStateAt(app.project, l.id, l.startFrame + ends.first.frame + 15).matrix;
+      expect(mid[5] * 100, lessThan(45), reason: 'along the drawn arc');
+      app.performUndo();
+      final back = findLayer(app.project, l.id)!.transform.anchor;
+      expect(back.animLayers, isEmpty, reason: 'one undo step');
+      expect(back.keyframes, isEmpty);
+      keyMode = 'base';
+    });
 
   test('a text separated into word layers, the first selected', () {
     final app = AppState()..setFrameSize(200, 100);

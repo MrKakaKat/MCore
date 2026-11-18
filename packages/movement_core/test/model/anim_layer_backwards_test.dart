@@ -36,7 +36,7 @@ void main() {
     expect((evaluateTrack(p2, p2.layers.first.transform.anchor, 0, p2.layers.first) as List<double>)[0], closeTo(0.7, 1e-9));
   });
 
-  test('made from its start on: nothing before its first key (as before)', () {
+  test('made from its start on: before it, its first key too (as the base keys)', () {
     final l = layer();
     final p = Project(layers: [l]);
     final n = addTransformAnimLayer(l);
@@ -46,7 +46,7 @@ void main() {
     t.keyframes.add(Keyframe(frame: 100, value: <double>[0.0, 0.0]));
     tidyAnimLayers(l);
     clearStateCaches();
-    expect(at(p, 0)[0], closeTo(0.5, 1e-9));
+    expect(at(p, 0)[0], closeTo(0.7, 1e-9));
     expect(at(p, 20)[0], closeTo(0.7, 1e-9));
   });
 
@@ -69,7 +69,7 @@ void main() {
     expect(l.transform.anchor.animLayers.length, 3);
   });
 
-  test('order keys from the end back: kept a layer of its own, holding its start before it', () {
+  test('order keys from the end back after an earlier range: comes in from its end, nothing before shifted', () {
     final l = layer();
     // an earlier range, left to right.
     var n = orderKeyTarget(l, 0);
@@ -85,12 +85,22 @@ void main() {
     tidyAnimLayers(l);
     expect(orderKeyTarget(l, 50), 2, reason: 'closes it');
     l.transform.anchor.animLayers[1].track.keyframes.insert(0, Keyframe(frame: 50, value: <double>[0.0, 0.2]));
-    expect(packOrderLayer(l, 2), 2, reason: 'not merged into the earlier one');
-    tidyAnimLayers(l);
     final p = Project(layers: [l]);
     clearStateCaches();
-    expect(at(p, 30), [closeTo(0.6, 1e-9), closeTo(0.7, 1e-9)]);
-    expect(at(p, 5)[1], closeTo(0.7, 1e-9));
+    final before = [for (final f in [0, 5, 10, 30, 50, 75, 100]) at(p, f)];
+    expect(before[1], [closeTo(0.55, 1e-9), closeTo(0.5, 1e-9)], reason: 'the earlier range as it was');
+    expect(before[2], [closeTo(0.6, 1e-9), closeTo(0.5, 1e-9)]);
+    expect(before[3][1], closeTo(0.6, 1e-9), reason: 'coming in from frame 10 to 50');
+    expect(before[4], [closeTo(0.6, 1e-9), closeTo(0.7, 1e-9)]);
+    expect(before[6], [closeTo(0.6, 1e-9), closeTo(0.5, 1e-9)]);
+    // packed into one layer: exactly the same.
+    expect(packOrderLayer(l, 2), 1);
+    clearStateCaches();
+    final after = [for (final f in [0, 5, 10, 30, 50, 75, 100]) at(p, f)];
+    for (var i = 0; i < after.length; i++) {
+      expect(after[i][0], closeTo(before[i][0], 1e-9));
+      expect(after[i][1], closeTo(before[i][1], 1e-9));
+    }
   });
 
   test('order keys: a key at 15, the object moved at 5 - a key at 5 closes the range, 15 stays where it was', () {
@@ -113,5 +123,39 @@ void main() {
     expect(c(0), [closeTo(300, 1e-6), closeTo(580, 1e-6)], reason: 'before it: where it starts');
     expect(c(5), [closeTo(300, 1e-6), closeTo(580, 1e-6)]);
     keyMode = 'base';
+  });
+
+  test('an appearance in a key layer (opacity 0 to 1 from frame 30): hidden before it, as with the base keys', () {
+    final l = layer();
+    final n = addTransformAnimLayer(l);
+    l.transform.opacity.animLayers[n - 1].track.keyframes = [
+      Keyframe(frame: 30, value: 0.0),
+      Keyframe(frame: 60, value: 1.0),
+    ];
+    final p = Project(layers: [l]);
+    double op(int f) => evaluateTrack(p, l.transform.opacity, f.toDouble(), l) as double;
+    expect(op(0), 0);
+    expect(op(29), 0);
+    expect(op(45), closeTo(0.5, 0.2));
+    expect(op(90), 1);
+  });
+
+  test('a later range in its own layer: what comes before stays, it comes in from there without a jump', () {
+    final l = layer();
+    var n = addTransformAnimLayer(l);
+    l.transform.anchor.animLayers[n - 1].track.keyframes = [
+      Keyframe(frame: 0, value: <double>[0.0, 0.0]),
+      Keyframe(frame: 10, value: <double>[0.1, 0.0]),
+    ];
+    n = addTransformAnimLayer(l);
+    l.transform.anchor.animLayers[n - 1].track.keyframes = [
+      Keyframe(frame: 40, value: <double>[0.0, 0.2]),
+      Keyframe(frame: 60, value: <double>[0.0, 0.3]),
+    ];
+    final p = Project(layers: [l]);
+    expect(at(p, 5), [closeTo(0.55, 1e-9), closeTo(0.5, 1e-9)], reason: 'the first range as it was');
+    expect(at(p, 10), [closeTo(0.6, 1e-9), closeTo(0.5, 1e-9)]);
+    expect(at(p, 25)[1], closeTo(0.6, 1e-9), reason: 'half way in');
+    expect(at(p, 40), [closeTo(0.6, 1e-9), closeTo(0.7, 1e-9)]);
   });
 }

@@ -68,11 +68,11 @@ int orderKeyTarget(Layer layer, int localFrame) {
 /// the other one holds there (see mergeAnimLayerInto).
 int packOrderLayer(Layer layer, int n) {
   final mine = animLayerKeyFrames(layer, n);
-  if (mine.length < 2 || _holdsBack(layer, n)) return n;
+  if (mine.length < 2) return n;
   final lo = mine.reduce(math.min), hi = mine.reduce(math.max);
   for (var m = 1; m < n; m++) {
     final other = animLayerKeyFrames(layer, m);
-    if (other.isEmpty || _holdsBack(layer, m)) continue;
+    if (other.isEmpty) continue;
     if (other.reduce(math.max) < lo || other.reduce(math.min) > hi) {
       mergeAnimLayerInto(layer, m, n);
       if (activeAnimLayer == n) activeAnimLayer = m;
@@ -82,22 +82,11 @@ int packOrderLayer(Layer layer, int n) {
   return n;
 }
 
-/// Animation layer `n` made from its end back: it holds its start before
-/// its first key (see Track.openedAt) - it shares its layer with no other.
-bool _holdsBack(Layer layer, int n) {
-  final t = layer.transform;
-  for (final x in [t.anchor, t.rotation, t.scale, t.opacity]) {
-    if (x.animLayers.length < n) continue;
-    final tr = x.animLayers[n - 1].track, o = tr.openedAt;
-    if (o != null && tr.keyframes.isNotEmpty && tr.keyframes.map((k) => k.frame).reduce(math.min) < o) return true;
-  }
-  return false;
-}
-
 /// Moves animation layer `from`'s keys into layer `into` (their key spans
 /// must not overlap) and removes `from`, the movement unchanged: the
 /// later part's keys take on what the earlier holds after it ends (a
-/// layer does nothing before its first key).
+/// later one comes in from the earlier one's last key - see
+/// animLayerLeadIn - as the way between their keys in one layer).
 void mergeAnimLayerInto(Layer layer, int into, int from) {
   for (final t in [layer.transform.anchor, layer.transform.rotation, layer.transform.scale, layer.transform.opacity]) {
     if (t.animLayers.length < math.max(into, from)) continue;
@@ -115,27 +104,17 @@ void mergeAnimLayerInto(Layer layer, int into, int from) {
     } else if (ak.isEmpty) {
       a.track.keyframes = [for (final k in bk) k..value = shift(k.value, ad)];
     } else {
-      // (a layer does nothing before its first key: the earlier part
-      // stays as it is, the later goes on from where the earlier ends)
+      // (the earlier part stays as it is, the later goes on from where
+      // the earlier ends)
       final aFirst = ak.first.frame < bk.first.frame;
       final early = aFirst ? ak : bk, late = aFirst ? bk : ak;
       final earlyEnd = early.last.value;
-      // the later one starting off its neutral value jumped there: held
-      // until the frame before it, so the merged keys don't slide into it.
-      final neutral = mul ? 1.0 : 0.0;
-      final startsOff = late.first.value is List
-          ? (late.first.value as List).any((v) => ((v as num) - neutral).abs() > 1e-12)
-          : ((late.first.value as num) - neutral).abs() > 1e-12;
-      final hold = startsOff && late.first.frame - 1 > early.last.frame
-          ? Keyframe(
-              frame: late.first.frame - 1,
-              value: earlyEnd is List ? List<double>.from(earlyEnd) : earlyEnd,
-              temporal: easingPresets['linear'])
-          : null;
       for (final k in late) {
         k.value = shift(k.value, earlyEnd);
       }
-      a.track.keyframes = [...early, if (hold != null) hold, ...late];
+      // (the later one came in from the earlier one's end: in one layer
+      // that is the way between their keys)
+      a.track.keyframes = [...early, ...late];
     }
     if (a.track.spatial) autoComputeTangents(a.track);
   }

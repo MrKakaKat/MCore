@@ -80,13 +80,13 @@ void main() {
   });
 
   group('key layers', () {
-    test('a key layer does nothing before its first key', () {
+    test('a key layer holds its first key before it (as the parameters\' own keys do)', () {
       final l = createLayer('rect')..durationFrames = 60;
       l.transform.anchor.defaultValue = [0.5, 0.5];
       final n = addTransformAnimLayer(l);
       l.transform.anchor.animLayers[n - 1].track.keyframes = [Keyframe(frame: 30, value: [0.1, 0.0])];
       List<double> at(double f) => evaluateTrack(null, l.transform.anchor, f, l) as List<double>;
-      expect(at(10), [0.5, 0.5]);
+      expect(at(10)[0], closeTo(0.6, 1e-9));
       expect(at(30)[0], closeTo(0.6, 1e-9));
       expect(at(50)[0], closeTo(0.6, 1e-9));
     });

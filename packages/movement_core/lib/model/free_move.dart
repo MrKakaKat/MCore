@@ -200,6 +200,42 @@ int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath,
   return n;
 }
 
+/// A free move drawn into the keys being edited (`trk`: the position's
+/// own keys, or the picked key layer's) instead of a key layer of its
+/// own: a key where it starts (`globalFrame`) and one `frames` later where
+/// the drawn way ends, the way's own points between them - any keys there
+/// before give way to it. Returns false when there is nothing to make.
+bool addFreeMoveInto(Project project, Layer layer, Track trk, List<List<double>> framePath, int globalFrame, int frames,
+    {double smoothing = 1}) {
+  if (framePath.length < 2 || frames < 2) return false;
+  final first = framePath.first;
+  if (framePath.every((p) => (p[0] - first[0]).abs() < 1e-9 && (p[1] - first[1]).abs() < 1e-9)) return false;
+  final base = layer.transform.anchor;
+  final f0 = layerLocalFrame(layer, globalFrame).round(), f1 = f0 + frames;
+  List<double> v2(dynamic v) => [for (final e in v as List) (e as num).toDouble()];
+  List<double> own(int f) => identical(trk, base) ? v2(evaluateTrackOwn(project, base, f.toDouble(), layer)) : v2(evaluateTrack(project, trk, f.toDouble()));
+  List<double> others(int f) {
+    final t = v2(evaluateTrack(project, base, f.toDouble(), layer)), o = own(f);
+    return [t[0] - o[0], t[1] - o[1]];
+  }
+
+  // where it must end: as far from its start as the drawn way goes.
+  final o0 = anchorLocalFromScreen(project, layer, first[0], first[1], globalFrame);
+  final last = framePath.last;
+  final o1 = anchorLocalFromScreen(project, layer, last[0], last[1], globalFrame);
+  final start = own(f0), oa = others(f0), ob = others(f1);
+  final end = <double>[start[0] + o1[0] - o0[0] - (ob[0] - oa[0]), start[1] + o1[1] - o0[1] - (ob[1] - oa[1])];
+  if (f1 > layer.durationFrames) layer.durationFrames = f1;
+  trk.keyframes.removeWhere((k) => k.frame >= f0 && k.frame <= f1);
+  trk.keyframes
+    ..add(Keyframe(frame: f0, value: <double>[...start], temporal: newKeyEasing()))
+    ..add(Keyframe(frame: f1, value: end, temporal: newKeyEasing()))
+    ..sort((a, b) => a.frame.compareTo(b.frame));
+  if (!trk.spatial && identical(trk, base)) trk.spatial = true;
+  clearStateCaches();
+  return replaceMoveBetweenKeys(project, layer, trk, f0, f1, framePath, smoothing: smoothing);
+}
+
 /// Each position track's own keys (not the drawn way's points) as last
 /// seen - to tell which were taken away.
 final _knownEnds = Expando<List<Keyframe>>('freeMoveEnds');
@@ -225,6 +261,94 @@ bool _dropOrphanedWays(Track trk) {
   return trk.keyframes.length != n;
 }
 
+/// Each track's own keys as last seen and their frames (the drawn ways'
+/// points follow those keys when they move).
+final _endFrames = Expando<Map<Keyframe, int>>('freeMoveEndFrames');
+
+bool _followEnds(Track trk) {
+  final ends = trk.keyframes.where((k) => !k.passive).toList()..sort((a, b) => a.frame.compareTo(b.frame));
+  final old = _endFrames[trk];
+  _endFrames[trk] = {for (final k in ends) k: k.frame};
+  if (old == null || !trk.keyframes.any((k) => k.passive)) return false;
+  var changed = false;
+  for (var i = 0; i + 1 < ends.length; i++) {
+    final ka = ends[i], kb = ends[i + 1];
+    final oa = old[ka], ob = old[kb];
+    if (oa == null || ob == null || ob <= oa) continue;
+    var ps = trk.keyframes.where((k) => k.passive && k.frame > oa && k.frame < ob).toList()
+      ..sort((a, b) => a.frame.compareTo(b.frame));
+    if (ps.isEmpty) continue;
+    final a1 = ka.frame, b1 = kb.frame, room = b1 - a1 - 1;
+    if (oa == a1 && ob == b1 && ps.length <= room) continue;
+    changed = true;
+    if (ps.length > room) {
+      // not frames enough for them all: fewer, the way's shape kept.
+      _thinWay(trk, ka, kb, ps, room);
+      continue;
+    }
+    var last = a1;
+    for (var j = 0; j < ps.length; j++) {
+      final share = (ps[j].frame - oa) / (ob - oa);
+      final f = (a1 + share * (b1 - a1)).round().clamp(last + 1, b1 - (ps.length - j));
+      ps[j].frame = f;
+      last = f;
+    }
+  }
+  if (changed) trk.keyframes.sort((x, y) => x.frame.compareTo(y.frame));
+  return changed;
+}
+
+/// The drawn way between `ka` and `kb` (its points `ps`) made again of at
+/// most `room` points (one a frame between the keys), as close to its
+/// shape as that allows.
+void _thinWay(Track trk, Keyframe ka, Keyframe kb, List<Keyframe> ps, int room) {
+  trk.keyframes.removeWhere((k) => ps.contains(k));
+  if (ka.value is! List || room <= 0) return;
+  final seq = [ka, ...ps, kb];
+  final pts = <List<double>>[];
+  for (var i = 0; i + 1 < seq.length; i++) {
+    for (var s = 0; s < 16; s++) {
+      pts.add(spatialLerpVec2(seq[i], seq[i + 1], s / 16));
+    }
+  }
+  pts.add([for (final v in kb.value as List) (v as num).toDouble()]);
+  var x0 = double.infinity, y0 = double.infinity, x1 = -double.infinity, y1 = -double.infinity;
+  for (final p in pts) {
+    x0 = math.min(x0, p[0]);
+    x1 = math.max(x1, p[0]);
+    y0 = math.min(y0, p[1]);
+    y1 = math.max(y1, p[1]);
+  }
+  var tol = math.max(1e-9, math.sqrt(math.pow(x1 - x0, 2) + math.pow(y1 - y0, 2)) * 1e-3);
+  var pieces = _fitIndexed(pts, tol);
+  while (pieces.length > room + 1) {
+    tol *= 2;
+    pieces = _fitIndexed(pts, tol);
+  }
+  final c = [for (final p in pieces) p.curve];
+  double len(List<List<double>> q) => math.sqrt(math.pow(q[3][0] - q[0][0], 2) + math.pow(q[3][1] - q[0][1], 2));
+  final whole = c.fold(0.0, (a, q) => a + len(q));
+  final linear = easingPresets['linear']!;
+  var acc = 0.0, last = ka.frame;
+  for (var i = 0; i + 1 < c.length; i++) {
+    acc += len(c[i]);
+    final left = c.length - 2 - i;
+    final f = (ka.frame + (whole == 0 ? (i + 1) * (kb.frame - ka.frame) / c.length : (kb.frame - ka.frame) * acc / whole))
+        .round()
+        .clamp(last + 1, kb.frame - 1 - left);
+    last = f;
+    final p = c[i][3];
+    trk.keyframes.add(Keyframe(
+        frame: f,
+        value: <double>[p[0], p[1]],
+        temporal: linear,
+        spatialTangent: SpatialTangent(inTan: [c[i][2][0] - p[0], c[i][2][1] - p[1]], outTan: [c[i + 1][1][0] - p[0], c[i + 1][1][1] - p[1]]),
+        passive: true));
+  }
+  ka.spatialTangent = SpatialTangent(inTan: ka.spatialTangent.inTan, outTan: [c.first[1][0] - c.first[0][0], c.first[1][1] - c.first[0][1]]);
+  kb.spatialTangent = SpatialTangent(inTan: [c.last[2][0] - c.last[3][0], c.last[2][1] - c.last[3][1]], outTan: kb.spatialTangent.outTan);
+}
+
 /// Free moves' passive keys follow their end keys: when the ends move,
 /// each keeps its share of the time between them; with an end taken away,
 /// they go too. True: something changed.
@@ -232,6 +356,22 @@ bool bindFreeMoveKeys(Layer layer) {
   var changed = false;
   void fix(Track trk) {
     if (_dropOrphanedWays(trk)) changed = true;
+    // a drawn way's points go with the two keys around it (each keeps its
+    // share of the time between them; fewer of them where there are not
+    // frames enough).
+    if (_followEnds(trk)) {
+      changed = true;
+      if (trk.freeMove) {
+        final ps = trk.keyframes.where((k) => k.passive).map((k) => k.frame).toList();
+        final ends = trk.keyframes.where((k) => !k.passive).map((k) => k.frame).toList();
+        if (ps.isNotEmpty) {
+          final a = ends.where((f) => f < ps.reduce(math.min)).fold<int?>(null, (m, f) => m == null || f > m ? f : m);
+          final b = ends.where((f) => f > ps.reduce(math.max)).fold<int?>(null, (m, f) => m == null || f < m ? f : m);
+          if (a != null && b != null) trk.freeMoveSpan = [a, b];
+        }
+      }
+      return;
+    }
     if (trk.freeMove && trk.freeMoveSpan != null && !trk.keyframes.any((k) => k.passive)) {
       trk.freeMoveSpan = null;
       changed = true;
