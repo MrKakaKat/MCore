@@ -5,6 +5,8 @@ import 'package:movement_core/movement_core.dart';
 import 'package:test/test.dart';
 
 void main() {
+  // lengths are measured on the stage: a square one keeps px and fractions alike.
+  setUp(() => setStageSize(1000, 1000));
   Track path(List<List<double>> pts, List<int> frames) {
     final t = Track([0.0, 0.0], true);
     t.keyframes = [for (var i = 0; i < pts.length; i++) Keyframe(frame: frames[i], value: pts[i])];

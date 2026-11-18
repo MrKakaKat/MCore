@@ -275,6 +275,64 @@ void turnPathKeys(Track trk, int a, int b, {double degrees = 0, double k = 1, do
   }
 }
 
+/// A layer's whole way on the stage (its position with every key layer
+/// added on top - free moves too) turned by `degrees` and sized by `k`
+/// round its middle, keeping its shape: the position's own keys turn
+/// round the middle, what the key layers add turns with them (as a
+/// vector). `w` x `h`: the stage (positions are fractions of it).
+void turnWholePosition(Project project, Layer layer, {double degrees = 0, double k = 1, double w = 1, double h = 1}) {
+  final base = layer.transform.anchor;
+  if (base.expression != null) return;
+  final adds = [for (final al in base.animLayers) if (!al.multiply && al.track.expression == null) al.track];
+  final frames = [
+    for (final t in [base, ...adds]) for (final kf in t.keyframes) kf.frame
+  ];
+  if (frames.length < 2) return;
+  final f0 = frames.reduce(math.min), f1 = frames.reduce(math.max);
+  if (f1 <= f0) return;
+  // the middle: the mean of where it is, frame by frame (it stays there).
+  var cx = 0.0, cy = 0.0, n = 0;
+  for (var f = f0; f <= f1; f++) {
+    final v = evaluateTrack(project, base, f.toDouble(), layer) as List;
+    cx += (v[0] as num).toDouble();
+    cy += (v[1] as num).toDouble();
+    n++;
+  }
+  final c = [cx / n, cy / n];
+  final r = degrees * math.pi / 180, cs = math.cos(r) * k, sn = math.sin(r) * k;
+  List<double> vec(List v) {
+    final x = (v[0] as num) * w, y = (v[1] as num) * h;
+    return [(x * cs - y * sn) / w, (x * sn + y * cs) / h];
+  }
+
+  void turnKey(Keyframe key, bool round) {
+    final v = key.value as List;
+    if (round) {
+      final d = vec([(v[0] as num) - c[0], (v[1] as num) - c[1]]);
+      key.value = <double>[c[0] + d[0], c[1] + d[1]];
+    } else {
+      key.value = vec(v);
+    }
+    key.spatialTangent = SpatialTangent(inTan: vec(key.spatialTangent.inTan), outTan: vec(key.spatialTangent.outTan));
+  }
+
+  if (base.keyframes.isEmpty) {
+    final v = base.defaultValue;
+    if (v is List && v.length >= 2) {
+      final d = vec([(v[0] as num) - c[0], (v[1] as num) - c[1]]);
+      base.defaultValue = <double>[c[0] + d[0], c[1] + d[1]];
+    }
+  }
+  for (final key in base.keyframes) {
+    turnKey(key, true);
+  }
+  for (final t in adds) {
+    for (final key in t.keyframes) {
+      turnKey(key, false);
+    }
+  }
+}
+
 /// The path between local frames a and b moved by `d` (each key alike).
 void shiftPathKeys(Track trk, int a, int b, List<double> d) {
   for (final k in _keysIn(trk, a, b)) {

@@ -15,6 +15,7 @@ import 'dart:math' as math;
 
 import '../model/project.dart';
 import 'expressions.dart';
+import 'stage_size.dart';
 
 double solveCubicBezierY(double x1, double y1, double x2, double y2, double x) {
   // Newton-Raphson on the bezier parametric curve, solving for t at given x, returning y
@@ -144,6 +145,8 @@ const _arcSamples = 48;
 final _arcTables = Expando<_ArcTable>('arcTables');
 
 int _pathSignature(List<Keyframe> kfs) => Object.hashAll([
+      stageSize.width,
+      stageSize.height,
       for (final k in kfs) ...[
         ...(k.value as List<double>),
         ...k.spatialTangent.inTan,
@@ -158,12 +161,15 @@ _ArcTable _arcTable(Track trk) {
   if (cached != null && cached.signature == sig) return cached;
   final cumulative = <List<double>>[];
   var total = 0.0;
+  // lengths on the stage (px), not in fractions of it: a path turned on a
+  // stage that isn't square keeps its pace.
+  final w = stageSize.width, h = stageSize.height;
   for (var i = 0; i < kfs.length - 1; i++) {
     final row = [total];
     var prev = spatialLerpVec2(kfs[i], kfs[i + 1], 0);
     for (var s = 1; s <= _arcSamples; s++) {
       final p = spatialLerpVec2(kfs[i], kfs[i + 1], s / _arcSamples);
-      total += math.sqrt(math.pow(p[0] - prev[0], 2) + math.pow(p[1] - prev[1], 2));
+      total += math.sqrt(math.pow((p[0] - prev[0]) * w, 2) + math.pow((p[1] - prev[1]) * h, 2));
       row.add(total);
       prev = p;
     }

@@ -101,12 +101,22 @@ class FreeMoveField extends StatelessWidget {
               final l = findLayer(app.project, app.selection.selectedLayer)!;
               return Padding(
                 padding: const EdgeInsets.only(bottom: 4),
-                child: OutlinedButton.icon(
-                  key: const ValueKey('free-move-between'),
-                  onPressed: app.startFreeMoveBetween,
-                  icon: const Icon(Icons.swap_calls, size: 16),
-                  label: Text('Draw anew between keys ${l.startFrame + r.a} and ${l.startFrame + r.b}'),
-                ),
+                child: Wrap(spacing: 8, runSpacing: 4, children: [
+                  OutlinedButton.icon(
+                    key: const ValueKey('free-move-between'),
+                    onPressed: app.startFreeMoveBetween,
+                    icon: const Icon(Icons.swap_calls, size: 16),
+                    label: Text('Draw anew between keys ${l.startFrame + r.a} and ${l.startFrame + r.b}'),
+                  ),
+                  // a way drawn there before: it can go.
+                  if (drawnWayBetween(r.trk, r.a, r.b))
+                    OutlinedButton.icon(
+                      key: const ValueKey('free-move-remove-between'),
+                      onPressed: app.removeFreeMoveBetween,
+                      icon: const Icon(Icons.delete_outline, size: 16),
+                      label: const Text('Remove the drawn way'),
+                    ),
+                ]),
               );
             }),
           Row(children: [

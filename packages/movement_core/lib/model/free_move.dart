@@ -200,12 +200,42 @@ int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath,
   return n;
 }
 
+/// Each position track's own keys (not the drawn way's points) as last
+/// seen - to tell which were taken away.
+final _knownEnds = Expando<List<Keyframe>>('freeMoveEnds');
+
+/// A drawn way goes with its end keys: a key taken away takes the drawn
+/// points on both sides of it (up to the keys next to it) along. True:
+/// something went.
+bool _dropOrphanedWays(Track trk) {
+  final ends = trk.keyframes.where((k) => !k.passive).toList()..sort((a, b) => a.frame.compareTo(b.frame));
+  final before = _knownEnds[trk];
+  _knownEnds[trk] = ends;
+  if (before == null || ends.length >= before.length || !trk.keyframes.any((k) => k.passive)) return false;
+  final gone = <(double, double)>[];
+  for (var i = 0; i < before.length; i++) {
+    final k = before[i];
+    if (ends.any((e) => identical(e, k) || e.frame == k.frame)) continue;
+    gone.add((i > 0 ? before[i - 1].frame.toDouble() : double.negativeInfinity,
+        i + 1 < before.length ? before[i + 1].frame.toDouble() : double.infinity));
+  }
+  if (gone.isEmpty) return false;
+  final n = trk.keyframes.length;
+  trk.keyframes.removeWhere((k) => k.passive && gone.any((g) => k.frame > g.$1 && k.frame < g.$2));
+  return trk.keyframes.length != n;
+}
+
 /// Free moves' passive keys follow their end keys: when the ends move,
 /// each keeps its share of the time between them; with an end taken away,
 /// they go too. True: something changed.
 bool bindFreeMoveKeys(Layer layer) {
   var changed = false;
   void fix(Track trk) {
+    if (_dropOrphanedWays(trk)) changed = true;
+    if (trk.freeMove && trk.freeMoveSpan != null && !trk.keyframes.any((k) => k.passive)) {
+      trk.freeMoveSpan = null;
+      changed = true;
+    }
     if (!trk.freeMove || !trk.keyframes.any((k) => k.passive)) return;
     final ends = trk.keyframes.where((k) => !k.passive).toList()..sort((a, b) => a.frame.compareTo(b.frame));
     if (ends.length < 2) {
@@ -287,40 +317,57 @@ void holdAroundFreeMoves(Project project, Layer layer, int f) {
 
 dynamic _copyValue(dynamic v) => v is List ? [for (final e in v) (e as num).toDouble()] : v;
 
-/// A drawn way set between two points: turned and sized as a whole (its
-/// shape kept, not skewed) so it starts at `pa` and ends at `pb`. With its
-/// own ends too close for that (a loop) or too far off, it is bent
-/// instead: each point shifted by its share of the way.
+/// A drawn way set between two points as drawn: the hand's line kept,
+/// only its very end led onto `pb` (its start onto `pa`) - the stretch
+/// bent is as short as the miss allows. Drawn on past `pb` and back, it is
+/// cut where it came closest to it.
 List<List<double>> fitWayToEnds(List<List<double>> path, List<double> pa, List<double> pb) {
   if (path.length < 2) return [for (final p in path) [...p]];
-  final p0 = path.first, pn = path.last;
-  final ux = pn[0] - p0[0], uy = pn[1] - p0[1];
-  final vx = pb[0] - pa[0], vy = pb[1] - pa[1];
-  final u2 = ux * ux + uy * uy, v = math.sqrt(vx * vx + vy * vy);
-  final k = u2 > 1e-9 ? v / math.sqrt(u2) : 0.0;
-  if (u2 > 1e-9 && v > 1e-9 && k > 0.4 && k < 2.5) {
-    // p -> pa + R·s·(p - p0): as a complex product (v / u).
-    final cr = (vx * ux + vy * uy) / u2, ci = (vy * ux - vx * uy) / u2;
-    return [
-      for (final p in path)
-        [pa[0] + cr * (p[0] - p0[0]) - ci * (p[1] - p0[1]), pa[1] + ci * (p[0] - p0[0]) + cr * (p[1] - p0[1])]
-    ];
-  }
+  double dist(List<double> p, List<double> q) => math.sqrt(math.pow(p[0] - q[0], 2) + math.pow(p[1] - q[1], 2));
   final d = <double>[0];
   for (var i = 1; i < path.length; i++) {
-    d.add(d.last + math.sqrt(math.pow(path[i][0] - path[i - 1][0], 2) + math.pow(path[i][1] - path[i - 1][1], 2)));
+    d.add(d.last + dist(path[i], path[i - 1]));
   }
-  final total = d.last;
-  return [
-    for (var i = 0; i < path.length; i++)
-      () {
-        final s = total <= 1e-9 ? i / (path.length - 1) : d[i] / total;
-        return [
-          path[i][0] + (pa[0] - p0[0]) * (1 - s) + (pb[0] - pn[0]) * s,
-          path[i][1] + (pa[1] - p0[1]) * (1 - s) + (pb[1] - pn[1]) * s,
-        ];
-      }()
-  ];
+  // where it ends: the point nearest pb in its later half.
+  var cut = path.length - 1;
+  for (var i = path.length - 1; i >= 1 && d[i] >= d.last / 2; i--) {
+    if (dist(path[i], pb) < dist(path[cut], pb) - 1e-9) cut = i;
+  }
+  final way = [for (var i = 0; i <= cut; i++) [...path[i]]];
+  final len = d[cut];
+  final p0 = way.first, pn = way.last;
+  final e0 = [pa[0] - p0[0], pa[1] - p0[1]], e1 = [pb[0] - pn[0], pb[1] - pn[1]];
+  double reach(List<double> e) => math.min(len / 2, math.max(1.0, 3 * math.sqrt(e[0] * e[0] + e[1] * e[1])));
+  final t0 = reach(e0), t1 = reach(e1);
+  double smooth(double x) {
+    final t = x.clamp(0.0, 1.0);
+    return t * t * (3 - 2 * t);
+  }
+
+  for (var i = 0; i < way.length; i++) {
+    final w0 = len <= 1e-9 ? 1 - i / math.max(1, way.length - 1) : 1 - smooth(d[i] / t0);
+    final w1 = len <= 1e-9 ? i / math.max(1, way.length - 1) : smooth(1 - (len - d[i]) / t1);
+    way[i] = [way[i][0] + e0[0] * w0 + e1[0] * w1, way[i][1] + e0[1] * w0 + e1[1] * w1];
+  }
+  return way;
+}
+
+/// Whether the way between `trk`'s keys at local frames a and b was drawn
+/// (it has a drawn way's own points).
+bool drawnWayBetween(Track trk, int a, int b) => trk.keyframes.any((k) => k.passive && k.frame > a && k.frame < b);
+
+/// The drawn way between the keys at a and b taken away: its own points
+/// go, the keys stay and the way between them is straight again. False:
+/// nothing was drawn there.
+bool removeMoveBetweenKeys(Track trk, int a, int b) {
+  final ka = keyframeAt(trk, a), kb = keyframeAt(trk, b);
+  if (ka == null || kb == null || !drawnWayBetween(trk, a, b)) return false;
+  trk.keyframes.removeWhere((k) => k.passive && k.frame > a && k.frame < b);
+  ka.spatialTangent = SpatialTangent(inTan: ka.spatialTangent.inTan, outTan: [0, 0]);
+  kb.spatialTangent = SpatialTangent(inTan: [0, 0], outTan: kb.spatialTangent.outTan);
+  if (trk.freeMove && !trk.keyframes.any((k) => k.passive)) trk.freeMoveSpan = null;
+  clearStateCaches();
+  return true;
 }
 
 /// Free move over a stretch already keyed: the way between `trk`'s keys at

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:io';
 
 import 'package:flutter/services.dart' show rootBundle;
@@ -313,7 +314,10 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 4),
-                              child: LayersTimelineView(app: widget.appState),
+                              child: LayersTimelineView(
+                                  app: widget.appState,
+                                  // the half-open sheet lies over its lower part.
+                                  coveredBottom: narrow ? math.max(0.0, math.min(dock - reserved, sectionHeight)) : 0),
                             ),
                           ),
                         ],

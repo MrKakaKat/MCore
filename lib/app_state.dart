@@ -814,7 +814,12 @@ class AppState extends ChangeNotifier {
   void turnPathTo(double degrees) {
     final t = pathTarget;
     if (t == null) return;
-    turnPathKeys(t.trk, t.a, t.b, degrees: degrees - t.layer.pathTurn, w: stageSize.width, h: stageSize.height);
+    if (t.line) {
+      turnPathKeys(t.trk, t.a, t.b, degrees: degrees - t.layer.pathTurn, w: stageSize.width, h: stageSize.height);
+    } else {
+      // the whole way as it shows (free moves and key layers with it).
+      turnWholePosition(project, t.layer, degrees: degrees - t.layer.pathTurn, w: stageSize.width, h: stageSize.height);
+    }
     t.layer.pathTurn = degrees;
     clearStateCaches();
     commitEdit();
@@ -824,7 +829,11 @@ class AppState extends ChangeNotifier {
   void scalePathTo(double k) {
     final t = pathTarget;
     if (t == null || k <= 0 || t.layer.pathScale <= 0) return;
-    turnPathKeys(t.trk, t.a, t.b, k: k / t.layer.pathScale, w: stageSize.width, h: stageSize.height);
+    if (t.line) {
+      turnPathKeys(t.trk, t.a, t.b, k: k / t.layer.pathScale, w: stageSize.width, h: stageSize.height);
+    } else {
+      turnWholePosition(project, t.layer, k: k / t.layer.pathScale, w: stageSize.width, h: stageSize.height);
+    }
     t.layer.pathScale = k;
     clearStateCaches();
     commitEdit();
@@ -3115,6 +3124,10 @@ class AppState extends ChangeNotifier {
     if (ks.length == 2) {
       final a = ks[0] - l.startFrame, b = ks[1] - l.startFrame;
       if (adjacent(l.transform.anchor, a, b)) return (trk: l.transform.anchor, a: a, b: b);
+      // a free move's own two keys.
+      for (final al in l.transform.anchor.animLayers.reversed) {
+        if (al.track.freeMove && adjacent(al.track, a, b)) return (trk: al.track, a: a, b: b);
+      }
     }
     return null;
   }
@@ -3147,6 +3160,34 @@ class AppState extends ChangeNotifier {
     freeMovePath = [];
     stageNotice.value = 'Drag its new way between the keys, then Confirm';
     notifyListeners();
+  }
+
+  /// The way drawn between the two picked keys taken away (straight
+  /// between them again).
+  void removeFreeMoveBetween() {
+    final r = freeMoveRange;
+    if (r == null || !drawnWayBetween(r.trk, r.a, r.b)) return;
+    pushUndo();
+    final l = findLayer(project, selection.selectedLayer)!;
+    final t = l.transform;
+    final n = t.anchor.animLayers.indexWhere((al) => identical(al.track, r.trk)) + 1;
+    final ends = r.trk.keyframes.where((k) => !k.passive).map((k) => k.frame).toSet();
+    // a free move key layer that is only this way: the key layer goes.
+    final whole = n > 0 &&
+        r.trk.freeMove &&
+        ends.length == 2 &&
+        ends.containsAll([r.a, r.b]) &&
+        [t.rotation, t.scale, t.opacity].every((x) => x.animLayers.length < n || x.animLayers[n - 1].track.keyframes.isEmpty);
+    if (whole) {
+      removeTransformAnimLayer(l, n);
+      activeAnimLayer = 0;
+      clearStateCaches();
+      _notice('Free move removed');
+    } else {
+      removeMoveBetweenKeys(r.trk, r.a, r.b);
+      _notice('The drawn way between the keys removed');
+    }
+    commitEdit();
   }
 
   void startFreeMove() {

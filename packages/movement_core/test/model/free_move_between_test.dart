@@ -31,23 +31,34 @@ void main() {
     expect(centre(60)[0], closeTo(end[0], 1e-6));
     expect(centre(60)[1], closeTo(end[1], 1e-6));
     var best = 1e9;
-    for (var f = 0; f <= 60; f++) {
-      final c = centre(f);
-      best = math.min(best, math.sqrt(math.pow(c[0] - mid[0], 2) + math.pow(c[1] - mid[1], 2)));
+    // nearest to it on the way (between frames too).
+    for (var f = 0; f < 60; f++) {
+      final c = centre(f), e = centre(f + 1);
+      final vx = e[0] - c[0], vy = e[1] - c[1];
+      final l2 = vx * vx + vy * vy;
+      final t = l2 == 0 ? 0.0 : (((mid[0] - c[0]) * vx + (mid[1] - c[1]) * vy) / l2).clamp(0.0, 1.0);
+      best = math.min(best, math.sqrt(math.pow(c[0] + vx * t - mid[0], 2) + math.pow(c[1] + vy * t - mid[1], 2)));
     }
-    expect(best, lessThan(1), reason: 'through the drawn way (bent to its end key)');
+    expect(best, lessThan(3), reason: 'through the drawn way (bent to its end key)');
   });
 
-  test('a drawn way set between the keys keeps its shape (turned and sized, not skewed), ending at the key', () {
-    // a half circle from (0,0) to (200,0), set to end at (0,300) instead.
-    final path = [for (var i = 0; i <= 20; i++) [100 - 100 * math.cos(math.pi * i / 20), -100 * math.sin(math.pi * i / 20)]];
-    final out = fitWayToEnds(path, [0, 0], [0, 300]);
-    expect(out.first[0], closeTo(0, 1e-9));
-    expect(out.last[0], closeTo(0, 1e-9));
-    expect(out.last[1], closeTo(300, 1e-9));
-    // still a half circle: every point 150 from the middle of its ends.
-    for (final p in out) {
-      expect(math.sqrt(p[0] * p[0] + math.pow(p[1] - 150, 2)), closeTo(150, 1e-6));
+  test('a drawn way set between the keys stays as drawn: only its end is led onto the key', () {
+    final path = [for (var i = 0; i <= 100; i++) <double>[i * 3.0, 50 * math.sin(math.pi * i / 50)]];
+    // the hand ended 10 px off the key.
+    final out = fitWayToEnds(path, [0, 0], [300, 10]);
+    expect(out.first, [0, 0]);
+    expect(out.last[0], closeTo(300, 1e-9));
+    expect(out.last[1], closeTo(10, 1e-9));
+    for (var i = 0; i <= 80; i++) {
+      expect(out[i][0], closeTo(path[i][0], 1e-9));
+      expect(out[i][1], closeTo(path[i][1], 1e-9));
     }
+  });
+
+  test('drawn on past the key and back: cut where it came closest to the key', () {
+    final path = [for (var i = 0; i <= 60; i++) <double>[i * 5.0, 0], for (var i = 1; i <= 10; i++) <double>[300, i * 5.0]];
+    final out = fitWayToEnds(path, [0, 0], [200, 0]);
+    expect(out.length, 41);
+    expect(out.last, [200, 0]);
   });
 }

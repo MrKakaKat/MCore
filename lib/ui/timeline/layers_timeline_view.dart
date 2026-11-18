@@ -128,7 +128,11 @@ import 'layer_detail_rows.dart';
 /// UNVERIFIED like the rest of ui/.
 class LayersTimelineView extends StatefulWidget {
   final AppState app;
-  const LayersTimelineView({super.key, required this.app});
+
+  /// How much of its bottom something lies over (the tab sheet): it can
+  /// scroll that much further, and the selected layer is kept above it.
+  final double coveredBottom;
+  const LayersTimelineView({super.key, required this.app, this.coveredBottom = 0});
 
   @override
   State<LayersTimelineView> createState() => _LayersTimelineViewState();
@@ -785,6 +789,7 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
     widget.app.frameNotifier.removeListener(_updatePlayheadSide);
     widget.app.scrollToPlayheadRequest.removeListener(_scrollToPlayhead);
     _hScrollController.dispose();
+    _vScrollController.dispose();
     super.dispose();
   }
 
@@ -955,6 +960,29 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
 
   /// The selection last seen (see build: focus follows it).
   String? _seenSelected;
+
+  /// The rows' own (up / down) scroll.
+  final ScrollController _vScrollController = ScrollController();
+
+  /// What the selected layer was last kept in view for.
+  String? _keptInView;
+
+  /// The selected layer (with its action and detail rows) brought into the
+  /// part of the view nothing lies over.
+  void _keepInView(double top, double bottom, double viewport) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_vScrollController.hasClients) return;
+      final pos = _vScrollController.position;
+      final avail = math.max(_rowHeight, viewport - widget.coveredBottom);
+      var off = pos.pixels;
+      if (bottom > off + avail) off = bottom - avail;
+      if (top - _rulerHeight < off) off = top - _rulerHeight;
+      off = off.clamp(0.0, pos.maxScrollExtent).toDouble();
+      if ((off - pos.pixels).abs() > 0.5) {
+        _vScrollController.animateTo(off, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      }
+    });
+  }
 
   void _toggleFocus(String layerId) {
     setState(() {
@@ -1154,9 +1182,22 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
         return LayoutBuilder(
           builder: (context, outerConstraints) {
             final viewportHeight = outerConstraints.maxHeight;
+            // with the sheet over its bottom: room to scroll the last rows
+            // up above it.
             final effectiveHeight = viewportHeight.isFinite
-                ? math.max(totalHeight, viewportHeight)
+                ? math.max(totalHeight + widget.coveredBottom, viewportHeight)
                 : totalHeight;
+            final selRow = sel == null ? null : rowOf[sel];
+            if (selRow != null && viewportHeight.isFinite) {
+              final top = rowTop(selRow);
+              final withRows = showActionRow && selRow >= focusedIndex && selRow <= actionIndex;
+              final bottom = withRows ? rowTop(actionIndex) + _rowHeight + belowSpace : top + _rowHeight;
+              final sig = '$sel|$top|$bottom|${widget.coveredBottom}|$viewportHeight';
+              if (sig != _keptInView) {
+                _keptInView = sig;
+                _keepInView(top, bottom, viewportHeight);
+              }
+            }
             return Listener(
               key: _viewportKey,
               onPointerDown: _onPointerDown,
@@ -1173,6 +1214,7 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
               // view gracefully tolerate a squeezed viewport instead of
               // erroring.
               child: SingleChildScrollView(
+                controller: _vScrollController,
                 // the reorder handle belongs where the very first reorder
                 // column was - its own reserved strip at the right edge,
                 // outside the scrolling/fading content, never drawn over the
