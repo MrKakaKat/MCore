@@ -277,6 +277,10 @@ bool animLayerNotStarted(Track t, double localFrame) {
   for (final k in t.keyframes) {
     if (k.frame < first) first = k.frame;
   }
+  // made from its end back (keys put before the one it began with): it
+  // holds where it starts before its first key.
+  final o = t.openedAt;
+  if (o != null && first < o) return false;
   return localFrame < first;
 }
 

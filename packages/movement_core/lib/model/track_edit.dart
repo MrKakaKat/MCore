@@ -68,11 +68,11 @@ int orderKeyTarget(Layer layer, int localFrame) {
 /// the other one holds there (see mergeAnimLayerInto).
 int packOrderLayer(Layer layer, int n) {
   final mine = animLayerKeyFrames(layer, n);
-  if (mine.length < 2) return n;
+  if (mine.length < 2 || _holdsBack(layer, n)) return n;
   final lo = mine.reduce(math.min), hi = mine.reduce(math.max);
   for (var m = 1; m < n; m++) {
     final other = animLayerKeyFrames(layer, m);
-    if (other.isEmpty) continue;
+    if (other.isEmpty || _holdsBack(layer, m)) continue;
     if (other.reduce(math.max) < lo || other.reduce(math.min) > hi) {
       mergeAnimLayerInto(layer, m, n);
       if (activeAnimLayer == n) activeAnimLayer = m;
@@ -80,6 +80,18 @@ int packOrderLayer(Layer layer, int n) {
     }
   }
   return n;
+}
+
+/// Animation layer `n` made from its end back: it holds its start before
+/// its first key (see Track.openedAt) - it shares its layer with no other.
+bool _holdsBack(Layer layer, int n) {
+  final t = layer.transform;
+  for (final x in [t.anchor, t.rotation, t.scale, t.opacity]) {
+    if (x.animLayers.length < n) continue;
+    final tr = x.animLayers[n - 1].track, o = tr.openedAt;
+    if (o != null && tr.keyframes.isNotEmpty && tr.keyframes.map((k) => k.frame).reduce(math.min) < o) return true;
+  }
+  return false;
 }
 
 /// Moves animation layer `from`'s keys into layer `into` (their key spans
@@ -339,4 +351,53 @@ void shiftPathKeys(Track trk, int a, int b, List<double> d) {
     final v = k.value as List;
     k.value = [(v[0] as num) + d[0], (v[1] as num) + d[1]];
   }
+}
+
+/// Animation layers kept in order (after every edit): each track notes
+/// the key it was started with (see Track.openedAt; kept on a key when
+/// keys move), and a layer whose keys were all taken away goes (they
+/// don't pile up). `selected`: the layer is the selected one (the edited
+/// animation layer's number follows). True: something changed.
+bool tidyAnimLayers(Layer layer, {bool selected = false}) {
+  final t = layer.transform;
+  final all = [t.anchor, t.rotation, t.scale, t.opacity];
+  var changed = false;
+  for (var n = t.anchor.animLayers.length; n >= 1; n--) {
+    final tracks = [for (final x in all) if (x.animLayers.length >= n) x.animLayers[n - 1].track];
+    if (tracks.every((x) => x.keyframes.isEmpty)) {
+      // used once (it had keys) and now empty: it goes.
+      if (tracks.any((x) => x.openedAt != null)) {
+        removeTransformAnimLayer(layer, n);
+        if (selected) {
+          if (activeAnimLayer == n) {
+            activeAnimLayer = 0;
+          } else if (activeAnimLayer > n) {
+            activeAnimLayer--;
+          }
+        }
+        changed = true;
+      }
+      continue;
+    }
+    for (final x in tracks) {
+      final ks = x.keyframes;
+      if (ks.isEmpty) {
+        if (x.openedAt != null) {
+          x.openedAt = null;
+          changed = true;
+        }
+        continue;
+      }
+      final o = x.openedAt;
+      if (o == null) {
+        x.openedAt = ks.map((k) => k.frame).reduce(math.min);
+        changed = true;
+      } else if (!ks.any((k) => k.frame == o)) {
+        // its key moved: the nearest one is it.
+        x.openedAt = ks.map((k) => k.frame).reduce((a, b) => (a - o).abs() <= (b - o).abs() ? a : b);
+        changed = true;
+      }
+    }
+  }
+  return changed;
 }

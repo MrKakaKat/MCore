@@ -80,6 +80,7 @@ Map<String, dynamic> trackToJson(Track t) => {
       if (t.loopMax != null) 'loopMax': t.loopMax,
       if (t.tension != null) 'tension': t.tension,
       if (t.handTangents) 'handTangents': true,
+      if (t.openedAt != null) 'openedAt': t.openedAt,
       if (t.globalEasing != null) 'globalEasing': easingToJson(t.globalEasing!),
       if (t.constantSpeed) 'constantSpeed': true,
       if (t.animLayers.isNotEmpty)
@@ -103,6 +104,7 @@ Track trackFromJson(Map<String, dynamic> j) {
   t.loopMax = (j['loopMax'] as num?)?.toDouble();
   t.tension = (j['tension'] as num?)?.toDouble();
   t.handTangents = j['handTangents'] == true;
+  t.openedAt = (j['openedAt'] as num?)?.toInt();
   t.constantSpeed = j['constantSpeed'] == true;
   t.animLayers = [
     for (final a in (j['animLayers'] as List? ?? const []))

@@ -5851,6 +5851,8 @@ class AppState extends ChangeNotifier {
     var bound = false;
     for (final l in project.layers) {
       if (bindFreeMoveKeys(l)) bound = true;
+      // key layers: where each began; emptied ones go.
+      if (tidyAnimLayers(l, selected: l.id == selection.selectedLayer)) bound = true;
     }
     // children taking their parent's corner rounding.
     if (syncInheritedRounding(project)) bound = true;

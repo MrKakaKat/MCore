@@ -302,6 +302,12 @@ class Track {
   /// its keys' in / out handles are dragged on the stage and never worked
   /// out again from the tension.
   bool handTangents = false;
+
+  /// An animation layer's track: the frame of the key it was started with
+  /// (its first one placed). Keys put before it later (an animation made
+  /// from its end back) make it hold its first key before it begins; with
+  /// its keys after it, it does nothing before its first key.
+  int? openedAt;
   Easing? globalEasing;
 
   /// Spatial tracks: the keys keep their places, but the object moves
@@ -2599,6 +2605,7 @@ Track cloneTrack(Track src) {
   t.loopMax = src.loopMax;
   t.tension = src.tension;
   t.handTangents = src.handTangents;
+  t.openedAt = src.openedAt;
   t.globalEasing = src.globalEasing?.copy();
   t.constantSpeed = src.constantSpeed;
   t.animLayers = [
