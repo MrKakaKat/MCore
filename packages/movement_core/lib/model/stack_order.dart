@@ -11,9 +11,9 @@ import 'timeline_rows.dart' show timelineRows, timelineRowOf;
 /// The place `l`'s keys put it at `globalFrame` (1: on top), or null:
 /// no key yet (before its first one, or none).
 int? stackPositionAt(Layer l, num globalFrame) {
-  if (l.stackKeys.isEmpty) return null;
+  if (l.stackKeys.isEmpty) return l.stackBase;
   final f = layerLocalFrame(l, globalFrame);
-  int? out;
+  int? out = l.stackBase;
   var at = -1 << 30;
   for (final k in l.stackKeys) {
     if (k.frame <= f && k.frame >= at) {
@@ -33,7 +33,7 @@ int listPlaceOf(Project project, Layer l) => timelineRowOf(project, l.id) + 1;
 /// place its key says, under the layers already there (going from 5 to
 /// 2 puts it behind the layers at 2, 3 and 4).
 List<Layer> stackOrderAt(Project project, num globalFrame) {
-  if (!project.layers.any((l) => l.stackKeys.isNotEmpty)) return project.layers;
+  if (!project.layers.any((l) => l.stackKeys.isNotEmpty || l.stackBase != null)) return project.layers;
   final rows = timelineRows(project);
   final level = <Layer, double>{};
   for (var r = 0; r < rows.length; r++) {
@@ -61,6 +61,21 @@ List<Layer> stackOrderAt(Project project, num globalFrame) {
 /// its key's place, else its own.
 int stackPlaceOf(Project project, Layer l, num globalFrame) =>
     stackPositionAt(l, globalFrame) ?? listPlaceOf(project, l);
+
+/// The place of the stretch `l`'s local frame `frame` is in (between its
+/// borders) set to `place`.
+void setStackPlaceAt(Layer l, int frame, int place) {
+  StackKey? at;
+  for (final k in l.stackKeys) {
+    if (k.frame <= frame && (at == null || k.frame >= at.frame)) at = k;
+  }
+  final p = place < 1 ? 1 : place;
+  if (at == null) {
+    l.stackBase = p;
+  } else {
+    l.stackKeys[l.stackKeys.indexOf(at)] = StackKey(at.frame, p);
+  }
+}
 
 /// Sets (or replaces) `l`'s key at local frame `frame`.
 void setStackKey(Layer l, int frame, int position) {

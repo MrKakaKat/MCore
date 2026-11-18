@@ -97,15 +97,30 @@ class FreeMoveField extends StatelessWidget {
                   : 'Move the object by hand along any curve: it becomes a key layer of two keys, from the playhead.',
               style: const TextStyle(fontSize: 11, color: Colors.grey)),
           const SizedBox(height: 4),
+          // two keys picked (next to each other): their way drawn anew.
+          if (!rec && app.freeMoveRange != null)
+            Builder(builder: (context) {
+              final r = app.freeMoveRange!;
+              final l = findLayer(app.project, app.selection.selectedLayer)!;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: OutlinedButton.icon(
+                  key: const ValueKey('free-move-between'),
+                  onPressed: app.startFreeMoveBetween,
+                  icon: const Icon(Icons.swap_calls, size: 16),
+                  label: Text('Draw anew between keys ${l.startFrame + r.a} and ${l.startFrame + r.b}'),
+                ),
+              );
+            }),
           Row(children: [
-            if (!rec)
+            if (!rec) ...[
               OutlinedButton.icon(
                 key: const ValueKey('free-move-start'),
                 onPressed: app.startFreeMove,
                 icon: const Icon(Icons.gesture, size: 16),
                 label: const Text('Draw the move'),
-              )
-            else ...[
+              ),
+            ] else ...[
               FilledButton.icon(
                 key: const ValueKey('free-move-confirm-tab'),
                 onPressed: app.freeMovePath.length >= 2 ? app.confirmFreeMove : null,

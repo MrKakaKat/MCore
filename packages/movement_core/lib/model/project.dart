@@ -2318,11 +2318,13 @@ class Layer {
   /// anchor): its middle, a side's middle or a corner (Movement tab).
   List<double>? rotateOrigin;
 
-  /// Order on the stage: from each border's (local) frame on the layer
-  /// stands at that place, numbered as in the Layers list (1: the bottom) -
-  /// a jump, no in-between. Before its first border it stands where the
-  /// list puts it.
+  /// Order on the stage: borders cut the layer's time into stretches;
+  /// from each border's (local) frame on it stands at that place,
+  /// numbered as in the Layers list (1: the bottom) - a jump, no
+  /// in-between. Before its first border: `stackBase` (null: where the
+  /// list puts it).
   List<StackKey> stackKeys = [];
+  int? stackBase;
 
   /// Keyframes tab, "Edit the whole object": while it is selected, an edit
   /// moves every key of the parameter by the same amount - the object
@@ -2780,6 +2782,7 @@ Layer cloneLayer(Layer src) {
     ..dig = src.dig
     ..lens = src.lens.copy()
     ..stackKeys = [for (final k in src.stackKeys) StackKey(k.frame, k.position)]
+    ..stackBase = src.stackBase
     ..scaleOrigin = src.scaleOrigin == null ? null : [...src.scaleOrigin!]
     ..rotateOrigin = src.rotateOrigin == null ? null : [...src.rotateOrigin!]
     ..editAll = src.editAll

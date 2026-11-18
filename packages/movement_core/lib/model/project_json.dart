@@ -729,6 +729,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.dig) 'dig': true,
       if (l.lens.enabled) 'lens': l.lens.toJson(),
       if (l.stackKeys.isNotEmpty) 'stackKeys': [for (final k in l.stackKeys) [k.frame, k.position]],
+      if (l.stackBase != null) 'stackBase': l.stackBase,
       if (l.scaleOrigin != null) 'scaleOrigin': l.scaleOrigin,
       if (l.rotateOrigin != null) 'rotateOrigin': l.rotateOrigin,
       if (l.editAll) 'editAll': true,
@@ -957,6 +958,7 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
         for (final k in (j['stackKeys'] as List? ?? const []))
           StackKey(((k as List)[0] as num).toInt(), (k[1] as num).toInt())
       ]
+      ..stackBase = (j['stackBase'] as num?)?.toInt()
       ..editAll = j['editAll'] as bool? ?? false
       ..inheritRounding = j['inheritRounding'] as bool? ?? false
       ..pathOffset = (j['pathOffset'] as List?)?.map((v) => (v as num).toDouble()).toList() ?? [0, 0]

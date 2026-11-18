@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart' hide Transform;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:movement_core/movement_core.dart';
@@ -63,5 +64,38 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('gravity-key-f-10')), findsOneWidget);
     expect(find.byKey(const ValueKey('gravity-key-f-50')), findsOneWidget);
+  });
+
+  test('free move: the way between two picked keys drawn anew', () {
+    final app = AppState();
+    app.project.layers.clear();
+    final l = createLayer('rect')
+      ..id = 'm'
+      ..startFrame = 0
+      ..durationFrames = 100;
+    l.transform.anchor.keyframes = [
+      Keyframe(frame: 0, value: <double>[0.2, 0.5]),
+      Keyframe(frame: 60, value: <double>[0.8, 0.5]),
+    ];
+    app.project.layers.add(l);
+    app.selectLayer('m');
+    expect(app.freeMoveRange, isNull, reason: 'nothing picked');
+    kfSelectedFrames = {0, 60};
+    addTearDown(() => kfSelectedFrames = {});
+    expect(app.freeMoveRange, isNotNull);
+    app.startFreeMoveBetween();
+    expect(app.currentFrame, 0);
+    final w = app.frameWidth, h = app.frameHeight;
+    app.beginFreeMoveStroke([w * 0.2, h * 0.5]);
+    for (var i = 1; i <= 20; i++) {
+      app.addFreeMovePoint([w * (0.2 + 0.03 * i), h * (0.5 - 0.3 * math.sin(math.pi * i / 20))]);
+    }
+    app.confirmFreeMove();
+    clearStateCaches();
+    final mid = getLayerStateAt(app.project, 'm', 30).matrix;
+    expect(mid[5], lessThan(0.4), reason: 'the drawn arch');
+    expect(l.transform.anchor.animLayers, isEmpty, reason: 'no new key layer: the keys themselves');
+    final end = getLayerStateAt(app.project, 'm', 60).matrix;
+    expect(end[4], closeTo(0.8, 1e-6));
   });
 }

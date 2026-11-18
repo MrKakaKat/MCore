@@ -62,13 +62,30 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('stack-order-folder')));
     await tester.pumpAndSettle();
+    // a border at 10 cuts the layer in two stretches; the one from 10 on
+    // is set to 1 (the one before keeps its place).
+    app.setFrame(10);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('stack-key-add')));
+    await tester.pumpAndSettle();
+    expect(findLayer(app.project, top.id)!.stackKeys.single.position, 3, reason: 'a border alone changes nothing');
     await tester.enterText(find.byKey(const ValueKey('stack-place')).first, '1');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
-    app.setFrame(10);
-    await tester.tap(find.byKey(const ValueKey('stack-key-add')));
-    await tester.pumpAndSettle();
     expect(findLayer(app.project, top.id)!.stackKeys.single.position, 1);
+    // before the border: the other stretch, its own number.
+    app.setFrame(5);
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('stack-place')).first, '2');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    expect(findLayer(app.project, top.id)!.stackBase, 2);
+    expect(findLayer(app.project, top.id)!.stackKeys.single.position, 1, reason: 'the stretch after the border kept its own');
+    app.pushUndo();
+    findLayer(app.project, top.id)!.stackBase = null;
+    app.commitEdit();
+    app.setFrame(10);
+    await tester.pumpAndSettle();
     expect(find.byKey(ValueKey('stack-layer-${top.id}')), findsOneWidget);
     expect(find.byKey(ValueKey('stack-layer-${app.project.layers[1].id}')), findsNothing, reason: 'only the ones with borders');
     expect(find.text('from 3 to 1, now at 1'), findsOneWidget);

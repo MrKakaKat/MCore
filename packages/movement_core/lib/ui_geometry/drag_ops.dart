@@ -29,6 +29,7 @@ import '../core/math.dart';
 import '../core/stage_size.dart';
 import '../core/state_cache.dart';
 import '../model/project.dart';
+import '../model/free_move.dart' show holdAroundFreeMoves;
 import '../model/track_edit.dart';
 import '../effects/motion/pendulum.dart' show pendulumWeightPoint;
 import 'handles.dart';
@@ -377,6 +378,8 @@ class AnchorDragOp implements DragOp {
     // the stage's axis lock: only along x, or only along y.
     if (dragAxisLock == 'x') newLocal = [newLocal[0], startValue[1]];
     if (dragAxisLock == 'y') newLocal = [startValue[0], newLocal[1]];
+    // past a free move: only the stretch after it moves.
+    holdAroundFreeMoves(project, layer, localFrameOf(layer, globalFrame));
     setTrackValueAt(trk, localFrameOf(layer, globalFrame), newLocal);
   }
 

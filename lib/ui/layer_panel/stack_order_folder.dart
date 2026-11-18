@@ -16,25 +16,41 @@ class StackOrderFolder extends StatefulWidget {
 }
 
 class _StackOrderFolderState extends State<StackOrderFolder> {
-  int? _place;
-
   /// "from 5 to 2, now at 2" (places as the Layers list numbers them, 1:
   /// the bottom; from: its own place, before its first border), or "now
   /// absent" while the layer isn't there.
   static String summary(Project project, Layer l, int globalFrame) {
     final keys = [...l.stackKeys]..sort((a, b) => a.frame.compareTo(b.frame));
-    final from = listPlaceOf(project, l), to = keys.last.position;
+    final from = l.stackBase ?? listPlaceOf(project, l), to = keys.isEmpty ? from : keys.last.position;
     final here = getLayerStateAt(project, l.id, globalFrame).inRange;
     final now = here ? 'now at ${stackPlaceOf(project, l, globalFrame)}' : 'now absent';
     return 'from $from to $to, $now';
+  }
+
+  /// The stretch the playhead is in, as frames: "frames 10 - 39".
+  static String _stretch(Layer l, int globalFrame) {
+    final keys = [for (final k in l.stackKeys) l.startFrame + k.frame]..sort();
+    var a = l.startFrame, b = l.startFrame + l.durationFrames;
+    for (final k in keys) {
+      if (k <= globalFrame) {
+        a = k;
+      } else {
+        b = k - 1;
+        break;
+      }
+    }
+    return 'frames $a - $b';
   }
 
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
     final layer = findLayer(app.project, app.selection.selectedLayer);
-    final keyed = [for (final l in app.project.layers.reversed) if (l.stackKeys.isNotEmpty) l];
-    final place = layer == null ? 1 : (_place ?? stackPlaceOf(app.project, layer, app.currentFrame));
+    final keyed = [
+      for (final l in app.project.layers.reversed)
+        if (l.stackKeys.isNotEmpty || l.stackBase != null) l
+    ];
+    final place = layer == null ? 1 : stackPlaceOf(app.project, layer, app.currentFrame);
     return ExpansionTile(
       key: const ValueKey('stack-order-folder'),
       dense: true,
@@ -45,25 +61,24 @@ class _StackOrderFolderState extends State<StackOrderFolder> {
       expandedCrossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (layer != null)
+          // the stretch under the playhead (between borders) and its place;
+          // a border cuts the stretch there in two.
           Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 6, children: [
-            Text('From here "${layer.name}" stands at', style: const TextStyle(fontSize: 12)),
+            Text('Here "${layer.name}" stands at', style: const TextStyle(fontSize: 12)),
             NumField(
               key: const ValueKey('stack-place'),
               width: 44,
               integer: true,
               value: place.toDouble(),
-              onCommit: (v) => setState(() => _place = v.round().clamp(1, timelineRows(app.project).length)),
+              onCommit: (v) => app.setStackPlaceHere(layer.id, v.round()),
             ),
-            Text('(now ${stackPlaceOf(app.project, layer, app.currentFrame)}; the list\'s numbers, 1: the bottom)',
+            Text('(${_stretch(layer, app.currentFrame)}; the list\'s numbers, 1: the bottom)',
                 style: const TextStyle(fontSize: 12)),
             OutlinedButton.icon(
               key: const ValueKey('stack-key-add'),
               icon: const Icon(Icons.diamond_outlined, size: 14),
               label: const Text('Border here'),
-              onPressed: () {
-                app.addStackKey(layer.id, place);
-                setState(() => _place = null);
-              },
+              onPressed: () => app.addStackBorder(layer.id),
             ),
           ]),
         if (layer != null && layer.stackKeys.isNotEmpty)

@@ -2480,6 +2480,26 @@ class AppState extends ChangeNotifier {
     commitEdit();
   }
 
+  /// Order on stage: the stretch under the playhead (between the layer's
+  /// borders) stands at `place`.
+  void setStackPlaceHere(String layerId, int place) {
+    final l = findLayer(project, layerId);
+    if (l == null) return;
+    pushUndo();
+    setStackPlaceAt(l, currentFrame - l.startFrame, place.clamp(1, timelineRows(project).length));
+    commitEdit();
+  }
+
+  /// A border at the playhead: the stretch there is cut in two (both keep
+  /// its place until one is changed).
+  void addStackBorder(String layerId) {
+    final l = findLayer(project, layerId);
+    if (l == null) return;
+    pushUndo();
+    setStackKey(l, currentFrame - l.startFrame, stackPlaceOf(project, l, currentFrame));
+    commitEdit();
+  }
+
   /// Takes away layer `layerId`'s order key at local frame `frame`.
   void removeStackKey(String layerId, int frame) {
     final l = findLayer(project, layerId);
@@ -3075,8 +3095,51 @@ class AppState extends ChangeNotifier {
   // the drag's hold on the object: finger to its middle.
   List<double> _freeMoveGrab = const [0, 0];
 
+  /// Two keys of the selected layer's position next to each other,
+  /// picked (the line between them in its key rows, or the two keys on
+  /// its line): a free move can draw the way between them anew.
+  ({Track trk, int a, int b})? get freeMoveRange {
+    final l = findLayer(project, selection.selectedLayer);
+    if (l == null) return null;
+    bool adjacent(Track t, int a, int b) =>
+        b > a &&
+        keyframeAt(t, a) != null &&
+        keyframeAt(t, b) != null &&
+        !t.keyframes.any((k) => k.frame > a && k.frame < b && !k.passive);
+    final s = keyDetailSelection;
+    if (s != null && s.layerId == l.id) {
+      final t = spanPositionTrack(l, s.tab);
+      if (t != null && adjacent(t, s.a, s.b)) return (trk: t, a: s.a, b: s.b);
+    }
+    final ks = kfSelectedFrames.toList()..sort();
+    if (ks.length == 2) {
+      final a = ks[0] - l.startFrame, b = ks[1] - l.startFrame;
+      if (adjacent(l.transform.anchor, a, b)) return (trk: l.transform.anchor, a: a, b: b);
+    }
+    return null;
+  }
+
+  /// Drawing anew the way between two keys (freeMoveRange) rather than a
+  /// new key layer.
+  bool freeMoveReplace = false;
+
+  /// Starts drawing the way between the two picked keys anew (from the
+  /// first one).
+  void startFreeMoveBetween() {
+    final l = findLayer(project, selection.selectedLayer);
+    final r = freeMoveRange;
+    if (l == null || r == null) return;
+    setFrame(l.startFrame + r.a);
+    freeMoveReplace = true;
+    freeMoveRecording = true;
+    freeMovePath = [];
+    stageNotice.value = 'Drag its new way between the keys, then Confirm';
+    notifyListeners();
+  }
+
   void startFreeMove() {
     if (findLayer(project, selection.selectedLayer) == null) return;
+    freeMoveReplace = false;
     freeMoveRecording = true;
     freeMovePath = [];
     stageNotice.value = 'Drag the object along its way, then Confirm';
@@ -3085,6 +3148,7 @@ class AppState extends ChangeNotifier {
 
   void cancelFreeMove() {
     freeMoveRecording = false;
+    freeMoveReplace = false;
     freeMovePath = [];
     notifyListeners();
   }
@@ -3141,6 +3205,23 @@ class AppState extends ChangeNotifier {
       cancelFreeMove();
       return;
     }
+    final range = freeMoveReplace ? freeMoveRange : null;
+    if (range != null) {
+      pushUndo();
+      final ok = replaceMoveBetweenKeys(project, l, range.trk, range.a, range.b, freeMovePath, smoothing: freeMoveSmoothing);
+      freeMoveRecording = false;
+      freeMoveReplace = false;
+      freeMovePath = [];
+      if (!ok) {
+        undo.discardLastUndoState();
+        notifyListeners();
+        return;
+      }
+      _notice('The way between the keys drawn anew');
+      commitEdit();
+      return;
+    }
+    freeMoveReplace = false;
     pushUndo();
     final keep = activeAnimLayer;
     final n = addFreeMoveLayer(project, l, freeMovePath, currentFrame, math.max(1, (freeMoveSeconds * fps).round()),
