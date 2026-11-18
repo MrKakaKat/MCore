@@ -393,6 +393,20 @@ bool replaceMoveBetweenKeys(Project project, Layer layer, Track trk, int a, int 
     tol = tol.isInfinite ? tol : tol * 2;
     pieces = tol.isInfinite ? [(curve: _fitPiece(pts), from: 0, to: pts.length - 1)] : _fitIndexed(pts, tol);
   }
+  // one curve: split in two halves (the same curve) - a point of its own
+  // in the middle marks the way as drawn (to be told apart, removed, and
+  // taken along with its keys).
+  if (pieces.length == 1 && b - a >= 2) {
+    final c = pieces.first.curve;
+    List<double> mid(List<double> p, List<double> q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+    final p01 = mid(c[0], c[1]), p12 = mid(c[1], c[2]), p23 = mid(c[2], c[3]);
+    final p012 = mid(p01, p12), p123 = mid(p12, p23), m = mid(p012, p123);
+    final half = pieces.first.to ~/ 2;
+    pieces = [
+      (curve: [c[0], p01, p012, m], from: 0, to: half),
+      (curve: [m, p123, p23, c[3]], from: half, to: pieces.first.to),
+    ];
+  }
   // in the track's own values: the key at a's value plus how far from pa
   // (in the position's own space at a).
   final o = anchorLocalFromScreen(project, layer, pa[0], pa[1], ga);
