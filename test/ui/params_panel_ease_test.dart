@@ -132,7 +132,7 @@ void main() {
     expect(easeButtonInRow, findsNothing);
   });
 
-  testWidgets('the anchor\'s own per-segment ease button is hidden once whole-path easing is active', (tester) async {
+  testWidgets('with whole-path easing on, the anchor\'s ease button edits the whole way (no dead per-segment one)', (tester) async {
     // with whole-path easing on, evaluateTrack's whole-path branch never reads
     // a segment's own temporal at all, so editing it via the per-segment graph
     // editor would silently do nothing - the button is hidden rather than left
@@ -151,10 +151,10 @@ void main() {
     await tester.tap(find.descendant(of: wholePathRow, matching: find.byType(Checkbox)));
     await tester.pump();
 
-    // after enabling: exactly ONE ease button remains (whole-path row's
-    // own), not two - the anchor param row's per-segment one is gone.
-    expect(easeButtonFinder, findsOneWidget);
+    // after enabling: the whole-path row's own, and the param row's -
+    // now the whole way's ease too.
     expect(find.descendant(of: wholePathRow, matching: easeButtonFinder), findsOneWidget);
+    expect(find.byTooltip('ease of the whole way'), findsOneWidget);
   });
 
   testWidgets('the whole-path ease button opens the graph editor in wholePath mode for the anchor track', (tester) async {

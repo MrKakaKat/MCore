@@ -585,8 +585,7 @@ class ParamsPanelView extends StatelessWidget {
     return [
       // constant speed: only the whole-path curve shapes the pace.
       // the ease of the keys being edited (an animation layer's too).
-      if (editTrackOf(trk).keyframes.length >= 2 && trk.globalEasing == null && !trk.constantSpeed)
-        _easeButton(context, editTrackOf(trk), componentCount),
+      if (_easeTrack(trk, localFrame) != null) _easeButton(context, _easeTrack(trk, localFrame)!, componentCount),
       ResetIconButton(onPressed: onReset),
       IconButton(
         icon: Icon(keyed ? Icons.diamond : Icons.diamond_outlined, size: 18),
@@ -599,14 +598,36 @@ class ParamsPanelView extends StatelessWidget {
     ];
   }
 
+  /// The keys whose ease the button edits: the edited ones, else the
+  /// parameter's own, else a key layer's - the first with keys round the
+  /// playhead (two or more), else the first with two keys at all.
+  Track? _easeTrack(Track trk, double localFrame) {
+    final all = [editTrackOf(trk), trk, for (final a in trk.animLayers) if (a.enabled) a.track];
+    List<Keyframe> keys(Track t) => [for (final k in t.keyframes) if (!k.passive) k];
+    for (final t in all) {
+      final ks = keys(t);
+      if (ks.length >= 2 && localFrame >= ks.first.frame && localFrame <= ks.last.frame) return t;
+    }
+    for (final t in all) {
+      if (keys(t).length >= 2) return t;
+    }
+    return null;
+  }
+
   Widget _easeButton(BuildContext context, Track trk, int componentCount) {
+    // one pace / one curve over the whole way: that curve is its ease.
+    final whole = trk.globalEasing != null || trk.constantSpeed;
     return IconButton(
+      key: const ValueKey('param-ease'),
       icon: const Icon(Icons.show_chart, size: 18),
-      tooltip: 'edit easing curve',
+      tooltip: whole ? 'ease of the whole way' : 'edit easing curve',
       visualDensity: VisualDensity.compact,
       padding: const EdgeInsets.all(4),
       constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-      onPressed: () => openEase(context, app: app, track: trk, componentCount: componentCount),
+      onPressed: () {
+        if (whole) trk.globalEasing ??= easingPresets['easeInOut'];
+        openEase(context, app: app, track: trk, componentCount: componentCount, wholePath: whole);
+      },
     );
   }
 
