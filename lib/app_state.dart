@@ -3123,6 +3123,17 @@ class AppState extends ChangeNotifier {
   /// new key layer.
   bool freeMoveReplace = false;
 
+  /// Drawing anew: where the way must end (the middle at the second key).
+  List<double>? freeMoveEnd;
+
+  /// The way as it will be: drawn anew, already set to end at the second
+  /// key (what Confirm makes); else as drawn.
+  List<List<double>> get freeMoveShownPath {
+    final end = freeMoveEnd;
+    if (!freeMoveReplace || end == null || freeMovePath.length < 2) return freeMovePath;
+    return fitWayToEnds(freeMovePath, freeMovePath.first, end);
+  }
+
   /// Starts drawing the way between the two picked keys anew (from the
   /// first one).
   void startFreeMoveBetween() {
@@ -3130,6 +3141,7 @@ class AppState extends ChangeNotifier {
     final r = freeMoveRange;
     if (l == null || r == null) return;
     setFrame(l.startFrame + r.a);
+    freeMoveEnd = computeLayerFrameGeometry(project, l, l.startFrame + r.b, includeVertices: false).center;
     freeMoveReplace = true;
     freeMoveRecording = true;
     freeMovePath = [];
@@ -3140,6 +3152,7 @@ class AppState extends ChangeNotifier {
   void startFreeMove() {
     if (findLayer(project, selection.selectedLayer) == null) return;
     freeMoveReplace = false;
+    freeMoveEnd = null;
     freeMoveRecording = true;
     freeMovePath = [];
     stageNotice.value = 'Drag the object along its way, then Confirm';
@@ -3149,6 +3162,7 @@ class AppState extends ChangeNotifier {
   void cancelFreeMove() {
     freeMoveRecording = false;
     freeMoveReplace = false;
+    freeMoveEnd = null;
     freeMovePath = [];
     notifyListeners();
   }
@@ -3206,6 +3220,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     final range = freeMoveReplace ? freeMoveRange : null;
+    freeMoveEnd = null;
     if (range != null) {
       pushUndo();
       final ok = replaceMoveBetweenKeys(project, l, range.trk, range.a, range.b, freeMovePath, smoothing: freeMoveSmoothing);

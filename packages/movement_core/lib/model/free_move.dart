@@ -287,6 +287,42 @@ void holdAroundFreeMoves(Project project, Layer layer, int f) {
 
 dynamic _copyValue(dynamic v) => v is List ? [for (final e in v) (e as num).toDouble()] : v;
 
+/// A drawn way set between two points: turned and sized as a whole (its
+/// shape kept, not skewed) so it starts at `pa` and ends at `pb`. With its
+/// own ends too close for that (a loop) or too far off, it is bent
+/// instead: each point shifted by its share of the way.
+List<List<double>> fitWayToEnds(List<List<double>> path, List<double> pa, List<double> pb) {
+  if (path.length < 2) return [for (final p in path) [...p]];
+  final p0 = path.first, pn = path.last;
+  final ux = pn[0] - p0[0], uy = pn[1] - p0[1];
+  final vx = pb[0] - pa[0], vy = pb[1] - pa[1];
+  final u2 = ux * ux + uy * uy, v = math.sqrt(vx * vx + vy * vy);
+  final k = u2 > 1e-9 ? v / math.sqrt(u2) : 0.0;
+  if (u2 > 1e-9 && v > 1e-9 && k > 0.4 && k < 2.5) {
+    // p -> pa + R·s·(p - p0): as a complex product (v / u).
+    final cr = (vx * ux + vy * uy) / u2, ci = (vy * ux - vx * uy) / u2;
+    return [
+      for (final p in path)
+        [pa[0] + cr * (p[0] - p0[0]) - ci * (p[1] - p0[1]), pa[1] + ci * (p[0] - p0[0]) + cr * (p[1] - p0[1])]
+    ];
+  }
+  final d = <double>[0];
+  for (var i = 1; i < path.length; i++) {
+    d.add(d.last + math.sqrt(math.pow(path[i][0] - path[i - 1][0], 2) + math.pow(path[i][1] - path[i - 1][1], 2)));
+  }
+  final total = d.last;
+  return [
+    for (var i = 0; i < path.length; i++)
+      () {
+        final s = total <= 1e-9 ? i / (path.length - 1) : d[i] / total;
+        return [
+          path[i][0] + (pa[0] - p0[0]) * (1 - s) + (pb[0] - pn[0]) * s,
+          path[i][1] + (pa[1] - p0[1]) * (1 - s) + (pb[1] - pn[1]) * s,
+        ];
+      }()
+  ];
+}
+
 /// Free move over a stretch already keyed: the way between `trk`'s keys at
 /// local frames `a` and `b` (next to each other) is drawn anew -
 /// `framePath` (frame px, from where the layer stands at `a`), bent so it
@@ -317,24 +353,7 @@ bool replaceMoveBetweenKeys(Project project, Layer layer, Track trk, int a, int 
       }()
   };
   final totalA = v2(evaluateTrack(project, base, a.toDouble(), layer));
-  // bent to run from pa to pb (each point shifted by its share of the way).
-  final d = <double>[0];
-  for (var i = 1; i < framePath.length; i++) {
-    d.add(d.last +
-        math.sqrt(math.pow(framePath[i][0] - framePath[i - 1][0], 2) + math.pow(framePath[i][1] - framePath[i - 1][1], 2)));
-  }
-  final total = d.last;
-  final p0 = framePath.first, pn = framePath.last;
-  final pts = [
-    for (var i = 0; i < framePath.length; i++)
-      () {
-        final s = total <= 1e-9 ? i / (framePath.length - 1) : d[i] / total;
-        return [
-          framePath[i][0] + (pa[0] - p0[0]) * (1 - s) + (pb[0] - pn[0]) * s,
-          framePath[i][1] + (pa[1] - p0[1]) * (1 - s) + (pb[1] - pn[1]) * s,
-        ];
-      }()
-  ];
+  final pts = fitWayToEnds(framePath, pa, pb);
   // the pieces (at most one per frame between the keys).
   var x0 = double.infinity, y0 = double.infinity, x1 = -double.infinity, y1 = -double.infinity;
   for (final p in pts) {
