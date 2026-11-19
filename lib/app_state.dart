@@ -156,6 +156,103 @@ class AppState extends ChangeNotifier {
 
   /// Image layers whose source failed to decode (the renderer won't
   /// retry them on its own - see CanvasRenderer.isImageFailed).
+  // ===== pictures kept by reference =====
+
+  /// Where pictures brought in by reference are kept (the app's own
+  /// files): a picked file is often only a passing copy in the cache.
+  Directory? get keptImagesDir {
+    final root = projectStore?.root;
+    return root == null ? null : Directory('${root.path}/images');
+  }
+
+  /// A picture's file kept in the app's own files (a copy), its new path;
+  /// null when it can't be.
+  Future<String?> keepImageFile(String path) async {
+    final dir = keptImagesDir;
+    final src = File(path);
+    if (dir == null || !await src.exists()) return null;
+    if (path.startsWith(dir.path)) return path;
+    await dir.create(recursive: true);
+    final name = src.uri.pathSegments.last;
+    final out = File('${dir.path}/${DateTime.now().microsecondsSinceEpoch}_$name');
+    await src.copy(out.path);
+    return out.path;
+  }
+
+  /// Pictures by reference whose file is somewhere passing (outside the
+  /// app's own files): copied in and pointed at - before a cache clean
+  /// can take them. Returns how many.
+  Future<int> keepReferencedImages() async {
+    final root = projectStore?.root;
+    if (root == null) return 0;
+    var n = 0;
+    for (final l in [...project.layers]) {
+      final c = l.content;
+      final p = c.imagePath;
+      if (c.imageSourceType != 'file' || p == null || p.startsWith(root.path)) continue;
+      // the cache only (a gallery path stays as it is).
+      if (!p.contains('/cache/')) continue;
+      final kept = await keepImageFile(p);
+      if (kept == null) continue;
+      c.imagePath = kept;
+      n++;
+    }
+    if (n > 0) commitEdit();
+    return n;
+  }
+
+  /// Picture layers whose file is gone.
+  List<Layer> get missingImageLayers => [
+        for (final l in project.layers)
+          if (l.content.shape == 'image' &&
+              l.content.imageSourceType == 'file' &&
+              l.content.imagePath != null &&
+              !File(l.content.imagePath!).existsSync())
+            l
+      ];
+
+  /// A picture layer pointed at another file (kept in the app's own
+  /// files). One undo step.
+  Future<bool> relinkImage(String layerId, String path) async {
+    final l = findLayer(project, layerId);
+    if (l == null) return false;
+    final kept = await keepImageFile(path) ?? path;
+    pushUndo();
+    l.content
+      ..imageSourceType = 'file'
+      ..imagePath = kept;
+    renderer.retryImage(l.content);
+    commitEdit();
+    return true;
+  }
+
+  /// Lost pictures found again by their file name (`find`: the phone's
+  /// gallery) and pointed at a kept copy. Returns how many came back.
+  Future<int> findMissingImages(Future<File?> Function(String fileName) find) async {
+    final lost = missingImageLayers;
+    if (lost.isEmpty) return 0;
+    var n = 0;
+    pushUndo();
+    for (final l in lost) {
+      var name = File(l.content.imagePath!).uri.pathSegments.last;
+      // a kept copy's name: <time>_<original>.
+      final m = RegExp(r'^\d{10,}_(.+)$').firstMatch(name);
+      if (m != null) name = m.group(1)!;
+      final f = await find(name);
+      if (f == null) continue;
+      final kept = await keepImageFile(f.path) ?? f.path;
+      l.content.imagePath = kept;
+      renderer.retryImage(l.content);
+      n++;
+    }
+    if (n == 0) {
+      undo.discardLastUndoState();
+    } else {
+      commitEdit();
+    }
+    return n;
+  }
+
   List<String> get failedImageLayerIds => [
         for (final l in project.layers)
           if ((l.content.shape == 'image' && renderer.isImageFailed(l.content)) || _videoMissing(l.content)) l.id
@@ -3933,6 +4030,8 @@ class AppState extends ChangeNotifier {
     _fitNewLayerToLength(layer);
     project.layers.add(layer);
     focusNewLayer(layer.id);
+    // by reference to a passing copy: kept in the app's own files.
+    if (imageSourceType == 'file' && imagePath != null) unawaited(keepReferencedImages());
     _fitTimeline();
     _render();
     notifyListeners();
@@ -5035,6 +5134,8 @@ class AppState extends ChangeNotifier {
         _render();
         notifyListeners();
         unawaited(restoreVideoFrames());
+        // pictures pointing into the cache: kept in the app's own files.
+        unawaited(keepReferencedImages());
         unawaited(restoreAudio());
         await loadReferences();
       } catch (_) {

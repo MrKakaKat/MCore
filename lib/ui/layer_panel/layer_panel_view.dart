@@ -4,6 +4,8 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import 'stack_order_folder.dart';
 import 'add_layer_dialog.dart';
+import '../../io/gallery_find.dart';
+import '../../io/image_import.dart';
 import 'project_ref_ui.dart';
 
 /// Ported from movement-core/src/ui/layerPanel.js - the layer list
@@ -52,6 +54,27 @@ class LayerPanelView extends StatelessWidget {
             // button that used to sit here is gone too - delete (the new
             // duplicate action) now live per-layer in each row's own trailing
             // icons below, per
+            // pictures whose file is gone: found again in the gallery by
+            // name, or picked one by one (the broken picture's button).
+            if (app.missingImageLayers.isNotEmpty)
+              Card(
+                key: const ValueKey('missing-images'),
+                color: Theme.of(context).colorScheme.errorContainer,
+                margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Row(children: [
+                    const Icon(Icons.broken_image),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text('${app.missingImageLayers.length} picture(s) lost their file')),
+                    TextButton(
+                      key: const ValueKey('missing-images-find'),
+                      onPressed: () => _findInGallery(context),
+                      child: const Text('Find in the gallery'),
+                    ),
+                  ]),
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Builder(
@@ -176,8 +199,10 @@ class LayerPanelView extends StatelessWidget {
                     if (failed.contains(layer.id))
                       _compactIconButton(
                         icon: Icons.broken_image,
-                        tooltip: 'Image failed to load - tap to retry',
-                        onPressed: () => app.retryImage(layer.id),
+                        tooltip: 'Image failed to load - tap to retry, or to pick its file again',
+                        onPressed: () => app.missingImageLayers.any((l) => l.id == layer.id)
+                            ? _relink(context, layer)
+                            : app.retryImage(layer.id),
                       ),
                     // locked: a padlock (tap to unlock); locking is in the menu.
                     if (layer.locked)
@@ -319,6 +344,32 @@ class LayerPanelView extends StatelessWidget {
           }
         },
       );
+
+  /// Every lost picture looked for in the phone's gallery by its name.
+  Future<void> _findInGallery(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final before = app.missingImageLayers.length;
+    messenger.showSnackBar(const SnackBar(content: Text('Looking in the gallery...')));
+    final finder = GalleryFinder();
+    final n = await app.findMissingImages(finder.find);
+    messenger.showSnackBar(SnackBar(
+        content: Text(n == before
+            ? 'All $n found again'
+            : '$n of $before found again - the rest: tap the broken picture to pick its file')));
+  }
+
+  /// A lost picture: its file picked again.
+  Future<void> _relink(BuildContext context, Layer layer) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final picked = await pickImageForImport();
+      if (picked?.path == null) return;
+      await app.relinkImage(layer.id, picked!.path!);
+      messenger.showSnackBar(SnackBar(content: Text('${layer.name}: picture back')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not use that file: $e')));
+    }
+  }
 
   Future<void> _rename(BuildContext context, Layer layer) async {
     final c = TextEditingController(text: layer.name);

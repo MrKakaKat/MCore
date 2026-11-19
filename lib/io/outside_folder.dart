@@ -73,23 +73,30 @@ Future<void> cleanStaleCache(Directory? cache, {bool systemTemp = true}) async {
       if (!await d.exists()) continue;
       await for (final e in d.list()) {
         final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
-        final stale = name.startsWith('movement_mobile_') ||
-            name.startsWith('mcore_save_') ||
-            name.startsWith('mcore_outside_') ||
-            name == 'file_picker';
+        // (never the picker's copies: a picture brought in by reference
+        // may still point at one)
+        final stale = name.startsWith('movement_mobile_') || name.startsWith('mcore_save_') || name.startsWith('mcore_outside_');
         if (stale) await e.delete(recursive: true);
       }
     } catch (_) {}
   }
 }
 
-/// Everything in the cache (video frames, decoded sound, scratch): all
-/// of it is made again when needed.
+/// What in the cache is made again when needed - video frames, decoded
+/// sound, the app's own scratch - cleared. Nothing else in it is touched
+/// (a picture brought in by reference may point at a file there).
 Future<void> clearCache(Directory? cache, {bool systemTemp = true}) async {
   for (final d in _cacheDirs(cache, systemTemp)) {
     try {
       if (!await d.exists()) continue;
       await for (final e in d.list()) {
+        final name = e.uri.pathSegments.where((s) => s.isNotEmpty).last;
+        final rebuilt = name == 'video_frames' ||
+            name == 'audio_pcm' ||
+            name.startsWith('movement_mobile_') ||
+            name.startsWith('mcore_save_') ||
+            name.startsWith('mcore_outside_');
+        if (!rebuilt) continue;
         try {
           await e.delete(recursive: true);
         } catch (_) {}

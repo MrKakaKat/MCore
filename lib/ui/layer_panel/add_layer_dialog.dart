@@ -351,6 +351,11 @@ Future<void> importImageFlow(BuildContext context, AppState app, {String? replac
   }
 
   if (replaceId != null) {
+    // by reference to a passing copy: kept in the app's own files.
+    if (sourceType == 'file' && picked.path != null) {
+      picked = PickedImage(
+          bytes: picked.bytes, path: await app.keepImageFile(picked.path!) ?? picked.path, width: picked.width, height: picked.height);
+    }
     app.replaceLayerContentWith(
         replaceId,
         createImageLayer(

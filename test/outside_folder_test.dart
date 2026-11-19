@@ -48,8 +48,8 @@ void main() {
       ..writeAsBytesSync(List.filled(30, 1));
     expect(await cacheSize(cache, systemTemp: false), 180);
     await cleanStaleCache(cache, systemTemp: false);
-    expect(await cacheSize(cache, systemTemp: false), 30, reason: 'only the video frames stay');
+    expect(await cacheSize(cache, systemTemp: false), 80, reason: 'the scratch gone; the picker\'s copies and frames stay');
     await clearCache(cache, systemTemp: false);
-    expect(await cacheSize(cache, systemTemp: false), 0);
+    expect(await cacheSize(cache, systemTemp: false), 50, reason: 'frames cleared; a picked copy (maybe referenced) never');
   });
 }
