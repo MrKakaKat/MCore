@@ -42,11 +42,30 @@ class MainActivity : FlutterActivity() {
                     val src = File(call.argument<String>("src")!!)
                     worker.execute {
                         try {
-                            val parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree))
-                            val doc = DocumentsContract.createDocument(contentResolver, parent, mime, name)
+                            val treeId = DocumentsContract.getTreeDocumentId(tree)
+                            val parent = DocumentsContract.buildDocumentUriUsingTree(tree, treeId)
+                            // replace: the file of that name already there is written over.
+                            var doc: Uri? = null
+                            if (call.argument<Boolean>("replace") == true) {
+                                val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, treeId)
+                                contentResolver.query(
+                                    children,
+                                    arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                                    null, null, null
+                                )?.use { c ->
+                                    while (c.moveToNext()) {
+                                        if (c.getString(1) == name) {
+                                            doc = DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0))
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                            val target = doc ?: DocumentsContract.createDocument(contentResolver, parent, mime, name)
                                 ?: throw IllegalStateException("The folder refused the file.")
-                            contentResolver.openOutputStream(doc)!!.use { out -> src.inputStream().use { it.copyTo(out) } }
-                            main.post { result.success(doc.toString()) }
+                            contentResolver.openOutputStream(target, "wt")!!.use { out -> src.inputStream().use { it.copyTo(out) } }
+                            
+                            main.post { result.success(target.toString()) }
                         } catch (e: Exception) {
                             main.post { result.error("write", e.message ?: e.toString(), null) }
                         }

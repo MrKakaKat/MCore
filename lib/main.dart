@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'app_state.dart';
 import 'io/project_store.dart';
+import 'io/outside_folder.dart';
 import 'ui/reverse/reverse_view.dart';
 import 'ui/home/home_screen.dart';
 import 'ui/timeline/timeline_rows_view.dart';
@@ -59,17 +60,38 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadDefaultFont();
   final dir = await getApplicationDocumentsDirectory();
-  await FontStore(dir).registerAll();
   Directory? cache;
   try {
     cache = await getApplicationCacheDirectory();
   } catch (_) {}
+  // a start that never got going (the app closed while starting): this
+  // time a safe one - the cache made afresh, its own fonts left out.
+  final starting = File('${dir.path}/.starting');
+  var safeStart = false;
+  try {
+    safeStart = starting.existsSync();
+    starting.writeAsStringSync('1');
+  } catch (_) {}
+  if (safeStart) {
+    await clearCache(cache);
+  } else {
+    await cleanStaleCache(cache);
+    await FontStore(dir).registerAll();
+  }
   final settings = AppSettings(File('${dir.path}/app_settings.json'));
   await settings.load();
   AppSettings.instance = settings;
   appLanguage = settings.language;
   if (settings.perfHud) PerfMonitor.instance.setVisible(true);
-  runApp(MovementMobileApp(store: ProjectStore(dir, cacheRoot: cache)));
+  runApp(MovementMobileApp(store: ProjectStore(dir, cacheRoot: cache), safeStart: safeStart, cacheRoot: cache));
+  // started: a few seconds after the first frame, the mark goes.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    Future<void>.delayed(const Duration(seconds: 4), () {
+      try {
+        if (starting.existsSync()) starting.deleteSync();
+      } catch (_) {}
+    });
+  });
 }
 
 /// The bundled default text font (Roboto, SIL Open Font License - see
@@ -87,11 +109,15 @@ class MovementMobileApp extends StatelessWidget {
   /// With a `store`, the app opens on the home screen. Without one (every
   /// existing test construction), it opens straight into an editor on
   /// `appState` (or a fresh default AppState), exactly as before.
-  MovementMobileApp({super.key, AppState? appState, this.store})
+  MovementMobileApp({super.key, AppState? appState, this.store, this.safeStart = false, this.cacheRoot})
       : appState = appState ?? AppState();
 
   final AppState appState;
   final ProjectStore? store;
+
+  /// The last start never got going: this one was a safe one.
+  final bool safeStart;
+  final Directory? cacheRoot;
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +126,7 @@ class MovementMobileApp extends StatelessWidget {
       title: 'MCore',
       theme: ThemeData(brightness: Brightness.dark, useMaterial3: true),
       home: store != null
-          ? HomeScreen(store: store)
+          ? HomeScreen(store: store, safeStart: safeStart, cacheRoot: cacheRoot)
           : EditorScreen(appState: appState),
     );
   }

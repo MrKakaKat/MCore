@@ -42,6 +42,17 @@ class AppSettings {
     } catch (_) {}
   }
 
+  /// A folder outside the app the projects are kept in too (null: none).
+  String? get projectsFolder {
+    final v = _data['projectsFolder'];
+    return v is String && v.isNotEmpty ? v : null;
+  }
+
+  String? get projectsFolderName => _data['projectsFolderName'] as String?;
+
+  /// When the projects were last written there (ms; 0: never).
+  int get projectsFolderSaved => (_data['projectsFolderSaved'] as num?)?.toInt() ?? 0;
+
   /// Home screen: projects by 'modified' (default) or 'created' date.
   String get projectSort => _data['projectSort'] == 'created' ? 'created' : 'modified';
 

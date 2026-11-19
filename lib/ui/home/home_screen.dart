@@ -12,6 +12,7 @@ import '../../io/app_settings.dart';
 import '../../io/save_load.dart';
 import '../ai/ai_dialogs.dart';
 import '../../io/backup.dart';
+import '../../io/outside_folder.dart';
 import '../../io/file_pick.dart';
 import '../../io/font_store.dart';
 import '../../io/preset_store.dart';
@@ -24,7 +25,12 @@ import '../../main.dart' show EditorScreen;
 /// autosaved to its own file; returning refreshes the list.
 class HomeScreen extends StatefulWidget {
   final ProjectStore store;
-  const HomeScreen({super.key, required this.store});
+
+  /// The last start never got going: this one was a safe one (said on
+  /// top, with a backup at hand).
+  final bool safeStart;
+  final Directory? cacheRoot;
+  const HomeScreen({super.key, required this.store, this.safeStart = false, this.cacheRoot});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -40,6 +46,8 @@ class _HomeScreenState extends State<HomeScreen> {
   /// The projects, newest first by the chosen date (see Settings).
   Future<List<ProjectMeta>> _list() async {
     final all = await widget.store.list();
+    // kept outside the app too: written there once something changed.
+    _keepOutside(all);
     // what waited out its week in the trash goes now.
     await widget.store.purgeTrash();
     if (AppSettings.instance?.projectSort == 'created') {
@@ -249,6 +257,127 @@ class _HomeScreenState extends State<HomeScreen> {
     await _open(metas.firstWhere((m) => m.file.path == file.path));
   }
 
+  bool _keeping = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // the last start never got going: said, with a backup at hand.
+    if (widget.safeStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final m = ScaffoldMessenger.of(context);
+        m.showMaterialBanner(MaterialBanner(
+          key: const ValueKey('safe-start'),
+          content: Text(tr('The app did not start last time: this time the cache was made afresh and your own fonts were left out. Back up your projects now to be safe.')),
+          actions: [
+            TextButton(
+              onPressed: () {
+                m.hideCurrentMaterialBanner();
+                _projectsFolder();
+              },
+              child: Text(tr('Keep them outside')),
+            ),
+            TextButton(onPressed: m.hideCurrentMaterialBanner, child: Text(tr('OK'))),
+          ],
+        ));
+      });
+    }
+  }
+
+  /// Projects kept in a folder outside the app (settings
+  /// 'projectsFolder'): the backup there is written over when a project
+  /// changed since the last one.
+  Future<void> _keepOutside(List<ProjectMeta> all) async {
+    final s = AppSettings.instance;
+    final folder = s?.projectsFolder;
+    if (s == null || folder == null || _keeping || all.isEmpty) return;
+    final newest = all.map((m) => m.modified.millisecondsSinceEpoch).reduce((a, b) => a > b ? a : b);
+    if (newest <= s.projectsFolderSaved) return;
+    _keeping = true;
+    try {
+      await backUpProjectsTo(folder, widget.store);
+      await s.setValue('projectsFolderSaved', newest);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Could not keep the projects in the folder')}: $e')));
+      }
+    } finally {
+      _keeping = false;
+    }
+  }
+
+  /// Where the projects are kept outside the app: pick a folder (a copy
+  /// goes there now and after every change), or stop.
+  Future<void> _projectsFolder() async {
+    final s = AppSettings.instance;
+    if (s == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final now = s.projectsFolder;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('Projects outside the app')),
+        content: Text(now == null
+            ? tr('Pick a folder: every project with its media is kept there too (one file, MCore-projects.zip, written over after each change). It outlives the app - restore it with "Restore a backup".')
+            : '${tr('Kept in')} ${s.projectsFolderName ?? now}'),
+        actions: [
+          if (now != null)
+            TextButton(key: const ValueKey('projects-folder-stop'), onPressed: () => Navigator.pop(c, 'stop'), child: Text(tr('Stop'))),
+          if (now != null)
+            TextButton(key: const ValueKey('projects-folder-now'), onPressed: () => Navigator.pop(c, 'now'), child: Text(tr('Save now'))),
+          FilledButton(
+              key: const ValueKey('projects-folder-pick'),
+              onPressed: () => Navigator.pop(c, 'pick'),
+              child: Text(now == null ? tr('Pick a folder') : tr('Another folder'))),
+        ],
+      ),
+    );
+    if (choice == 'stop') {
+      await s.setValue('projectsFolder', '');
+      return;
+    }
+    if (choice == 'pick') {
+      final f = await pickOutsideFolder(title: tr('Keep projects in'));
+      if (f == null) return;
+      await s.setValue('projectsFolder', f.uri);
+      await s.setValue('projectsFolderName', f.name);
+    } else if (choice != 'now') {
+      return;
+    }
+    await s.setValue('projectsFolderSaved', 0);
+    messenger.showSnackBar(SnackBar(content: Text(tr('Saving the projects there...'))));
+    try {
+      final n = await backUpProjectsTo(s.projectsFolder!, widget.store);
+      await s.setValue('projectsFolderSaved', DateTime.now().millisecondsSinceEpoch);
+      messenger.showSnackBar(SnackBar(content: Text('${tr('Projects kept in')} ${s.projectsFolderName} (${(n / 1048576).toStringAsFixed(1)} MB)')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('${tr('Could not keep the projects in the folder')}: $e')));
+    }
+  }
+
+  /// The cache (video frames, decoded sound, scratch): how big, and
+  /// cleared on asking - all of it is made again when needed.
+  Future<void> _cache() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final size = await cacheSize(widget.cacheRoot);
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('Cache')),
+        content: Text('${(size / 1048576).toStringAsFixed(1)} MB - ${tr('video frames, decoded sound and scratch files; all of it is made again when needed (a video takes a moment the first time).')}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('Cancel'))),
+          FilledButton(key: const ValueKey('cache-clear'), onPressed: () => Navigator.pop(c, true), child: Text(tr('Clear'))),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await clearCache(widget.cacheRoot);
+    messenger.showSnackBar(SnackBar(content: Text(tr('Cache cleared'))));
+  }
+
   /// Every project with its media, fonts, presets and settings, saved as
   /// one zip where the user picks.
   Future<void> _backup() async {
@@ -338,6 +467,8 @@ class _HomeScreenState extends State<HomeScreen> {
               _refresh();
             }
             if (v == 'backup') await _backup();
+            if (v == 'folder') await _projectsFolder();
+            if (v == 'cache') await _cache();
             if (v == 'aiImport') await _importFromText();
             if (v == 'restore') await _restore();
           },
@@ -346,6 +477,8 @@ class _HomeScreenState extends State<HomeScreen> {
             PopupMenuItem(value: 'aiImport', child: Text(tr('Import from text...'))),
             PopupMenuItem(value: 'backup', child: Text(tr('Back up everything...'))),
             PopupMenuItem(value: 'restore', child: Text(tr('Restore a backup...'))),
+            PopupMenuItem(value: 'folder', child: Text(tr('Projects outside the app...'))),
+            PopupMenuItem(value: 'cache', child: Text(tr('Cache...'))),
             PopupMenuItem(value: 'perf', child: Text(tr('Add performance test projects'))),
           ],
         ),
