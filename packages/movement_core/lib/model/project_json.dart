@@ -145,6 +145,10 @@ Map<String, dynamic> transformToJson(Transform t) => {
       'opacity': trackToJson(t.opacity),
       'pathFollow': pathFollowToJson(t.pathFollow),
       if (t.extend.keyframes.isNotEmpty || (t.extend.defaultValue as List).any((v) => v != 0)) 'extend': trackToJson(t.extend),
+      if (t.z.keyframes.isNotEmpty || (t.z.defaultValue as num) != 0) 'z': trackToJson(t.z),
+      if (t.rotationX.keyframes.isNotEmpty || (t.rotationX.defaultValue as num) != 0) 'rotationX': trackToJson(t.rotationX),
+      if (t.rotationY.keyframes.isNotEmpty || (t.rotationY.defaultValue as num) != 0) 'rotationY': trackToJson(t.rotationY),
+      if (t.scaleZ.keyframes.isNotEmpty || (t.scaleZ.defaultValue as num) != 1) 'scaleZ': trackToJson(t.scaleZ),
     };
 Transform transformFromJson(Map<String, dynamic> j) => Transform(
       anchor: trackFromJson(j['anchor'] as Map<String, dynamic>),
@@ -155,6 +159,17 @@ Transform transformFromJson(Map<String, dynamic> j) => Transform(
           ? pathFollowFromJson(j['pathFollow'] as Map<String, dynamic>)
           : null,
       extend: j['extend'] is Map ? trackFromJson(j['extend'] as Map<String, dynamic>) : null,
+      z: j['z'] is Map ? trackFromJson(j['z'] as Map<String, dynamic>) : null,
+      rotationX: j['rotationX'] is Map ? trackFromJson(j['rotationX'] as Map<String, dynamic>) : null,
+      rotationY: j['rotationY'] is Map ? trackFromJson(j['rotationY'] as Map<String, dynamic>) : null,
+      scaleZ: j['scaleZ'] is Map ? trackFromJson(j['scaleZ'] as Map<String, dynamic>) : null,
+    );
+
+Map<String, dynamic> camera3ToJson(Camera3 c) => {'eye': c.eye, 'target': c.target, 'fov': c.fov};
+Camera3 camera3FromJson(Map<String, dynamic> j) => Camera3(
+      eye: [for (final v in j['eye'] as List) (v as num).toDouble()],
+      target: [for (final v in j['target'] as List) (v as num).toDouble()],
+      fov: (j['fov'] as num?)?.toDouble() ?? 50,
     );
 
 Map<String, dynamic> contentToJson(Content c) => {

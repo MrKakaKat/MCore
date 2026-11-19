@@ -143,10 +143,10 @@ class ProjectStore {
 
   /// A new, empty project of the given frame size, written to disk
   /// immediately so it shows up in the list even if never edited.
-  Future<File> create(String name, double width, double height, {int fps = 60}) async {
+  Future<File> create(String name, double width, double height, {int fps = 60, bool space3d = false}) async {
     await _dir.create(recursive: true);
     final file = File('${_dir.path}/${DateTime.now().microsecondsSinceEpoch}.json');
-    await saveProjectToFile(file, Project(layers: []),
+    await saveProjectToFile(file, Project(layers: [])..space3d = space3d,
         maxFrame: 3 * fps,
         playbackSpeed: 1,
         name: name,

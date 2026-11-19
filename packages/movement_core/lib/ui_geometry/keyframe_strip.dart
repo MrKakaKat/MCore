@@ -51,6 +51,11 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
   }
   fn('path', layer.transform.pathFollow.t);
   fn('extend', layer.transform.extend);
+  // 3D: depth, the turns about x / y, the depth's size.
+  fn('z', layer.transform.z);
+  fn('rotation x', layer.transform.rotationX);
+  fn('rotation y', layer.transform.rotationY);
+  fn('scale z', layer.transform.scaleZ);
   for (var i = 0; i < layer.masks.length; i++) {
     fn('mask ${i + 1} feather', layer.masks[i].feather);
   }

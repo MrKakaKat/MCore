@@ -93,13 +93,13 @@ jobs:
           # build numbers only grow, past the early test builds (up to 99).
           flutter build apk --release --target-platform android-arm64 \
             --split-debug-info=build/symbols --build-number=$(( ${{ github.run_number }} + 100 ))
-          cp build/app/outputs/flutter-apk/app-release.apk "MCore-${VERSION//\//-}.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "MCore3D-${VERSION//\//-}.apk"
 
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request' && env.RELEASE != 'true'
         with:
-          name: MCore-apk
-          path: MCore-*.apk
+          name: MCore3D-apk
+          path: MCore3D-*.apk
           retention-days: 7
 
       - name: Release
@@ -108,6 +108,7 @@ jobs:
         with:
           tag_name: ${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
-          name: MCore ${{ env.VERSION }}
-          files: MCore-*.apk
+          name: MCore 3D ${{ env.VERSION }}
+          make_latest: false
+          files: MCore3D-*.apk
           fail_on_unmatched_files: true

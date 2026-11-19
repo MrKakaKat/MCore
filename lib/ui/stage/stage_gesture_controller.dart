@@ -73,7 +73,121 @@ class StageGestureController {
   void onPointerDown(PointerDownEvent event) =>
       withExtendedBoxes(app.project, app.currentFrame, () => _onPointerDown(event));
 
+  /// A 3D project's stage (not through its camera): one finger on a card
+  /// moves it across at its depth, off the cards it turns the view; two
+  /// fingers bring the view nearer / farther and move it.
+  bool get _in3d => app.project.space3d && !app.cameraView && app.pendingPlaceShape == null && !app.freeMoveRecording;
+
+  Layer? _card3dDown;
+  AnchorDragOp? _card3dOp;
+  double _card3dPlane = 0;
+  bool _card3dUndo = false;
+
+  View3 get _view3 => View3(app.orbitCamera(), app.frameWidth, app.frameHeight);
+
+  List<double>? _onCardPlane(ui.Offset screen) {
+    final fp = camera.screenToFrame(screen);
+    return _view3.onPlaneZ(fp.dx, fp.dy, _card3dPlane);
+  }
+
+  void _down3d(PointerDownEvent event) {
+    _pointers[event.pointer] = event.localPosition;
+    if (_pointers.length == 1) {
+      _primaryPointerId = event.pointer;
+      _primaryDownScreen = event.localPosition;
+      _primaryMovedPastTapThreshold = false;
+      final fp = camera.screenToFrame(event.localPosition);
+      final hit = app.card3dAt(fp.dx, fp.dy);
+      _card3dDown = hit;
+      _card3dOp = null;
+      _card3dUndo = false;
+      if (hit != null && !hideHandles) {
+        _card3dPlane = layer3dAt(app.project, hit, app.currentFrame).z;
+        final w = _onCardPlane(event.localPosition);
+        if (w != null) {
+          final local = anchorLocalFromScreen(app.project, hit, w[0], w[1], app.currentFrame);
+          final v = evaluateTrack(app.project, hit.transform.anchor, (app.currentFrame - hit.startFrame).toDouble(), hit) as List;
+          _card3dOp = AnchorDragOp(
+              layer: hit, startLocal: local, startValue: [(v[0] as num).toDouble(), (v[1] as num).toDouble()]);
+        }
+      }
+    } else if (_pointers.length == 2) {
+      _primaryPointerId = null;
+      _primaryDownScreen = null;
+      _card3dDown = null;
+      _card3dOp = null;
+      final ids = _pointers.keys.toList();
+      _pinchA = ids[0];
+      _pinchB = ids[1];
+      _pinchLastA = _pointers[_pinchA];
+      _pinchLastB = _pointers[_pinchB];
+    }
+  }
+
+  void _move3d(PointerMoveEvent event) {
+    final prev = _pointers[event.pointer];
+    if (prev == null) return;
+    _pointers[event.pointer] = event.localPosition;
+    if (_pinchA != null && _pinchB != null && _pointers.containsKey(_pinchA) && _pointers.containsKey(_pinchB)) {
+      final a = _pointers[_pinchA]!, b = _pointers[_pinchB]!;
+      final prevA = _pinchLastA!, prevB = _pinchLastB!;
+      final oldDist = (prevA - prevB).distance, newDist = (a - b).distance;
+      if (oldDist > 1e-6 && newDist > 1e-6) app.orbitZoomBy(newDist / oldDist);
+      final d = ((a + b) - (prevA + prevB)) / 2;
+      final k = 1 / (camera.scale * camera.fitScale);
+      app.orbitPanBy(d.dx * k, d.dy * k);
+      _pinchLastA = a;
+      _pinchLastB = b;
+      onNeedsRepaint();
+      return;
+    }
+    if (event.pointer != _primaryPointerId || _primaryDownScreen == null) return;
+    if (!_primaryMovedPastTapThreshold && (event.localPosition - _primaryDownScreen!).distance > 8) {
+      _primaryMovedPastTapThreshold = true;
+    }
+    if (!_primaryMovedPastTapThreshold) return;
+    final op = _card3dOp;
+    if (op != null) {
+      final w = _onCardPlane(event.localPosition);
+      if (w == null) return;
+      if (!_card3dUndo) {
+        app.pushUndo();
+        _card3dUndo = true;
+        if (app.selection.selectedLayer != op.layer.id) app.selectLayer(op.layer.id);
+      }
+      op.apply(app.project, app.currentFrame, w);
+      app.commitEdit();
+      onNeedsRepaint();
+      return;
+    }
+    final d = event.localPosition - prev;
+    app.orbitBy(d.dx * 0.3, d.dy * 0.3);
+    onNeedsRepaint();
+  }
+
+  void _up3d(PointerEvent event, {bool cancel = false}) {
+    _pointers.remove(event.pointer);
+    if (event.pointer == _pinchA || event.pointer == _pinchB) {
+      _pinchA = _pinchB = null;
+      _pinchLastA = _pinchLastB = null;
+      return;
+    }
+    if (event.pointer != _primaryPointerId) return;
+    // a tap: the card under it picked (none: nothing).
+    if (!cancel && !_primaryMovedPastTapThreshold) app.selectLayer(_card3dDown?.id);
+    _primaryPointerId = null;
+    _primaryDownScreen = null;
+    _primaryMovedPastTapThreshold = false;
+    _card3dDown = null;
+    _card3dOp = null;
+    onNeedsRepaint();
+  }
+
   void _onPointerDown(PointerDownEvent event) {
+    if (_in3d && _activeDrag == null) {
+      _down3d(event);
+      return;
+    }
     if (_activeDrag != null) {
       // a second finger during the Chroma eyedropper left the loupe frozen on
       // the stage and blocked zooming. The chroma stage tools now give way:
@@ -568,6 +682,10 @@ class StageGestureController {
       withExtendedBoxes(app.project, app.currentFrame, () => _onPointerMove(event));
 
   void _onPointerMove(PointerMoveEvent event) {
+    if (_in3d && _activeDrag == null) {
+      _move3d(event);
+      return;
+    }
     if (!_pointers.containsKey(event.pointer)) return; // an ignored (3rd+, or mid-drag 2nd) pointer
     _pointers[event.pointer] = event.localPosition;
 
@@ -653,6 +771,10 @@ class StageGestureController {
       withExtendedBoxes(app.project, app.currentFrame, () => _onPointerUp(event));
 
   void _onPointerUp(PointerUpEvent event) {
+    if (_in3d && _activeDrag == null) {
+      _up3d(event);
+      return;
+    }
     _pointers.remove(event.pointer);
 
     if (_activeDrag != null && event.pointer == _primaryPointerId) {
@@ -767,6 +889,10 @@ class StageGestureController {
       withExtendedBoxes(app.project, app.currentFrame, () => _onPointerCancel(event));
 
   void _onPointerCancel(PointerCancelEvent event) {
+    if (_in3d && _activeDrag == null) {
+      _up3d(event, cancel: true);
+      return;
+    }
     _pointers.remove(event.pointer);
     if (event.pointer == _primaryPointerId) {
       chromaPickScreen = null;

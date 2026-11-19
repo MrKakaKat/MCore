@@ -177,7 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     final spec = await showNewProjectDialog(context, defaultName: 'Project ${existing.length + 1}');
     if (spec == null) return;
-    final file = await widget.store.create(spec.name, spec.width, spec.height, fps: spec.fps);
+    final file = await widget.store.create(spec.name, spec.width, spec.height, fps: spec.fps, space3d: spec.space3d);
     if (spec.guide) await AppSettings.instance?.setTourWanted();
     final metas = await widget.store.list();
     _refresh();
@@ -679,7 +679,10 @@ class NewProjectSpec {
 
   /// Show the tool fields' guides in this project.
   final bool guide;
-  const NewProjectSpec(this.name, this.width, this.height, {this.fps = 60, this.guide = false});
+
+  /// A 3D project: the layers are cards in space, seen through a camera.
+  final bool space3d;
+  const NewProjectSpec(this.name, this.width, this.height, {this.fps = 60, this.guide = false, this.space3d = false});
 }
 
 class _Aspect {
@@ -738,6 +741,7 @@ class _NewProjectDialogState extends State<_NewProjectDialog> {
   int? _resolution = 1080; // null = custom
   int _fps = 60;
   bool _guide = false;
+  bool _space3d = false;
 
   @override
   void dispose() {
@@ -774,6 +778,17 @@ class _NewProjectDialogState extends State<_NewProjectDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TextField(controller: _name, decoration: const InputDecoration(labelText: 'Name')),
+            const SizedBox(height: 8),
+            // flat, or in 3D: the layers as cards in space.
+            SegmentedButton<bool>(
+              key: const ValueKey('new-project-space'),
+              segments: [
+                ButtonSegment(value: false, label: Text(tr('2D')), icon: const Icon(Icons.crop_square)),
+                ButtonSegment(value: true, label: Text(tr('3D')), icon: const Icon(Icons.view_in_ar)),
+              ],
+              selected: {_space3d},
+              onSelectionChanged: (v) => setState(() => _space3d = v.first),
+            ),
             const SizedBox(height: 16),
             // the choices in one field (each row scrolls sideways).
             Container(
@@ -874,7 +889,7 @@ class _NewProjectDialogState extends State<_NewProjectDialog> {
                   Navigator.pop(
                     context,
                     NewProjectSpec(name.isEmpty ? widget.defaultName : name, size.$1.toDouble(), size.$2.toDouble(),
-                        fps: _fps, guide: _guide),
+                        fps: _fps, guide: _guide, space3d: _space3d),
                   );
                 },
           child: const Text('Create'),

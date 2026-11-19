@@ -100,7 +100,11 @@ void paintStage({
   List<(List<List<double>>, double)> unitOverlay = const [],
   CropLineOverlay? cropLine,
   List<List<double>>? mirrorLine,
+  List<List<double>>? card3dOutline,
 }) {
+  // a 3D project seen round: the flat guides and handles don't fit the
+  // cards - the picked card is outlined instead.
+  final flat = !(project.space3d && !cameraViewActive);
   camera.mirrorX = mirrorX;
   camera.mirrorY = mirrorY;
   // keeps StageCamera's fit-to-viewport transform in sync with what's
@@ -178,7 +182,15 @@ void paintStage({
     _paintBrokenImage(canvas, project, layer, globalFrame, inv);
   }
 
-  if (!hideVisualLayer) {
+  if (!flat && card3dOutline != null) {
+    canvas.drawPath(
+        ui.Path()..addPolygon([for (final p in card3dOutline) ui.Offset(p[0], p[1])], true),
+        ui.Paint()
+          ..color = const ui.Color(0xFFFFC107)
+          ..style = ui.PaintingStyle.stroke
+          ..strokeWidth = 2 * inv);
+  }
+  if (!hideVisualLayer && flat) {
     // grid overlay: a persistent background reference, drawn early
     // (before parent-links/handles) - fully decoupled from Snapping (see
     // gridOverlayEnabled's own doc comment in project.dart): this is
@@ -365,7 +377,7 @@ void paintStage({
   }
   // handles hidden: the open tab's own tools (crop box, gradient points,
   // chroma region) stay - hiding handles must not lock the tabs out.
-  if (hideHandles && !cameraViewActive && selectedLayer != null && selectedInRange) {
+  if (flat && hideHandles && !cameraViewActive && selectedLayer != null && selectedInRange) {
     if (cropEditing || pieceInsets != null) {
       _paintCrop(canvas, project, selectedLayer, globalFrame, activeDrag, inv);
       // cropping the layers selected with it too: their crop boxes.
@@ -378,7 +390,7 @@ void paintStage({
       _paintGlowHandles(canvas, project, selectedLayer, globalFrame, activeDrag, inv);
     }
   }
-  if (!hideHandles && !cameraViewActive && selectedLayer != null && selectedInRange) {
+  if (flat && !hideHandles && !cameraViewActive && selectedLayer != null && selectedInRange) {
     // the layers selected with it: their boxes, moving along with it.
     for (final g in groupLayers) {
       if (cropEditing && getLayerStateAt(project, g.id, globalFrame).inRange) {

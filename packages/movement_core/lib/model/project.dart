@@ -380,6 +380,14 @@ class Transform {
   /// [left, top, right, bottom] - more surface, corners and outline as
   /// they are, the side across in place. Keyable like scale.
   Track extend;
+
+  /// 3D projects: the depth (px, away from the camera +), the turns
+  /// about the x and y axes (degrees; `rotation` is the turn about z) and
+  /// the depth's size. Ignored in a flat project.
+  Track z;
+  Track rotationX;
+  Track rotationY;
+  Track scaleZ;
   Transform({
     required this.anchor,
     required this.scale,
@@ -387,8 +395,16 @@ class Transform {
     required this.opacity,
     PathFollow? pathFollow,
     Track? extend,
+    Track? z,
+    Track? rotationX,
+    Track? rotationY,
+    Track? scaleZ,
   })  : pathFollow = pathFollow ?? PathFollow(),
-        extend = extend ?? Track(<double>[0, 0, 0, 0], false);
+        extend = extend ?? Track(<double>[0, 0, 0, 0], false),
+        z = z ?? Track(0.0),
+        rotationX = rotationX ?? Track(0.0),
+        rotationY = rotationY ?? Track(0.0),
+        scaleZ = scaleZ ?? Track(1.0);
 }
 
 /// A text layer's shadow: a copy of the text behind it.
@@ -2557,6 +2573,14 @@ class Project {
 
   /// Red marks on the timeline ruler (frames, sorted): places to jump to.
   List<int> markers;
+  /// A 3D project: layers are cards in space (depth, turns about x / y),
+  /// seen through `camera`.
+  bool space3d = false;
+
+  /// The 3D project's camera (null: the default one, seeing the frame as
+  /// a flat project would).
+  Camera3? camera;
+
   Project({this.fps = 60, List<Layer>? layers, this.stageWalls = false, this.gravity = 0, this.gravityAngle = 90, List<int>? markers})
       : layers = layers ?? [],
         markers = markers ?? [];
@@ -2666,6 +2690,10 @@ Layer cloneLayer(Layer src) {
       rotation: cloneTrack(src.transform.rotation),
       opacity: cloneTrack(src.transform.opacity),
       extend: cloneTrack(src.transform.extend),
+      z: cloneTrack(src.transform.z),
+      rotationX: cloneTrack(src.transform.rotationX),
+      rotationY: cloneTrack(src.transform.rotationY),
+      scaleZ: cloneTrack(src.transform.scaleZ),
       pathFollow: PathFollow(
         enabled: src.transform.pathFollow.enabled,
         sourceLayerId: src.transform.pathFollow.sourceLayerId,
@@ -2975,4 +3003,14 @@ Track _transformTrack(Transform t, String param) {
     default:
       throw ArgumentError('unknown transform track "$param"');
   }
+}
+
+/// A 3D camera: where it is, what it looks at (world px: x right, y down,
+/// z away), its vertical field of view (degrees).
+class Camera3 {
+  List<double> eye;
+  List<double> target;
+  double fov;
+  Camera3({required this.eye, required this.target, this.fov = 50});
+  Camera3 copy() => Camera3(eye: [...eye], target: [...target], fov: fov);
 }

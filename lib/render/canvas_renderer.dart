@@ -498,7 +498,18 @@ class CanvasRenderer implements Renderer {
   }
 
   void _renderOrdered(Project project, int frame, {bool clipToFrame = true, void Function(ui.Canvas canvas)? underlay}) {
-    final order = stackOrderAt(project, frame);
+    var order = stackOrderAt(project, frame);
+    // 3D: the far cards first (the stacking order only where they are as
+    // deep).
+    if (project.space3d) {
+      final view = _view3(project);
+      final depth = {for (final l in order) l.id: layerDepth3d(view, project, l, frame)};
+      final idx = {for (var i = 0; i < order.length; i++) order[i].id: i};
+      order = [...order]..sort((a, b) {
+          final c = depth[b.id]!.compareTo(depth[a.id]!);
+          return c != 0 && (depth[a.id]! - depth[b.id]!).abs() > 1e-6 ? c : idx[a.id]!.compareTo(idx[b.id]!);
+        });
+    }
     if (identical(order, project.layers)) {
       _renderFrame(project, frame, clipToFrame: clipToFrame, underlay: underlay);
       return;
@@ -556,6 +567,9 @@ class CanvasRenderer implements Renderer {
     // the stage only (never export): "Show in context" draws the host
     // project here, over the background and under every layer.
     underlay?.call(canvas);
+    final space3d = project.space3d;
+    final view3 = space3d ? _view3(project) : null;
+    if (view3 != null && _guides3d) _drawFloor3d(canvas, view3);
 
     // a digging layer cuts down to the background, never through it:
     // the layers go into a group of their own over it.
@@ -563,7 +577,7 @@ class CanvasRenderer implements Renderer {
     if (digs) canvas.saveLayer(null, ui.Paint());
     // the stage camera (export, the player, or "camera view"): the scene
     // as seen through its frame; the background stays put.
-    final view = useStageCamera ? cameraViewMatrix(project, frame, _width, _height) : null;
+    final view = useStageCamera && !space3d ? cameraViewMatrix(project, frame, _width, _height) : null;
     if (view != null) {
       canvas.save();
       canvas.transform(_toMatrix4(view));
@@ -606,6 +620,25 @@ class CanvasRenderer implements Renderer {
       if (l.hidden) continue; // explicit hide, independent of opacity
       // where one layer ends and another begins on this frame: the upper.
       if (junction.contains(l.id)) continue;
+      // 3D: the card turned and set deep, seen through the camera (none
+      // reaching behind it).
+      if (view3 != null) {
+        final m = _card3d(view3, project, l, frame);
+        if (m == null) continue;
+        canvas.save();
+        canvas.transform(m);
+        if (keep != null) {
+          final rec = ui.PictureRecorder();
+          _drawLayer(ui.Canvas(rec), project, l.id, frame);
+          final pic = rec.endRecording();
+          keep[l.id] = pic;
+          canvas.drawPicture(pic);
+        } else {
+          _drawLayer(canvas, project, l.id, frame);
+        }
+        canvas.restore();
+        continue;
+      }
       // export: a still layer is drawn once and replayed on every frame.
       if (_stillIds.contains(l.id)) {
         if (frame < l.startFrame || frame > l.startFrame + l.durationFrames) continue;
@@ -636,6 +669,7 @@ class CanvasRenderer implements Renderer {
 
     if (view != null) canvas.restore();
     if (digs) canvas.restore();
+    if (view3 != null && _guides3d) _drawAxes3d(canvas, view3);
     _picture = recorder.endRecording();
     if (project.layers.any((l) => l.filters.scope == 'scene' && l.filters.any)) {
       _picture = _sceneFilters(project, _picture!, frame, cull);
@@ -643,6 +677,92 @@ class CanvasRenderer implements Renderer {
     if (perf) {
       PerfMonitor.instance.recordRender(totalMs: perfWatch!.elapsedMicroseconds / 1000, layers: layerCosts!);
     }
+  }
+
+  // ===== 3D projects =====
+
+  /// The stage's own camera going round the scene (null: the project's
+  /// camera). Through the stage camera (export, the player) always the
+  /// project's.
+  Camera3? viewCamera3;
+
+  /// The floor grid and the three axes (the stage only: never through
+  /// the stage camera).
+  bool show3dGuides = true;
+
+  bool get _guides3d => show3dGuides && !useStageCamera;
+
+  View3 _view3(Project project) =>
+      View3((useStageCamera ? null : viewCamera3) ?? cameraOf(project, _width, _height), _width, _height);
+
+  /// The canvas matrix drawing the layer as its card, or null when part
+  /// of it is behind the camera (or it is not on this frame).
+  Float64List? _card3d(View3 view, Project project, Layer l, int frame) {
+    final st = getLayerStateAt(project, l.id, frame);
+    if (!st.inRange) return null;
+    final tilt = layerTilt3d(project, l, frame);
+    final fm = toFrameMatrix(st.matrix);
+    final outline = [for (final p in getContentOutline(l.content, l, frame, project: project)) applyAffine(fm, p)];
+    if (outline.isNotEmpty && projectFlatPoints(view, tilt, [for (final p in outline) [p[0], p[1]]], near: 2) == null) {
+      return null;
+    }
+    return _canvas3d(mul4(view.matrix(), tilt));
+  }
+
+  /// A picture matrix as the canvas takes it: depth not kept (the cards
+  /// are sorted instead), scaled so w is about 1 at the frame's middle
+  /// (the canvas loses the picture with a large w).
+  static Float64List _canvas3d(List<double> m) {
+    final w = m[15];
+    final k = w.abs() > 1e-9 ? 1 / w : 1.0;
+    final n = [for (final v in m) v * k];
+    n[8] = 0;
+    n[9] = 0;
+    n[10] = 1;
+    n[11] = 0;
+    return toColumnMajor(n);
+  }
+
+  /// The floor: a grid on the plane through the scene's centre (y = the
+  /// frame's middle), 100 px squares.
+  void _drawFloor3d(ui.Canvas canvas, View3 view) {
+    final cx = _width / 2, cy = _height / 2;
+    const step = 100.0, n = 30;
+    final thin = ui.Paint()
+      ..color = const ui.Color(0x33FFFFFF)
+      ..strokeWidth = 1;
+    final thick = ui.Paint()
+      ..color = const ui.Color(0x55FFFFFF)
+      ..strokeWidth = 1.2;
+    for (var i = -n; i <= n; i++) {
+      final paint = i % 5 == 0 ? thick : thin;
+      final a = view.segment([cx + i * step, cy, -n * step], [cx + i * step, cy, n * step], near: 2);
+      if (a != null) canvas.drawLine(ui.Offset(a[0], a[1]), ui.Offset(a[2], a[3]), paint);
+      final b = view.segment([cx - n * step, cy, i * step], [cx + n * step, cy, i * step], near: 2);
+      if (b != null) canvas.drawLine(ui.Offset(b[0], b[1]), ui.Offset(b[2], b[3]), paint);
+    }
+  }
+
+  /// The three axes through the scene's centre: x red, y green (up), z
+  /// blue.
+  void _drawAxes3d(ui.Canvas canvas, View3 view) {
+    final c = [_width / 2, _height / 2, 0.0];
+    const len = 3000.0;
+    void axis(List<double> d, int color) {
+      final s = view.segment([c[0] - d[0] * len, c[1] - d[1] * len, c[2] - d[2] * len],
+          [c[0] + d[0] * len, c[1] + d[1] * len, c[2] + d[2] * len],
+          near: 2);
+      if (s == null) return;
+      canvas.drawLine(ui.Offset(s[0], s[1]), ui.Offset(s[2], s[3]), ui.Paint()
+        ..color = ui.Color(color)
+        ..strokeWidth = 1.5);
+    }
+
+    axis(const [1, 0, 0], 0xCCE5484D);
+    axis(const [0, 1, 0], 0xCC46A758);
+    axis(const [0, 0, 1], 0xCC3E63DD);
+    final o = view.project(c);
+    if (o[2] > 2) canvas.drawCircle(ui.Offset(o[0], o[1]), 3, ui.Paint()..color = const ui.Color(0xEEFFFFFF));
   }
 
   // ===== mirror layers =====

@@ -149,7 +149,7 @@ class _StageViewState extends State<StageView> {
       if (!widget.app.takeFreshRender()) {
         widget.app.renderer.renderFrame(
             widget.app.project, widget.app.currentFrame,
-            clipToFrame: !(widget.app.showOffCanvasContent || widget.app.cameraView),
+            clipToFrame: !(widget.app.showOffCanvasContent || widget.app.cameraView || widget.app.project.space3d),
             underlay: widget.app.contextUnderlay);
       }
       final selectedLayer =
@@ -168,6 +168,10 @@ class _StageViewState extends State<StageView> {
         child: CustomPaint(
           size: viewportSize,
           painter: _StageCustomPainter(
+            card3dOutline: widget.app.project.space3d && selectedLayer != null
+                ? widget.app.card3dOutline(
+                    View3(widget.app.orbitCamera(), widget.app.frameWidth, widget.app.frameHeight), selectedLayer)
+                : null,
             contentPicture: widget.app.renderer.currentPicture,
             frameWidth: stageSize.width,
             frameHeight: stageSize.height,
@@ -680,6 +684,7 @@ class _StageCustomPainter extends CustomPainter {
     this.unitOverlay = const [],
     this.cropLine,
     this.mirrorLine,
+    this.card3dOutline,
     required this.contentPicture,
     required this.frameWidth,
     required this.frameHeight,
@@ -717,8 +722,11 @@ class _StageCustomPainter extends CustomPainter {
       unitOverlay: unitOverlay,
       cropLine: cropLine,
       mirrorLine: mirrorLine,
+      card3dOutline: card3dOutline,
     );
   }
+
+  final List<List<double>>? card3dOutline;
 
   final CropLineOverlay? cropLine;
   final List<List<double>>? mirrorLine;

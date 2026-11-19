@@ -20,7 +20,10 @@ android {
     }
 
     defaultConfig {
-        applicationId = "slop.nut"
+        // the 3D line installs beside MCore as an app of its own
+        // (android/gradle.properties: mcoreAppId, mcoreAppLabel).
+        applicationId = project.findProperty("mcoreAppId") ?: "slop.nut"
+        manifestPlaceholders = [appLabel: project.findProperty("mcoreAppLabel") ?: "MCore"]
         // 24: what the media code (MediaCodec input images, Opus, frame
         // batches checked at run time) is written against.
         minSdk = 24

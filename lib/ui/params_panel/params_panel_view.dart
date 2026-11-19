@@ -100,6 +100,17 @@ class ParamsPanelView extends StatelessWidget {
             if (rectExtendMode && layer.content.shape == 'rect') ..._extendRulers(context, layer, localFrame),
             _scalarParam(context, 'rotation', layer.transform.rotation, localFrame, 0.0, ParamScale.degrees,
                 below: [_rotatePivot(layer)]),
+            // 3D: how deep it is, its turns across (about its anchor), its
+            // depth's size.
+            if (app.project.space3d) ...[
+              _scalarParam(context, 'z', layer.transform.z, localFrame, 0.0,
+                  const ParamScale.ruler(unitsPerPixel: 1, minorTick: 10, majorTick: 100, decimals: 1)),
+              _scalarParam(context, 'rotation x', layer.transform.rotationX, localFrame, 0.0, ParamScale.degrees),
+              _scalarParam(context, 'rotation y', layer.transform.rotationY, localFrame, 0.0, ParamScale.degrees),
+              _scalarParam(context, 'scale z', layer.transform.scaleZ, localFrame, 1.0,
+                  const ParamScale.ruler(unitsPerPixel: 0.005, minorTick: 0.1, majorTick: 0.5)),
+              _view3d(context),
+            ],
             _scalarParam(context, 'opacity', layer.transform.opacity, localFrame, 1.0, const ParamScale.slider(0, 1)),
             // its centre: what it turns and scales round.
             PivotField(app: app),
@@ -516,6 +527,29 @@ class ParamsPanelView extends StatelessWidget {
       ),
     );
   }
+
+  /// A 3D project's view and camera: straight on again, the picture's
+  /// camera set where the view is, the view taken to the camera.
+  Widget _view3d(BuildContext context) => Wrap(spacing: 6, runSpacing: 4, children: [
+        OutlinedButton.icon(
+          key: const ValueKey('view3d-reset'),
+          onPressed: app.resetOrbit,
+          icon: const Icon(Icons.center_focus_strong, size: 18),
+          label: const Text('Straight on'),
+        ),
+        OutlinedButton.icon(
+          key: const ValueKey('camera3d-here'),
+          onPressed: app.setCamera3HereFromView,
+          icon: const Icon(Icons.videocam_outlined, size: 18),
+          label: const Text('Camera here'),
+        ),
+        OutlinedButton.icon(
+          key: const ValueKey('view3d-camera'),
+          onPressed: app.viewFromCamera3,
+          icon: const Icon(Icons.visibility_outlined, size: 18),
+          label: const Text('View from camera'),
+        ),
+      ]);
 
   /// Rotation's own fold: the point it turns round - its middle, a side's
   /// middle or a corner (tap the picked one again: back to its anchor).

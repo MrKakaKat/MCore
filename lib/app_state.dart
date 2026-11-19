@@ -1110,6 +1110,8 @@ class AppState extends ChangeNotifier {
           held: {for (final e in heldKeys.entries) e.key: {...e.value}},
           // the ruler's marks are the project's own, outside its layers.
           marks: [...project.markers],
+          // a 3D project's camera.
+          cam: project.camera?.copy(),
         );
     undo.restoreExtra = (e) {
       if (e is! ({
@@ -1119,9 +1121,11 @@ class AppState extends ChangeNotifier {
         List<({String layerId, String tab, int a, int b, String? track})> lines,
         Map<String, Set<int>> held,
         List<int> marks,
+        Camera3? cam,
       })) {
         return;
       }
+      project.camera = e.cam?.copy();
       project.markers
         ..clear()
         ..addAll(e.marks);
@@ -1154,8 +1158,9 @@ class AppState extends ChangeNotifier {
   }
 
   void _render() {
+    renderer.viewCamera3 = project.space3d ? orbitCamera() : null;
     renderer.renderFrame(project, currentFrame,
-        clipToFrame: !(showOffCanvasContent || cameraView), underlay: contextUnderlay);
+        clipToFrame: !(showOffCanvasContent || cameraView || project.space3d), underlay: contextUnderlay);
     _freshRender = true;
   }
 
@@ -2181,11 +2186,12 @@ class AppState extends ChangeNotifier {
       l.hidden = true;
     }
     final bg = renderer.backgroundColor, cam = renderer.useStageCamera, scale = renderer.outputScale;
-    final cuts = renderer.stageCuts;
+    final cuts = renderer.stageCuts, guides = renderer.show3dGuides;
     ui.Image image;
     try {
       renderer
         ..backgroundColor = null
+        ..show3dGuides = false
         ..useStageCamera = false
         ..stageCuts = null
         ..outputScale = 2;
@@ -2199,6 +2205,7 @@ class AppState extends ChangeNotifier {
       }
       renderer
         ..backgroundColor = bg
+        ..show3dGuides = guides
         ..useStageCamera = cam
         ..stageCuts = cuts
         ..outputScale = scale;
@@ -2470,6 +2477,113 @@ class AppState extends ChangeNotifier {
     pushUndo();
     setTransformAnimLayerEnabled(l, n, on);
     commitEdit();
+  }
+
+  // ===== 3D: the stage's view going round the scene =====
+
+  /// The stage's own view of a 3D project (not saved, not the project's
+  /// camera): turned about the scene's middle, nearer / farther, moved.
+  double orbitYaw = 0, orbitPitch = 0, orbitZoom = 1;
+  List<double> orbitPan = [0, 0, 0];
+
+  /// The view now (straight on, as the frame, before anything moved it).
+  Camera3 orbitCamera() {
+    final base = defaultCamera3(frameWidth, frameHeight);
+    final d = (base.target[2] - base.eye[2]) / orbitZoom;
+    final t = [base.target[0] + orbitPan[0], base.target[1] + orbitPan[1], base.target[2] + orbitPan[2]];
+    return orbitCamera3(t, orbitYaw, orbitPitch, d, fov: base.fov);
+  }
+
+  void _orbitChanged() {
+    _render();
+    notifyListeners();
+  }
+
+  /// Turns the view (degrees): about the up axis, and up / down.
+  void orbitBy(double yaw, double pitch) {
+    orbitYaw = (orbitYaw + yaw) % 360;
+    orbitPitch = (orbitPitch + pitch).clamp(-89.0, 89.0);
+    _orbitChanged();
+  }
+
+  /// Nearer (k > 1) or farther.
+  void orbitZoomBy(double k) {
+    orbitZoom = (orbitZoom * k).clamp(0.05, 20.0);
+    _orbitChanged();
+  }
+
+  /// Moves the view by a picture-px shift (the scene follows the finger).
+  void orbitPanBy(double dx, double dy) {
+    final v = View3(orbitCamera(), frameWidth, frameHeight);
+    final dist = (frameHeight / 2) / math.tan(25 * math.pi / 180) / orbitZoom;
+    final k = dist / v.focal;
+    for (var i = 0; i < 3; i++) {
+      orbitPan[i] += (-v.right[i] * dx + v.up[i] * dy) * k;
+    }
+    _orbitChanged();
+  }
+
+  /// Back to straight on.
+  void resetOrbit({bool render = true}) {
+    orbitYaw = 0;
+    orbitPitch = 0;
+    orbitZoom = 1;
+    orbitPan = [0, 0, 0];
+    if (render) _orbitChanged();
+  }
+
+  /// The project's camera set where the view is now (the picture shows
+  /// what the stage shows).
+  void setCamera3HereFromView() {
+    pushUndo();
+    project.camera = orbitCamera();
+    commitEdit();
+  }
+
+  /// The view moved to the project's camera.
+  void viewFromCamera3() {
+    final c = project.camera;
+    if (c == null) {
+      resetOrbit();
+      return;
+    }
+    final base = defaultCamera3(frameWidth, frameHeight);
+    final dx = c.target[0] - c.eye[0], dy = c.target[1] - c.eye[1], dz = c.target[2] - c.eye[2];
+    final dist = math.sqrt(dx * dx + dy * dy + dz * dz);
+    orbitPan = [c.target[0] - base.target[0], c.target[1] - base.target[1], c.target[2] - base.target[2]];
+    orbitZoom = (base.target[2] - base.eye[2]) / math.max(1e-6, dist);
+    orbitPitch = math.asin((dy / dist).clamp(-1.0, 1.0)) * 180 / math.pi;
+    orbitYaw = math.atan2(dx, dz) * 180 / math.pi;
+    _orbitChanged();
+  }
+
+  /// The card under a picture point (frame px), the nearest first; null:
+  /// none.
+  Layer? card3dAt(double x, double y) {
+    final view = View3(orbitCamera(), frameWidth, frameHeight);
+    Layer? best;
+    var bestD = double.infinity;
+    for (final l in project.layers) {
+      if (l.hidden || l.locked || isAudioShape(l.content.shape)) continue;
+      final poly = card3dOutline(view, l);
+      if (poly == null || !insidePolygon(poly, x, y)) continue;
+      final d = layerDepth3d(view, project, l, currentFrame);
+      if (d < bestD) {
+        bestD = d;
+        best = l;
+      }
+    }
+    return best;
+  }
+
+  /// The card's outline on the picture (frame px), or null.
+  List<List<double>>? card3dOutline(View3 view, Layer l) {
+    final st = getLayerStateAt(project, l.id, currentFrame);
+    if (!st.inRange) return null;
+    final fm = toFrameMatrix(st.matrix);
+    final pts = [for (final p in getContentOutline(l.content, l, currentFrame, project: project)) applyAffine(fm, p)];
+    if (pts.length < 3) return null;
+    return projectFlatPoints(view, layerTilt3d(project, l, currentFrame), [for (final p in pts) [p[0], p[1]]], near: 2);
   }
 
   // ===== stage camera =====
@@ -5111,6 +5225,7 @@ class AppState extends ChangeNotifier {
         projectId = data.id ?? newProjectId();
         projectRevision = data.revision;
         project = data.project;
+        resetOrbit(render: false);
         fps = data.fps > 0 ? data.fps : 60;
         project.fps = fps;
         _explicitTimelineLength = data.timelineLength;

@@ -113,6 +113,8 @@ Future<void> saveProjectToFile(File file, Project project,
       if (project.gravityAngle != 90) 'gravityAngle': project.gravityAngle,
       if (project.markers.isNotEmpty) 'markers': project.markers,
       if (project.gravityWays.isNotEmpty) 'gravityWays': [for (final (f, a) in project.gravityWays) [f, a]],
+      if (project.space3d) 'space3d': true,
+      if (project.camera != null) 'camera': camera3ToJson(project.camera!),
     },
     'maxFrame': maxFrame,
     'playbackSpeed': playbackSpeed,
@@ -153,10 +155,15 @@ Future<ProjectFileData> loadProjectFromFile(File file) async {
       gravity: ((data['project'] as Map)['gravity'] as num?)?.toDouble() ?? 0,
       gravityAngle: ((data['project'] as Map)['gravityAngle'] as num?)?.toDouble() ?? 90,
       markers: [for (final m in ((data['project'] as Map)['markers'] as List?) ?? const []) (m as num).toInt()],
-    )..gravityWays = [
+    )
+      ..gravityWays = [
         for (final w in ((data['project'] as Map)['gravityWays'] as List?) ?? const [])
           (((w as List)[0] as num).toInt(), (w[1] as num).toDouble())
-      ],
+      ]
+      ..space3d = (data['project'] as Map)['space3d'] == true
+      ..camera = (data['project'] as Map)['camera'] is Map
+          ? camera3FromJson(Map<String, dynamic>.from((data['project'] as Map)['camera'] as Map))
+          : null,
     maxFrame: (data['maxFrame'] as num?)?.toInt() ?? 180,
     playbackSpeed: (data['playbackSpeed'] as num?)?.toDouble() ?? 1,
     selectedLayer: data['selectedLayer'] as String?,
