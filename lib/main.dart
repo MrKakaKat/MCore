@@ -596,159 +596,201 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
 Widget _stageOverlayIcons(AppState app, {required bool narrow}) {
   return Positioned(
     top: 0,
-    left: 0,
     right: 0,
     child: SafeArea(
       bottom: false,
       left: false,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // back to the home screen (project list) - only when this editor
-          // was opened from it.
-          // the back arrow, then (down the side) the move axis lock and
-          // undo / redo.
-          Padding(
-            padding: const EdgeInsets.all(4),
-            child: AnimatedBuilder(
-              animation: app,
-              builder: (context, _) => Column(mainAxisSize: MainAxisSize.min, children: [
-                if (Navigator.of(context).canPop())
-                  _stageOverlayIconButton(
-                    icon: Icons.arrow_back,
-                    tooltip: 'projects',
-                    onPressed: () => Navigator.of(context).maybePop(),
-                  ),
-                // the move axis lock: only while something is selected.
-                if (!app.hideStageIcons && findLayer(app.project, app.selection.selectedLayer) != null) ...[
-                  const SizedBox(height: 4),
-                  KeyedSubtree(
-                    key: const ValueKey('stage-axis-lock'),
-                    child: _stageOverlayIconButton(
-                      icon: switch (dragAxisLock) {
-                        'x' => Icons.swap_horiz,
-                        'y' => Icons.swap_vert,
-                        _ => Icons.open_with,
-                      },
-                      tooltip: switch (dragAxisLock) {
-                        'x' => 'moving along x only (tap: y only)',
-                        'y' => 'moving along y only (tap: free)',
-                        _ => 'moving freely (tap: x only)',
-                      },
-                      onPressed: () {
-                        dragAxisLock = switch (dragAxisLock) { null => 'x', 'x' => 'y', _ => null };
-                        app.notifyListeners();
-                      },
-                    ),
-                  ),
-                ],
-              ]),
-            ),
-          ),
-          // the right side takes all the room left and shrinks only when
-          // it really doesn't fit (a narrow phone).
-          Expanded(child: Align(alignment: Alignment.topRight, child: Padding(
-          padding: const EdgeInsets.all(4),
-          child: AnimatedBuilder(
-            animation: app,
-            // Settings tab: "Hide top icons" (the back arrow stays).
-            builder: (context, _) => app.hideStageIcons ? const SizedBox.shrink() : FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.topRight, child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _stageOverlayIconButton(
-                  icon: hideHandles ? Icons.touch_app_outlined : Icons.touch_app,
-                  tooltip: hideHandles ? 'show handles' : 'hide handles',
-                  onPressed: app.toggleHideHandles,
-                ),
-                _stageOverlayIconButton(
-                  icon: hideVisualLayer ? Icons.visibility_off_outlined : Icons.visibility,
-                  tooltip: hideVisualLayer ? 'show visual aids' : 'hide visual aids',
-                  onPressed: app.toggleHideVisualLayer,
-                ),
-                // grid overlay - no tab-rail home (unlike Stage/Snapping,
-                // now removed from here), shown in both layouts.
-                Builder(
-                  builder: (context) => _stageOverlayIconButton(
-                    icon: gridOverlayEnabled ? Icons.window : Icons.window_outlined,
-                    tooltip: 'grid',
-                    onPressed: () => showGridSettingsDialog(context, app),
-                  ),
-                ),
-                if (!narrow)
-                  Builder(
-                    builder: (context) => _stageOverlayIconButton(
-                      icon: Icons.tune,
-                      tooltip: 'layers, movement, keyframes, masks, effects, stage, snapping',
-                      onPressed: () => Scaffold.of(context).openEndDrawer(),
-                    ),
-                  ),
-                // Show in context: while shown, a tap hides / shows it and
-                // a long press opens its settings.
-                // only for a project placed in another one.
-                if (app.projectStore != null && (app.usedInCount > 0 || app.contextHost != null))
-                  Builder(
-                    builder: (context) => GestureDetector(
-                      key: const ValueKey('context-toggle'),
-                      onLongPress: () => showContextDialog(context, app),
-                      child: _stageOverlayIconButton(
-                        icon: app.contextHost == null
-                            ? Icons.picture_in_picture_alt_outlined
-                            : app.contextVisible
-                                ? Icons.picture_in_picture_alt
-                                : Icons.picture_in_picture_alt_outlined,
-                        tooltip: 'show in context',
-                        onPressed: () => app.contextHost == null
-                            ? showContextDialog(context, app)
-                            : app.setContextVisible(!app.contextVisible),
-                      ),
-                    ),
-                  ),
-                // edit with AI: copy the project as a prompt, paste a reply back
-                // (the same round button as the others, its menu under it).
-                Builder(
-                  builder: (context) => KeyedSubtree(
-                    key: const ValueKey('ai-menu'),
-                    child: _stageOverlayIconButton(
-                      icon: Icons.auto_awesome,
-                      tooltip: 'edit with AI',
-                      onPressed: () async {
-                        final box = context.findRenderObject() as RenderBox;
-                        final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-                        final at = box.localToGlobal(Offset.zero, ancestor: overlay);
-                        final v = await showMenu<String>(
-                          context: context,
-                          position: RelativeRect.fromLTRB(
-                              at.dx, at.dy + box.size.height, overlay.size.width - at.dx - box.size.width, 0),
-                          items: const [
-                            PopupMenuItem(value: 'prompt', child: Text('Copy prompt: edit this project with AI')),
-                            PopupMenuItem(value: 'paste', child: Text('Paste the AI\'s reply (replaces the layers)')),
-                          ],
-                        );
-                        if (!context.mounted) return;
-                        if (v == 'prompt') await showAiPromptDialog(context, app: app);
-                        if (v == 'paste' && context.mounted) {
-                          final r = await showAiImportDialog(context, title: 'Paste the AI\'s reply');
-                          if (r != null) app.replaceWithMcj(r);
-                        }
-                      },
-                    ),
-                  ),
-                ),
-                Builder(
-                  builder: (context) => _stageOverlayIconButton(
-                    icon: Icons.ios_share,
-                    tooltip: 'export',
-                    onPressed: () => showExportDialog(context, app),
-                  ),
-                ),
-              ],
-            )),
-          ),
-        ))),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: StageMenu(app: app, narrow: narrow),
       ),
     ),
   );
+}
+
+/// The stage's top-right corner: a round fold button; to its left the
+/// visual aids, handles and moving mode; under it, when opened, AI,
+/// export, grid and the way out - one after another, sliding in from the
+/// right.
+class StageMenu extends StatefulWidget {
+  final AppState app;
+  final bool narrow;
+  const StageMenu({super.key, required this.app, required this.narrow});
+
+  @override
+  State<StageMenu> createState() => _StageMenuState();
+}
+
+class _StageMenuState extends State<StageMenu> with SingleTickerProviderStateMixin {
+  late final AnimationController _anim = AnimationController(vsync: this, duration: const Duration(milliseconds: 420));
+  bool _open = false;
+
+  @override
+  void dispose() {
+    _anim.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    setState(() => _open = !_open);
+    _open ? _anim.forward(from: 0) : _anim.reverse();
+  }
+
+  /// A menu item: shown, then gone - the menu folds.
+  VoidCallback _pick(VoidCallback f) => () {
+        if (_open) _toggle();
+        f();
+      };
+
+  Future<void> _ai(BuildContext context) async {
+    final app = widget.app;
+    final box = context.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final at = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final v = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(at.dx, at.dy + box.size.height, overlay.size.width - at.dx - box.size.width, 0),
+      items: const [
+        PopupMenuItem(value: 'prompt', child: Text('Copy prompt: edit this project with AI')),
+        PopupMenuItem(value: 'paste', child: Text('Paste the AI\'s reply (replaces the layers)')),
+      ],
+    );
+    if (!context.mounted) return;
+    if (_open) _toggle();
+    if (v == 'prompt') await showAiPromptDialog(context, app: app);
+    if (v == 'paste' && context.mounted) {
+      final r = await showAiImportDialog(context, title: 'Paste the AI\'s reply');
+      if (r != null) app.replaceWithMcj(r);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = widget.app;
+    return AnimatedBuilder(
+      animation: app,
+      builder: (context, _) {
+        final canExit = Navigator.of(context).canPop();
+        final selected = findLayer(app.project, app.selection.selectedLayer) != null;
+        // what folds under the button, top to bottom.
+        final items = <Widget>[
+          Builder(
+            builder: (context) => KeyedSubtree(
+              key: const ValueKey('ai-menu'),
+              child: _stageOverlayIconButton(icon: Icons.auto_awesome, tooltip: 'edit with AI', onPressed: () => _ai(context)),
+            ),
+          ),
+          Builder(
+            builder: (context) => _stageOverlayIconButton(
+                icon: Icons.ios_share, tooltip: 'export', onPressed: _pick(() => showExportDialog(context, app))),
+          ),
+          Builder(
+            builder: (context) => _stageOverlayIconButton(
+              icon: gridOverlayEnabled ? Icons.window : Icons.window_outlined,
+              tooltip: 'grid',
+              onPressed: _pick(() => showGridSettingsDialog(context, app)),
+            ),
+          ),
+          if (canExit)
+            _stageOverlayIconButton(
+                icon: Icons.arrow_back, tooltip: 'projects', onPressed: _pick(() => Navigator.of(context).maybePop())),
+        ];
+        final row = <Widget>[
+          if (!app.hideStageIcons) ...[
+            // the move axis lock: only while something is selected.
+            if (selected)
+              KeyedSubtree(
+                key: const ValueKey('stage-axis-lock'),
+                child: _stageOverlayIconButton(
+                  icon: switch (dragAxisLock) {
+                    'x' => Icons.swap_horiz,
+                    'y' => Icons.swap_vert,
+                    _ => Icons.open_with,
+                  },
+                  tooltip: switch (dragAxisLock) {
+                    'x' => 'moving along x only (tap: y only)',
+                    'y' => 'moving along y only (tap: free)',
+                    _ => 'moving freely (tap: x only)',
+                  },
+                  onPressed: () {
+                    dragAxisLock = switch (dragAxisLock) { null => 'x', 'x' => 'y', _ => null };
+                    app.notifyListeners();
+                  },
+                ),
+              ),
+            _stageOverlayIconButton(
+              icon: hideHandles ? Icons.touch_app_outlined : Icons.touch_app,
+              tooltip: hideHandles ? 'show handles' : 'hide handles',
+              onPressed: app.toggleHideHandles,
+            ),
+            _stageOverlayIconButton(
+              icon: hideVisualLayer ? Icons.visibility_off_outlined : Icons.visibility,
+              tooltip: hideVisualLayer ? 'show visual aids' : 'hide visual aids',
+              onPressed: app.toggleHideVisualLayer,
+            ),
+            if (!widget.narrow)
+              Builder(
+                builder: (context) => _stageOverlayIconButton(
+                  icon: Icons.tune,
+                  tooltip: 'layers, movement, keyframes, masks, effects, stage, snapping',
+                  onPressed: () => Scaffold.of(context).openEndDrawer(),
+                ),
+              ),
+            // Show in context: while shown, a tap hides / shows it and a
+            // long press opens its settings (a project placed in another).
+            if (app.projectStore != null && (app.usedInCount > 0 || app.contextHost != null))
+              Builder(
+                builder: (context) => GestureDetector(
+                  key: const ValueKey('context-toggle'),
+                  onLongPress: () => showContextDialog(context, app),
+                  child: _stageOverlayIconButton(
+                    icon: app.contextHost == null
+                        ? Icons.picture_in_picture_alt_outlined
+                        : app.contextVisible
+                            ? Icons.picture_in_picture_alt
+                            : Icons.picture_in_picture_alt_outlined,
+                    tooltip: 'show in context',
+                    onPressed: () =>
+                        app.contextHost == null ? showContextDialog(context, app) : app.setContextVisible(!app.contextVisible),
+                  ),
+                ),
+              ),
+          ],
+          // the fold: AI, export, grid, the way out under it.
+          KeyedSubtree(
+            key: const ValueKey('stage-menu'),
+            child: _stageOverlayIconButton(
+              icon: _open ? Icons.close : Icons.more_vert,
+              tooltip: _open ? 'fold' : 'AI, export, grid, projects',
+              onPressed: _toggle,
+            ),
+          ),
+        ];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.topRight, child: Row(mainAxisSize: MainAxisSize.min, children: row)),
+            // one after another, sliding in from the right.
+            if (_open || _anim.isAnimating)
+              for (var i = 0; i < items.length; i++)
+                AnimatedBuilder(
+                  animation: _anim,
+                  builder: (context, child) {
+                    final start = i * 0.15, end = (start + 0.45).clamp(0.0, 1.0);
+                    final t = Curves.easeOutCubic.transform(((_anim.value - start) / (end - start)).clamp(0.0, 1.0));
+                    return Opacity(
+                      opacity: t,
+                      child: FractionalTranslation(translation: Offset(0.7 * (1 - t), 0), child: child),
+                    );
+                  },
+                  child: KeyedSubtree(key: ValueKey('stage-menu-item-$i'), child: items[i]),
+                ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 /// Show in context: the stage's frame is outside that reference's time in

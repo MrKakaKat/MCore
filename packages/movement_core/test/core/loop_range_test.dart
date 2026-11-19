@@ -54,4 +54,16 @@ void main() {
     expect(back.transform.rotation.loopFrom, 8);
     expect(back.transform.rotation.loopEnd, 60);
   });
+
+  test('the loop\'s faint repeated keys on the key rows: from its loop key, none past until frame', () {
+    final l = createLayer('rect')..durationFrames = 200;
+    l.transform.rotation.keyframes = [Keyframe(frame: 0, value: 0.0), Keyframe(frame: 10, value: 5.0), Keyframe(frame: 20, value: 9.0)];
+    l.transform.rotation.loop = true;
+    var g = keyDetailLoopGhosts(l).values.first;
+    expect(g.keys.reduce((a, b) => a > b ? a : b), greaterThan(150), reason: 'on to the end');
+    setLayerLoopRange(l, from: 10, end: 55);
+    g = keyDetailLoopGhosts(l).values.first;
+    expect(g.keys, [30, 40, 50], reason: 'every 10 frames from the key at 10, none after 55');
+    expect(g.spans.last.$2, 55);
+  });
 }

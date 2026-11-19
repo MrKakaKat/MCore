@@ -125,7 +125,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(MovementMobileApp());
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.ios_share), findsOneWidget);
+    expect(find.byIcon(Icons.touch_app), findsOneWidget);
 
     final tabRail = find.byWidgetPredicate((w) => w is ListView && w.scrollDirection == Axis.horizontal);
     await tester.dragUntilVisible(find.text('Settings'), tabRail, const Offset(-100, 0));
@@ -139,6 +139,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Hide top icons'));
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.ios_share), findsNothing);
+    expect(find.byIcon(Icons.touch_app), findsNothing);
+    expect(find.byKey(const ValueKey('stage-menu')), findsOneWidget, reason: 'the fold stays (the way out is in it)');
   });
 }

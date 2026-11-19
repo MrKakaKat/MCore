@@ -61,8 +61,22 @@ void main() {
     expect(find.byIcon(Icons.settings), findsNothing);
     expect(find.byIcon(Icons.grid_4x4_outlined), findsNothing);
     expect(find.byIcon(Icons.grid_4x4), findsNothing);
+    // grid and export: in the top-right fold, under it, one after another.
+    expect(find.byIcon(Icons.ios_share), findsNothing, reason: 'folded');
+    await tester.tap(find.byKey(const ValueKey('stage-menu')));
+    await tester.pumpAndSettle();
     expect(find.byIcon(Icons.window_outlined), findsOneWidget, reason: 'the grid overlay icon has no tab home and stays');
     expect(find.byIcon(Icons.ios_share), findsOneWidget, reason: 'export has no tab home and stays');
+    final fold = tester.getRect(find.byKey(const ValueKey('stage-menu')));
+    final ai = tester.getRect(find.byKey(const ValueKey('stage-menu-item-0')));
+    final grid = tester.getRect(find.byKey(const ValueKey('stage-menu-item-2')));
+    expect(ai.top, greaterThanOrEqualTo(fold.bottom - 1), reason: 'under the fold');
+    expect(grid.top, greaterThan(ai.top), reason: 'in order, top down');
+    expect((ai.right - fold.right).abs(), lessThan(2), reason: 'right under it');
+    // the visual aids, handles and moving mode: to its left, one row.
+    final eye = tester.getRect(find.byIcon(Icons.visibility).first);
+    expect(eye.right, lessThanOrEqualTo(fold.left + 1));
+    expect((eye.center.dy - fold.center.dy).abs(), lessThan(2));
   });
 
   testWidgets('the stage overlay icons stay below a simulated top inset (status bar/notch), not flush against the raw screen edge', (tester) async {

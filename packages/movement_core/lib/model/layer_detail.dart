@@ -5,7 +5,7 @@ library;
 
 import 'dart:math' as math;
 
-import '../core/interpolation.dart' show loopStopFrame;
+import '../core/interpolation.dart' show loopStopFrame, loopStartKey;
 import '../ui_geometry/keyframe_strip.dart' show visitLayerTracksNamed;
 import 'effect_panel.dart';
 import 'project.dart';
@@ -272,16 +272,22 @@ List<int> layerLoopStops(Layer layer) {
 
 /// The loops' continuation on the key rows: per row, the repeated keys
 /// (local frames) and lines after each looping parameter's last key -
-/// to the layer's end, or where its offset loop stops. Only to look at.
+/// to the layer's end, where its offset loop stops or where it stops
+/// repeating (until frame); from its loop key on. Only to look at.
 Map<String, ({List<int> keys, List<(int, int)> spans})> keyDetailLoopGhosts(Layer layer) {
   final out = <String, ({List<int> keys, List<(int, int)> spans})>{};
   visitLayerTracksNamed(layer, (name, trk) {
     if (!trk.loop) return;
-    final frames = trk.keyframes.where((k) => !k.passive).map((k) => k.frame).toSet().toList()..sort();
+    // the repeated part: from its loop key on (the keys before play once).
+    final from = loopStartKey(trk).frame;
+    final frames = trk.keyframes.where((k) => !k.passive && k.frame >= from).map((k) => k.frame).toSet().toList()..sort();
     if (frames.length < 2) return;
     final period = frames.last - frames.first;
     if (period <= 0) return;
-    final end = math.min(loopStopFrame(trk) ?? layer.durationFrames, layer.durationFrames);
+    // where it stops repeating ("until frame"), or its offset loop stops.
+    var end = math.min(loopStopFrame(trk) ?? layer.durationFrames, layer.durationFrames);
+    final stop = trk.loopEnd;
+    if (stop != null) end = math.min(end, stop);
     final row = out.putIfAbsent(keyDetailTabOf(name), () => (keys: <int>[], spans: <(int, int)>[]));
     for (var n = 1; frames.last + (n - 1) * period < end && n < 2000; n++) {
       for (var i = 0; i + 1 < frames.length; i++) {
