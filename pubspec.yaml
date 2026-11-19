@@ -4,7 +4,7 @@ description: >
   packages/movement_core (pure Dart, tested with dart test); this package
   is the Flutter app (render/, ui/, services/, io/) on top of it.
 publish_to: none
-version: 0.3.25+58
+version: 0.3.26+59
 
 environment:
   sdk: ^3.4.0
@@ -41,3 +41,10 @@ flutter:
   shaders:
     - shaders/filter.frag
     - shaders/lens.frag
+
+# path_provider_android 2.3 finds the app's folders through JNI, which in
+# a release build fails (ClassNotFoundException: android.content.Context)
+# - the app could not start. The last version through Flutter's own
+# channels until that is sound.
+dependency_overrides:
+  path_provider_android: 2.2.23

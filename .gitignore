@@ -5,7 +5,7 @@ build/
 .flutter-plugins-dependencies
 *.iml
 .idea/
-pubspec.lock
+/packages/movement_core/pubspec.lock
 
 # machine paths and other keys (the release key, mcore-sideload.jks, is public on purpose)
 *.jks
