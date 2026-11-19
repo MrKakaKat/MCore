@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:io';
 
@@ -56,42 +57,173 @@ import 'ui/timeline/timeline_toolbar.dart';
 ///
 /// Opens on the home screen (project list + "New project"); each opened
 /// project gets its own AppState/EditorScreen, autosaved to its own file.
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await loadDefaultFont();
-  final dir = await getApplicationDocumentsDirectory();
-  Directory? cache;
-  try {
-    cache = await getApplicationCacheDirectory();
-  } catch (_) {}
-  // a start that never got going (the app closed while starting): this
-  // time a safe one - the cache made afresh, its own fonts left out.
-  final starting = File('${dir.path}/.starting');
-  var safeStart = false;
-  try {
-    safeStart = starting.existsSync();
-    starting.writeAsStringSync('1');
-  } catch (_) {}
-  if (safeStart) {
-    await clearCache(cache);
-  } else {
-    await cleanStaleCache(cache);
-    await FontStore(dir).registerAll();
+  // something on the screen at once (the system's splash goes): the
+  // start's steps run under it, each named - a start that stops says
+  // where, and an error is shown, never an endless splash.
+  runApp(const AppBoot());
+}
+
+/// The start: each step named on the screen; an error shown with a safe
+/// start and a way to save the projects.
+class AppBoot extends StatefulWidget {
+  const AppBoot({super.key});
+
+  @override
+  State<AppBoot> createState() => _AppBootState();
+}
+
+class _AppBootState extends State<AppBoot> {
+  String _step = 'Starting';
+  Object? _error;
+  StackTrace? _stack;
+  Widget? _app;
+  bool _slow = false;
+  Timer? _slowTimer;
+  Directory? _dir;
+
+  @override
+  void dispose() {
+    _slowTimer?.cancel();
+    super.dispose();
   }
-  final settings = AppSettings(File('${dir.path}/app_settings.json'));
-  await settings.load();
-  AppSettings.instance = settings;
-  appLanguage = settings.language;
-  if (settings.perfHud) PerfMonitor.instance.setVisible(true);
-  runApp(MovementMobileApp(store: ProjectStore(dir, cacheRoot: cache), safeStart: safeStart, cacheRoot: cache));
-  // started: a few seconds after the first frame, the mark goes.
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    Future<void>.delayed(const Duration(seconds: 4), () {
-      try {
-        if (starting.existsSync()) starting.deleteSync();
-      } catch (_) {}
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  void _say(String step) {
+    if (mounted) setState(() => _step = step);
+  }
+
+  Future<void> _start({bool safe = false}) async {
+    setState(() {
+      _error = null;
+      _slow = false;
+      _step = 'Starting';
     });
-  });
+    // still going after a while: the safe start offered.
+    _slowTimer?.cancel();
+    _slowTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted && _app == null && _error == null) setState(() => _slow = true);
+    });
+    try {
+      _say('Loading the default font');
+      await loadDefaultFont();
+      _say('Finding the app folders');
+      final dir = _dir = await getApplicationDocumentsDirectory();
+      Directory? cache;
+      try {
+        cache = await getApplicationCacheDirectory();
+      } catch (_) {}
+      // a start that never got going (the app closed while starting):
+      // this time a safe one - the cache made afresh, its own fonts left
+      // out.
+      final starting = File('${dir.path}/.starting');
+      var safeStart = safe;
+      try {
+        if (starting.existsSync()) safeStart = true;
+        starting.writeAsStringSync('1');
+      } catch (_) {}
+      if (safeStart) {
+        _say('Clearing the cache');
+        await clearCache(cache);
+      } else {
+        _say('Cleaning up');
+        await cleanStaleCache(cache);
+        _say('Loading your fonts');
+        await FontStore(dir).registerAll();
+      }
+      _say('Loading the settings');
+      final settings = AppSettings(File('${dir.path}/app_settings.json'));
+      await settings.load();
+      AppSettings.instance = settings;
+      appLanguage = settings.language;
+      if (settings.perfHud) PerfMonitor.instance.setVisible(true);
+      _say('Opening');
+      final app = MovementMobileApp(store: ProjectStore(dir, cacheRoot: cache), safeStart: safeStart, cacheRoot: cache);
+      if (!mounted) return;
+      setState(() => _app = app);
+      // started: a few seconds after, the mark goes.
+      Future<void>.delayed(const Duration(seconds: 4), () {
+        try {
+          if (starting.existsSync()) starting.deleteSync();
+        } catch (_) {}
+      });
+    } catch (e, st) {
+      if (mounted) {
+        setState(() {
+          _error = e;
+          _stack = st;
+        });
+      }
+    }
+  }
+
+  /// Every project with its media into a file the user picks - even when
+  /// the app can't open them.
+  Future<void> _saveProjects(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final dir = _dir ?? await getApplicationDocumentsDirectory();
+    final f = await pickOutsideFolder(title: 'Save the projects in');
+    if (f == null) return;
+    messenger.showSnackBar(const SnackBar(content: Text('Saving...')));
+    try {
+      final n = await backUpProjectsTo(f.uri, ProjectStore(dir));
+      messenger.showSnackBar(SnackBar(content: Text('Saved $outsideBackupName (${(n / 1048576).toStringAsFixed(1)} MB) in ${f.name}')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not save: $e')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = _app;
+    if (app != null) return app;
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(brightness: Brightness.dark, useMaterial3: true),
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: _error == null
+                  ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text(_step, key: const ValueKey('boot-step')),
+                      if (_slow) ...[
+                        const SizedBox(height: 24),
+                        const Text('This takes long. A safe start clears the cache and skips your own fonts.',
+                            textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
+                        TextButton(key: const ValueKey('boot-safe'), onPressed: () => _start(safe: true), child: const Text('Safe start')),
+                        TextButton(onPressed: () => _saveProjects(context), child: const Text('Save my projects...')),
+                      ],
+                    ])
+                  : ListView(children: [
+                      const Icon(Icons.error_outline, size: 40, color: Colors.redAccent),
+                      const SizedBox(height: 8),
+                      Text('The app could not start ($_step):', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      SelectableText('$_error', key: const ValueKey('boot-error')),
+                      const SizedBox(height: 8),
+                      SelectableText('${_stack ?? ''}'.split('\n').take(12).join('\n'),
+                          style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                      const SizedBox(height: 16),
+                      FilledButton(onPressed: () => _start(safe: true), child: const Text('Safe start')),
+                      const SizedBox(height: 8),
+                      OutlinedButton(onPressed: () => _saveProjects(context), child: const Text('Save my projects...')),
+                    ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// The bundled default text font (Roboto, SIL Open Font License - see
@@ -109,10 +241,13 @@ class MovementMobileApp extends StatelessWidget {
   /// With a `store`, the app opens on the home screen. Without one (every
   /// existing test construction), it opens straight into an editor on
   /// `appState` (or a fresh default AppState), exactly as before.
-  MovementMobileApp({super.key, AppState? appState, this.store, this.safeStart = false, this.cacheRoot})
-      : appState = appState ?? AppState();
+  MovementMobileApp({super.key, AppState? appState, this.store, this.safeStart = false, this.cacheRoot}) : _given = appState;
 
-  final AppState appState;
+  final AppState? _given;
+
+  /// The editor's state (made only when the app opens straight into an
+  /// editor - the home screen makes one per project).
+  late final AppState appState = _given ?? AppState();
   final ProjectStore? store;
 
   /// The last start never got going: this one was a safe one.
