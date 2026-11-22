@@ -12,6 +12,9 @@ const _ru = <String, String>{
   // home
   'Projects': 'Проекты',
   'New project': 'Новый проект',
+  'MCore closed unexpectedly': 'MCore закрылся неожиданно',
+  'Copy report': 'Скопировать отчёт',
+  'Copied - send it to fix the crash': 'Скопировано - пришлите, чтобы исправить вылет',
   'No projects yet - tap "New project" to start.': 'Проектов пока нет - нажмите «Новый проект».',
   'Play full screen': 'Воспроизвести',
   'Rename': 'Переименовать',

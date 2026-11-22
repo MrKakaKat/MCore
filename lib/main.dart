@@ -47,6 +47,7 @@ import 'ui/stage/snapping_settings_dialog.dart';
 import 'ui/stage/stage_settings_dialog.dart';
 import 'ui/stage/stage_view.dart';
 import 'ui/timeline/keyframes_editor_view.dart';
+import 'io/crash_log.dart';
 import 'ui/timeline/layers_timeline_view.dart';
 import 'ui/timeline/timeline_drawer_row.dart';
 import 'ui/timeline/timeline_toolbar.dart';
@@ -115,6 +116,10 @@ class _AppBootState extends State<AppBoot> {
       await loadDefaultFont();
       _say('Finding the app folders');
       final dir = _dir = await getApplicationDocumentsDirectory();
+      // what it is doing, kept as it goes: a crash is told next time.
+      try {
+        await CrashLog.start(dir);
+      } catch (_) {}
       Directory? cache;
       try {
         cache = await getApplicationCacheDirectory();

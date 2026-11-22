@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:movement_core/movement_core.dart';
 
+import 'json_repair.dart';
 import 'save_load.dart';
 import 'audio_asset_store.dart';
 import 'video_asset_store.dart';
@@ -105,15 +106,18 @@ class ProjectStore {
   Future<List<ProjectMeta>> _metasIn(Directory dir) async {
     if (!await dir.exists()) return [];
     final metas = <ProjectMeta>[];
+    // a save the app closed in the middle of: the whole one it was
+    // writing, or the one before it, back in place.
+    if (dir.path == _dir.path) await _recoverOrphans(dir);
     await for (final entity in dir.list()) {
       if (entity is! File || !entity.path.endsWith('.json')) continue;
       try {
-        final data = jsonDecode(await entity.readAsString());
+        var data = await _readOrRecover(entity);
         if (data is! Map<String, dynamic>) continue;
         // files saved before ids get one now (kept from then on).
         if (data['id'] is! String) {
           data['id'] = newProjectId();
-          await entity.writeAsString(const JsonEncoder.withIndent('  ').convert(data));
+          await writeFileSafely(entity, const JsonEncoder.withIndent('  ').convert(data));
         }
         metas.add(ProjectMeta(
           id: data['id'] as String,
@@ -235,7 +239,65 @@ class ProjectStore {
   Future<void> rename(File file, String name) async {
     final data = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
     data['name'] = name;
-    await file.writeAsString(const JsonEncoder.withIndent('  ').convert(data));
+    await writeFileSafely(file, const JsonEncoder.withIndent('  ').convert(data));
+  }
+
+  /// A project file that doesn't read (cut short when the app closed while
+  /// saving): its last whole version (`.bak`), the one being written
+  /// (`.tmp`), or what can be read of it - put back in its place, the
+  /// damaged one kept beside (`.damaged`). Null: nothing to be had.
+  Future<Object?> _readOrRecover(File f) async {
+    final text = await f.readAsString();
+    try {
+      return jsonDecode(text);
+    } catch (_) {}
+    Map<String, dynamic>? ok(Object? v) => v is Map<String, dynamic> && v['project'] is Map ? v : null;
+    Map<String, dynamic>? found;
+    var repaired = false;
+    for (final side in ['${f.path}.tmp', '${f.path}.bak']) {
+      try {
+        final s = File(side);
+        if (await s.exists()) found ??= ok(jsonDecode(await s.readAsString()));
+      } catch (_) {}
+    }
+    if (found == null) {
+      found = ok(repairTruncatedJson(text));
+      repaired = found != null;
+    }
+    if (found == null) return null;
+    try {
+      await f.copy('${f.path}.damaged');
+    } catch (_) {}
+    if (repaired) found['name'] = '${found['name'] ?? 'Untitled'} (restored)';
+    await writeFileSafely(f, const JsonEncoder.withIndent('  ').convert(found), keepBackup: false);
+    return found;
+  }
+
+  /// A save cut off between its steps: only its side files there - the
+  /// whole one taken back as the project.
+  Future<void> _recoverOrphans(Directory dir) async {
+    try {
+      await for (final e in dir.list()) {
+        if (e is! File) continue;
+        final p = e.path;
+        final base = p.endsWith('.json.tmp') ? p.substring(0, p.length - 4) : p.endsWith('.json.bak') ? p.substring(0, p.length - 4) : null;
+        if (base == null || await File(base).exists()) continue;
+        try {
+          final v = jsonDecode(await e.readAsString());
+          if (v is Map && v['project'] is Map) await e.copy(base);
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  /// A project file's side files (its last version, a save under way).
+  Future<void> _dropSideFiles(File file) async {
+    for (final s in ['.tmp', '.bak', '.damaged']) {
+      try {
+        final f = File('${file.path}$s');
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+    }
   }
 
   Future<ProjectMeta?> metaOf(String id) async {
@@ -248,6 +310,7 @@ class ProjectStore {
   /// For good (no trash).
   Future<void> delete(File file) async {
     if (await file.exists()) await file.delete();
+    await _dropSideFiles(file);
   }
 
   /// Into the trash: it stays there a week (restorable), then goes.
@@ -259,6 +322,7 @@ class ProjectStore {
     await File('${_trash.path}/${file.uri.pathSegments.last}')
         .writeAsString(const JsonEncoder.withIndent('  ').convert(data));
     await file.delete();
+    await _dropSideFiles(file);
   }
 
   /// Back out of the trash into the project list.

@@ -1,3 +1,4 @@
+import 'json_repair.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -100,20 +101,13 @@ Future<void> saveProjectToFile(File file, Project project,
     String? projectId,
     int revision = 0,
     DateTime? savedAt,
-    Map<String, dynamic>? ui}) async {
+    Map<String, dynamic>? ui,
+    bool keepBackup = true}) async {
   final data = {
     'version': 1,
     if (projectId != null) 'id': projectId,
     'revision': revision,
     'savedAt': (savedAt ?? DateTime.now()).toUtc().toIso8601String(),
-    'project': {
-      'layers': projectLayersToJson(project),
-      if (project.stageWalls) 'stageWalls': true,
-      if (project.gravity != 0) 'gravity': project.gravity,
-      if (project.gravityAngle != 90) 'gravityAngle': project.gravityAngle,
-      if (project.markers.isNotEmpty) 'markers': project.markers,
-      if (project.gravityWays.isNotEmpty) 'gravityWays': [for (final (f, a) in project.gravityWays) [f, a]],
-    },
     'maxFrame': maxFrame,
     'playbackSpeed': playbackSpeed,
     'selectedLayer': selectedLayer,
@@ -128,8 +122,19 @@ Future<void> saveProjectToFile(File file, Project project,
     if (mirrorY) 'mirrorY': true,
     if (projectFps != 60) 'fps': projectFps,
     if (ui != null && ui.isNotEmpty) 'ui': ui,
+    // the layers last: a file cut short still has its name, size and rate.
+    'project': {
+      if (project.stageWalls) 'stageWalls': true,
+      if (project.gravity != 0) 'gravity': project.gravity,
+      if (project.gravityAngle != 90) 'gravityAngle': project.gravityAngle,
+      if (project.markers.isNotEmpty) 'markers': project.markers,
+      if (project.gravityWays.isNotEmpty) 'gravityWays': [for (final (f, a) in project.gravityWays) [f, a]],
+      'layers': projectLayersToJson(project),
+    },
   };
-  await file.writeAsString(const JsonEncoder.withIndent('  ').convert(data));
+  // never left cut short by the app closing part way (the project
+  // vanished from the list): written aside first, the version before kept.
+  await writeFileSafely(file, const JsonEncoder.withIndent('  ').convert(data), keepBackup: keepBackup);
 }
 
 /// Throws FormatException on a file that isn't a recognized project

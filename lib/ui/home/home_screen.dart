@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
+import '../../io/crash_log.dart';
 import '../../i18n.dart';
 
 import '../../app_state.dart';
@@ -116,9 +118,18 @@ class _HomeScreenState extends State<HomeScreen> {
       ..onOpenProject = _openById;
     await app.openProject(meta.file);
     if (!mounted) return;
+    // a crash in it is told where it was.
+    CrashLog.instance?.status = () => {
+          'project': app.projectName,
+          'frame': app.currentFrame,
+          'playing': app.playing,
+          'layers': app.project.layers.length,
+          'refs': app.project.layers.where((l) => l.content.shape == 'projectRef').length,
+        };
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => player ? PlayerScreen(app: app) : EditorScreen(appState: app)),
     );
+    CrashLog.instance?.status = null;
     // closed: drop videos no project uses any more (after the final save,
     // so a video imported in this session is still referenced).
     await app.saveNow();
@@ -262,6 +273,36 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    // the app closed unexpectedly last time: where it was and what went
+    // wrong, to be sent on.
+    final log = CrashLog.instance;
+    final crash = log?.lastCrash;
+    if (log != null && crash != null) {
+      log.lastCrash = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final text = log.describe(crash);
+        showDialog<void>(
+          context: context,
+          builder: (c) => AlertDialog(
+            key: const ValueKey('crash-report'),
+            title: Text(tr('MCore closed unexpectedly')),
+            content: SingleChildScrollView(child: SelectableText(text, style: const TextStyle(fontSize: 12))),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: text));
+                  Navigator.pop(c);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('Copied - send it to fix the crash'))));
+                },
+                child: Text(tr('Copy report')),
+              ),
+              TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('OK'))),
+            ],
+          ),
+        );
+      });
+    }
     // the last start never got going: said, with a backup at hand.
     if (widget.safeStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

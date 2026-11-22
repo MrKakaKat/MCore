@@ -27,7 +27,7 @@ void main() {
 
   // real file IO doesn't advance inside the fake-async test zone.
   Future<void> settle(WidgetTester tester) async {
-    for (var i = 0; i < 10; i++) {
+    for (var i = 0; i < 20; i++) {
       await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
       await tester.pump();
     }

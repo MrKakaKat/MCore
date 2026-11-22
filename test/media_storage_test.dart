@@ -263,6 +263,11 @@ void main() {
       expect(find.textContaining('Deleted layers can no longer be brought back'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('storage-confirm')));
       await settle(tester);
+      // (the save goes through a side file first: a few more steps)
+      for (var i = 0; i < 200 && videoOnDisk('vUI'); i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump();
+      }
       expect(app.undo.length, 0);
       expect(videoOnDisk('vUI'), isFalse);
       await tester.pumpWidget(const SizedBox());
