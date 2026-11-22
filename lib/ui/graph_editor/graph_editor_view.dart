@@ -90,7 +90,87 @@ class GraphEditorView extends StatefulWidget {
 }
 
 class _GraphEditorViewState extends State<GraphEditorView> {
-  late final GraphEditorState _state;
+  late GraphEditorState _state;
+
+  /// A master key (every parameter keyed there): null eases them all as
+  /// one; a name eases only that parameter's key.
+  String? _onlyParam;
+
+  /// The master key's frame (local) and its layer, when it is one.
+  ({Layer layer, int frame})? get _masterKey {
+    if (_state.wholePath || _state.track.keyframes.length < 2) return null;
+    final layer = findLayer(widget.app.project, widget.app.selection.selectedLayer);
+    if (layer == null) return null;
+    final frame = _onlyParam == null ? _state.currentSegmentKeyframes().$2.frame : _pickedFrame;
+    if (frame == null || !(masterKeysShareEase || widget.shared) || !allTracksKeyedAt(layer, frame)) return null;
+    return (layer: layer, frame: frame);
+  }
+
+  int? _pickedFrame;
+
+  /// The master key's parameters (name -> its track).
+  List<(String, Track)> _keyedParams(Layer layer, int frame) {
+    final out = <(String, Track)>[];
+    final seen = <Track>{};
+    visitLayerTracksNamed(layer, (n, t) {
+      if (seen.add(t) && t.keyframes.any((k) => k.frame == frame)) out.add((n, t));
+    });
+    return out;
+  }
+
+  void _pickParam(String? name) {
+    final mk = _masterKey;
+    if (mk == null) return;
+    Track track = widget.track;
+    if (name != null) {
+      for (final (n, t) in _keyedParams(mk.layer, mk.frame)) {
+        if (n == name) track = t;
+      }
+    }
+    final i = track.keyframes.indexWhere((k) => k.frame == mk.frame);
+    if (i < 1) return;
+    setState(() {
+      _onlyParam = name;
+      _pickedFrame = mk.frame;
+      _state = GraphEditorState(track: track, componentCount: track.defaultValue is List ? 2 : 1, segmentIndex: i - 1);
+    });
+  }
+
+  /// The master key's parameters to ease one by one.
+  Widget _paramChips() {
+    final mk = _masterKey;
+    if (mk == null) return const SizedBox.shrink();
+    return SingleChildScrollView(
+      key: const ValueKey('ease-params'),
+      scrollDirection: Axis.horizontal,
+      child: Row(children: [
+        Padding(
+          padding: const EdgeInsets.only(right: 4),
+          child: ChoiceChip(
+            key: const ValueKey('ease-param-all'),
+            visualDensity: VisualDensity.compact,
+            labelStyle: const TextStyle(fontSize: 12),
+            label: const Text('All'),
+            selected: _onlyParam == null,
+            onSelected: (_) => _pickParam(null),
+          ),
+        ),
+        for (final (n, t) in _keyedParams(mk.layer, mk.frame))
+          if (t.keyframes.indexWhere((k) => k.frame == mk.frame) >= 1)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: ChoiceChip(
+                key: ValueKey('ease-param-$n'),
+                visualDensity: VisualDensity.compact,
+                labelStyle: const TextStyle(fontSize: 12),
+                label: Text(n),
+                selected: _onlyParam == n,
+                onSelected: (_) => _pickParam(n),
+              ),
+            ),
+      ]),
+    );
+  }
 
   /// Switch: edit the bezier as its speed graph instead of the square.
   static bool speedView = false;
@@ -100,12 +180,28 @@ class _GraphEditorViewState extends State<GraphEditorView> {
     super.initState();
     _state = GraphEditorState(
         track: widget.track, componentCount: widget.componentCount, wholePath: widget.wholePath, segmentIndex: widget.segment);
+    // keys moved or eased elsewhere (the timeline, the head): the numbers
+    // here follow at once.
+    widget.app.addListener(_appChanged);
+  }
+
+  void _appChanged() {
+    if (!mounted) return;
+    final n = _state.track.keyframes.length;
+    if (!_state.wholePath && n >= 2) _state.segmentIndex = _state.segmentIndex.clamp(0, n - 2);
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.app.removeListener(_appChanged);
+    super.dispose();
   }
 
   void _updateEasing(Easing next) {
     setState(() => _state.setEditingTemporal(next));
     // a master key (every parameter keyed at that frame) keeps one ease.
-    if (!_state.wholePath && (masterKeysShareEase || widget.shared)) {
+    if (!_state.wholePath && _onlyParam == null && (masterKeysShareEase || widget.shared)) {
       final layer = findLayer(widget.app.project, widget.app.selection.selectedLayer);
       final (_, k1) = _state.currentSegmentKeyframes();
       if (layer != null && allTracksKeyedAt(layer, k1.frame)) shareEaseAtFrame(layer, k1.frame, next);
@@ -123,6 +219,10 @@ class _GraphEditorViewState extends State<GraphEditorView> {
 
   @override
   Widget build(BuildContext context) {
+    // the keys gone meanwhile (fewer than two, no whole-path ease): nothing to edit.
+    if ((_state.wholePath && _state.track.globalEasing == null) || (!_state.wholePath && _state.track.keyframes.length < 2)) {
+      return const SizedBox.shrink();
+    }
     final t = _state.getEditingTemporal();
     // Compact: the curve beside its result and its numbers, one row of
     // types; no scrolling around the curve - its drags never fight a
@@ -173,6 +273,8 @@ class _GraphEditorViewState extends State<GraphEditorView> {
                     if (!_state.wholePath) _segmentTabs(),
                   ]),
                 ),
+              // a master key: all its parameters as one, or one by one.
+              _paramChips(),
               const SizedBox(height: 4),
               Row(children: [
                 Expanded(child: _kindChips(t)),
@@ -250,57 +352,111 @@ class _GraphEditorViewState extends State<GraphEditorView> {
   }
 
   /// The ease type: the bezier square, or an overshoot (passes the end
-  /// and settles back) / anticipation (swings back before leaving).
+  /// and settles back) and / or an anticipation (swings back before
+  /// leaving) - each switched on by itself, both together too.
   Widget _kindChips(Easing t) {
-    const kinds = [('bezier', 'Bezier'), ('overshoot', 'Overshoot'), ('anticipate', 'Anticipate')];
     return Wrap(
       spacing: 4,
       children: [
-        for (final (kind, label) in kinds)
-          ChoiceChip(
-            key: ValueKey('ease-kind-$kind'),
-            visualDensity: VisualDensity.compact,
-            labelStyle: const TextStyle(fontSize: 12),
-            label: Text(label),
-            selected: t.kind == kind,
-            onSelected: (_) => _updateEasing(t.withOvershoot(kind: kind)),
-          ),
+        ChoiceChip(
+          key: const ValueKey('ease-kind-bezier'),
+          visualDensity: VisualDensity.compact,
+          labelStyle: const TextStyle(fontSize: 12),
+          label: const Text('Bezier'),
+          selected: !t.isOvershoot,
+          onSelected: (_) => _updateEasing(t.withOver(on: false).withAnticipate(on: false)),
+        ),
+        FilterChip(
+          key: const ValueKey('ease-kind-anticipate'),
+          visualDensity: VisualDensity.compact,
+          labelStyle: const TextStyle(fontSize: 12),
+          label: const Text('Anticipate'),
+          selected: t.ant,
+          onSelected: (v) => _updateEasing(t.withAnticipate(on: v)),
+        ),
+        FilterChip(
+          key: const ValueKey('ease-kind-overshoot'),
+          visualDensity: VisualDensity.compact,
+          labelStyle: const TextStyle(fontSize: 12),
+          label: const Text('Overshoot'),
+          selected: t.over,
+          onSelected: (v) => _updateEasing(t.withOver(on: v)),
+        ),
       ],
     );
   }
 
+  /// How far, how many swings, how fast they die out - for the swing
+  /// back (anticipation) and the overshoot, each its own.
   Widget _overshootControls(Easing t) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(t.kind == 'overshoot' ? 'How far past the end' : 'How far back before leaving',
-            style: const TextStyle(fontSize: 12)),
+    Widget section(
+        {required String prefix,
+        required String title,
+        required double amount,
+        required int bounces,
+        required double damping,
+        required Easing Function({double? amount, int? bounces, double? damping}) set}) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: const TextStyle(fontSize: 12)),
         Row(children: [
           Expanded(
             child: Slider(
-              key: const ValueKey('ease-overshoot-amount'),
-              value: t.amount.clamp(0.02, 0.6),
+              key: ValueKey('$prefix-amount'),
+              value: amount.clamp(0.02, 0.6),
               min: 0.02,
               max: 0.6,
-              onChanged: (v) => _updateEasing(t.withOvershoot(amount: v)),
+              onChanged: (v) => _updateEasing(set(amount: v)),
             ),
           ),
-          SizedBox(width: 40, child: Text('${(t.amount * 100).round()}%', style: const TextStyle(fontSize: 12))),
+          SizedBox(width: 40, child: Text('${(amount * 100).round()}%', style: const TextStyle(fontSize: 12))),
         ]),
         Row(children: [
-          const Text('Extra swings', style: TextStyle(fontSize: 12)),
+          const Text('Swings', style: TextStyle(fontSize: 12)),
           IconButton(
-            key: const ValueKey('ease-bounces-minus'),
+            key: ValueKey(prefix == 'ease-overshoot' ? 'ease-bounces-minus' : '$prefix-bounces-minus'),
             icon: const Icon(Icons.remove, size: 18),
-            onPressed: t.bounces <= 0 ? null : () => _updateEasing(t.withOvershoot(bounces: t.bounces - 1)),
+            onPressed: bounces <= 0 ? null : () => _updateEasing(set(bounces: bounces - 1)),
           ),
-          Text('${t.bounces}'),
+          Text('$bounces'),
           IconButton(
-            key: const ValueKey('ease-bounces-plus'),
+            key: ValueKey(prefix == 'ease-overshoot' ? 'ease-bounces-plus' : '$prefix-bounces-plus'),
             icon: const Icon(Icons.add, size: 18),
-            onPressed: t.bounces >= 5 ? null : () => _updateEasing(t.withOvershoot(bounces: t.bounces + 1)),
+            onPressed: bounces >= 8 ? null : () => _updateEasing(set(bounces: bounces + 1)),
+          ),
+          const SizedBox(width: 8),
+          const Text('Fading', style: TextStyle(fontSize: 12)),
+          Expanded(
+            child: Slider(
+              key: ValueKey('$prefix-damping'),
+              value: damping.clamp(0.3, 3.0),
+              min: 0.3,
+              max: 3,
+              onChanged: bounces == 0 ? null : (v) => _updateEasing(set(damping: v)),
+            ),
           ),
         ]),
+      ]);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (t.ant)
+          section(
+              prefix: 'ease-ant',
+              title: 'Anticipate: how far back before leaving',
+              amount: t.antAmount,
+              bounces: t.antBounces,
+              damping: t.antDamping,
+              set: ({amount, bounces, damping}) => t.withAnticipate(amount: amount, bounces: bounces, damping: damping)),
+        if (t.over)
+          section(
+              prefix: 'ease-overshoot',
+              title: 'Overshoot: how far past the end',
+              amount: t.amount,
+              bounces: t.bounces,
+              damping: t.damping,
+              set: ({amount, bounces, damping}) => t.withOver(amount: amount, bounces: bounces, damping: damping)),
       ],
     );
   }

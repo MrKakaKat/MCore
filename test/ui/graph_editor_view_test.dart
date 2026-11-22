@@ -175,4 +175,26 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('ease-speed-view')));
     await tester.pump();
   });
+
+  testWidgets('a master key: each parameter eased on its own, or all of them as one', (tester) async {
+    final l = createLayer('rect')..id = 'M';
+    for (final t in [l.transform.anchor, l.transform.rotation, l.transform.scale, l.transform.opacity]) {
+      t.keyframes = [Keyframe(frame: 0, value: t.defaultValue), Keyframe(frame: 20, value: t.defaultValue)];
+    }
+    app.project.layers.add(l);
+    app.selectLayer('M');
+    await pump(tester, GraphEditorView(app: app, track: l.transform.anchor, componentCount: 2, shared: true));
+    expect(find.byKey(const ValueKey('ease-param-all')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('ease-param-rotation')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('ease-kind-overshoot')));
+    await tester.pump();
+    expect(l.transform.rotation.keyframes[1].temporal.over, isTrue);
+    expect(l.transform.anchor.keyframes[1].temporal.over, isFalse, reason: 'only rotation');
+    await tester.tap(find.byKey(const ValueKey('ease-param-all')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('ease-kind-anticipate')));
+    await tester.pump();
+    expect(l.transform.opacity.keyframes[1].temporal.ant, isTrue, reason: 'all of them');
+  });
 }

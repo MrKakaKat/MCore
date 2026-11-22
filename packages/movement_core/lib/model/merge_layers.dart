@@ -46,7 +46,7 @@ String? mergeWarning(Layer layer) {
   final lost = [
     if (keyed) 'keys',
     if (layer.effectStack.any((i) => i.enabled)) 'effects',
-    if (layer.motionBlur.enabled || layer.wiggle.enabled || layer.pendulum.enabled || layer.swing.enabled) 'motion',
+    if (layer.motionBlur.enabled || layer.wiggle.enabled || layer.scaleWiggle.enabled || layer.pendulum.enabled || layer.swing.enabled) 'motion',
     if (layer.transform.pathFollow.enabled) 'path',
     if (layer.pieceClips.isNotEmpty) 'masks',
   ];
@@ -71,10 +71,12 @@ bool layerIsStill(Project project, Layer layer, [Set<String>? seen]) {
   final s = seen ?? <String>{};
   if (!s.add(layer.id)) return false;
   final shape = layer.content.shape;
-  if (shape == 'video' || shape == 'audio') return false;
+  // what plays on by itself: a film, a sound, another project, a trail,
+  // an animated picture.
+  if (shape == 'video' || shape == 'audio' || shape == 'projectRef' || shape == 'trail' || shape == 'gif') return false;
   if ((layer.precompose ?? false) || layer.masks.isNotEmpty || layer.maskRegions != null || layer.transform.pathFollow.enabled) return false;
   if (layer.mirrorSourceId != null) return false; // shows what is below it
-  if (layer.motionBlur.enabled || layer.wiggle.enabled || layer.pendulum.enabled || layer.swing.enabled) return false;
+  if (layer.motionBlur.enabled || layer.wiggle.enabled || layer.scaleWiggle.enabled || layer.pendulum.enabled || layer.swing.enabled) return false;
   // moved by something else than its own keys: physics, follow, links,
   // what lies under it (glass / scene filters, light wrap), another
   // layer's picture on its back, the fractal warp's own time.
@@ -84,6 +86,8 @@ bool layerIsStill(Project project, Layer layer, [Set<String>? seen]) {
     return false;
   }
   if (layer.backSourceId != null || layer.dig) return false;
+  // shown / hidden or moved in the order at its borders.
+  if (layer.stackKeys.isNotEmpty) return false;
   var moving = false;
   visitLayerTracks(layer, (t) => moving = moving || t.keyframes.isNotEmpty || t.expression != null);
   if (moving) return false;

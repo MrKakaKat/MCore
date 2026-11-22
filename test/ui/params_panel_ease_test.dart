@@ -118,6 +118,8 @@ void main() {
 
     expect(easeButtonInRow, findsNothing);
 
+    await tester.ensureVisible(checkbox);
+    await tester.pump();
     await tester.tap(checkbox);
     await tester.pump();
 
@@ -148,6 +150,8 @@ void main() {
     expect(easeButtonFinder, findsOneWidget);
 
     final wholePathRow = find.ancestor(of: find.text('Whole path'), matching: find.byType(Row)).first;
+    await tester.ensureVisible(find.descendant(of: wholePathRow, matching: find.byType(Checkbox)));
+    await tester.pump();
     await tester.tap(find.descendant(of: wholePathRow, matching: find.byType(Checkbox)));
     await tester.pump();
 
@@ -165,6 +169,8 @@ void main() {
     await pump(tester);
 
     final wholePathRow = find.ancestor(of: find.text('Whole path'), matching: find.byType(Row)).first;
+    await tester.ensureVisible(find.descendant(of: wholePathRow, matching: find.byType(Checkbox)));
+    await tester.pump();
     await tester.tap(find.descendant(of: wholePathRow, matching: find.byType(Checkbox)));
     await tester.pump();
 

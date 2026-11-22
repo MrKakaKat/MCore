@@ -48,7 +48,7 @@ class _StackOrderFolderState extends State<StackOrderFolder> {
     final layer = findLayer(app.project, app.selection.selectedLayer);
     final keyed = [
       for (final l in app.project.layers.reversed)
-        if (l.stackKeys.isNotEmpty || l.stackBase != null) l
+        if (l.stackKeys.isNotEmpty || l.stackBase != null || l.stackBaseHidden) l
     ];
     final place = layer == null ? 1 : stackPlaceOf(app.project, layer, app.currentFrame);
     return ExpansionTile(
@@ -74,6 +74,15 @@ class _StackOrderFolderState extends State<StackOrderFolder> {
             ),
             Text('(${_stretch(layer, app.currentFrame)}; the list\'s numbers, 1: the bottom)',
                 style: const TextStyle(fontSize: 12)),
+            // shown or not in this stretch.
+            FilterChip(
+              key: const ValueKey('stack-visible'),
+              avatar: Icon(stackHiddenAt(layer, app.currentFrame) ? Icons.visibility_off : Icons.visibility, size: 16),
+              label: Text(stackHiddenAt(layer, app.currentFrame) ? 'Hidden here' : 'Shown here'),
+              selected: !stackHiddenAt(layer, app.currentFrame),
+              showCheckmark: false,
+              onSelected: (v) => app.setStackHiddenHere(layer.id, !v),
+            ),
             OutlinedButton.icon(
               key: const ValueKey('stack-key-add'),
               icon: const Icon(Icons.diamond_outlined, size: 14),
@@ -86,7 +95,7 @@ class _StackOrderFolderState extends State<StackOrderFolder> {
             for (final k in layer.stackKeys)
               InputChip(
                 key: ValueKey('stack-key-${k.frame}'),
-                label: Text('${layer.startFrame + k.frame}: ${k.position}', style: const TextStyle(fontSize: 12)),
+                label: Text('${layer.startFrame + k.frame}: ${k.hidden ? 'hidden' : k.position}', style: const TextStyle(fontSize: 12)),
                 onPressed: () => app.setFrame(layer.startFrame + k.frame),
                 onDeleted: () => app.removeStackKey(layer.id, k.frame),
               ),

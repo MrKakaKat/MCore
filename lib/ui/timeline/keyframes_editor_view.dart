@@ -127,10 +127,11 @@ class KeyframesEditorView extends StatelessWidget {
           const Text('None yet: hold the playhead, or Mark here.', style: TextStyle(fontSize: 11, color: Colors.grey))
         else
           Wrap(spacing: 6, runSpacing: 4, children: [
-            for (final f in marks)
+            // numbered in time order (cleared: from 1 again).
+            for (final (i, f) in marks.indexed)
               InputChip(
                 key: ValueKey('mark-$f'),
-                label: Text('$f', style: const TextStyle(fontSize: 12)),
+                label: Text('${i + 1} · $f', style: const TextStyle(fontSize: 12)),
                 selected: f == app.currentFrame,
                 visualDensity: VisualDensity.compact,
                 onPressed: () => app.setFrame(f),

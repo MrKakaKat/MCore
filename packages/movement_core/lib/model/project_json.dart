@@ -26,15 +26,28 @@ Map<String, dynamic> easingToJson(Easing e) => {
       'y1': e.y1,
       'x2': e.x2,
       'y2': e.y2,
-      if (e.isOvershoot) 'overshoot': {'kind': e.kind, 'amount': e.amount, 'bounces': e.bounces},
+      if (e.isOvershoot)
+        'overshoot': {
+          'kind': e.kind,
+          'amount': e.amount,
+          'bounces': e.bounces,
+          if (e.damping != 1) 'damping': e.damping,
+          if (e.ant) ...{'antAmount': e.antAmount, 'antBounces': e.antBounces, if (e.antDamping != 1) 'antDamping': e.antDamping},
+        },
     };
 Easing easingFromJson(Map<String, dynamic> j) {
   final o = j['overshoot'] as Map?;
+  final kind = o == null ? 'bezier' : o['kind'] as String? ?? 'overshoot';
   return Easing((j['x1'] as num).toDouble(), (j['y1'] as num).toDouble(), (j['x2'] as num).toDouble(),
       (j['y2'] as num).toDouble(),
-      kind: o == null ? 'bezier' : o['kind'] as String? ?? 'overshoot',
+      over: kind == 'overshoot' || kind == 'both',
+      ant: kind == 'anticipate' || kind == 'both',
       amount: (o?['amount'] as num?)?.toDouble() ?? 0.2,
-      bounces: (o?['bounces'] as num?)?.toInt() ?? 0);
+      bounces: (o?['bounces'] as num?)?.toInt() ?? 0,
+      damping: (o?['damping'] as num?)?.toDouble() ?? 1,
+      antAmount: (o?['antAmount'] as num?)?.toDouble(),
+      antBounces: (o?['antBounces'] as num?)?.toInt(),
+      antDamping: (o?['antDamping'] as num?)?.toDouble() ?? 1);
 }
 
 Map<String, dynamic> spatialTangentToJson(SpatialTangent t) =>
@@ -55,8 +68,47 @@ Map<String, dynamic> keyframeToJson(Keyframe k) => {
       'temporal': easingToJson(k.temporal),
       'spatialTangent': spatialTangentToJson(k.spatialTangent),
       if (k.passive) 'passive': true,
+      if (k.hand) 'hand': true,
+      if (k.way case final w?)
+        'way': {
+          'a': w.aValue,
+          'b': w.bValue,
+          'aOut': w.aOut,
+          'bIn': w.bIn,
+          'points': [
+            for (final p in w.points)
+              {'share': p.share, 'value': p.value, 'tangent': spatialTangentToJson(p.tangent), 'temporal': easingToJson(p.temporal)}
+          ],
+        },
     };
-Keyframe keyframeFromJson(Map<String, dynamic> j) => Keyframe(
+List<double> _dl(Object? v) => [for (final e in v as List) (e as num).toDouble()];
+
+DrawnWay? _wayFromJson(Object? j) {
+  if (j is! Map) return null;
+  try {
+    return DrawnWay(
+      aValue: _dl(j['a']),
+      bValue: _dl(j['b']),
+      aOut: _dl(j['aOut']),
+      bIn: _dl(j['bIn']),
+      points: [
+        for (final p in j['points'] as List)
+          (
+            share: ((p as Map)['share'] as num).toDouble(),
+            value: _dl(p['value']),
+            tangent: spatialTangentFromJson((p['tangent'] as Map).cast<String, dynamic>()),
+            temporal: easingFromJson((p['temporal'] as Map).cast<String, dynamic>()),
+          )
+      ],
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+Keyframe keyframeFromJson(Map<String, dynamic> j) => _keyframeFromJson(j)..way = _wayFromJson(j['way']);
+
+Keyframe _keyframeFromJson(Map<String, dynamic> j) => Keyframe(
       frame: j['frame'] as int,
       value: _valueFromJson(j['value']),
       temporal: j['temporal'] != null
@@ -66,6 +118,7 @@ Keyframe keyframeFromJson(Map<String, dynamic> j) => Keyframe(
           ? spatialTangentFromJson(j['spatialTangent'] as Map<String, dynamic>)
           : null,
       passive: j['passive'] == true,
+      hand: j['hand'] == true,
     );
 
 Map<String, dynamic> trackToJson(Track t) => {
@@ -108,6 +161,12 @@ Track trackFromJson(Map<String, dynamic> j) {
   t.loopEnd = (j['loopEnd'] as num?)?.toInt();
   t.tension = (j['tension'] as num?)?.toDouble();
   t.handTangents = j['handTangents'] == true;
+  // older files: the whole track's handles were set by hand.
+  if (t.handTangents && !t.keyframes.any((k) => k.hand)) {
+    for (final k in t.keyframes) {
+      k.hand = true;
+    }
+  }
   t.openedAt = (j['openedAt'] as num?)?.toInt();
   t.constantSpeed = j['constantSpeed'] == true;
   t.animLayers = [
@@ -486,13 +545,17 @@ Map<String, dynamic> wiggleToJson(Wiggle w) => {
       'enabled': w.enabled,
       'speed': w.speed,
       'amplitude': w.amplitude,
-      'smoothness': w.smoothness
+      'smoothness': w.smoothness,
+      if (w.wiggleSeed != null && w.wiggleSeed != 0) 'offset': w.wiggleSeed,
+      if (w.axes) 'axes': true,
     };
 Wiggle wiggleFromJson(Map<String, dynamic> j) => Wiggle(
       enabled: j['enabled'] as bool? ?? false,
       speed: (j['speed'] as num?)?.toDouble() ?? 30,
       amplitude: (j['amplitude'] as num?)?.toDouble() ?? 20,
       smoothness: (j['smoothness'] as num?)?.toDouble() ?? 70,
+      wiggleSeed: (j['offset'] as num?)?.toDouble(),
+      axes: j['axes'] == true,
     );
 
 Map<String, dynamic> pendulumToJson(Pendulum p) => {
@@ -720,6 +783,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       'hidden': l.hidden,
       'motionBlur': motionBlurToJson(l.motionBlur),
       'wiggle': wiggleToJson(l.wiggle),
+      if (l.scaleWiggle.enabled) 'scaleWiggle': wiggleToJson(l.scaleWiggle),
       'pendulum': pendulumToJson(l.pendulum),
       if (l.groupedChildren != null) 'groupedChildren': l.groupedChildren,
       if (l.precompose != null) 'precompose': l.precompose,
@@ -738,8 +802,9 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.mirrorProbe) 'mirrorProbe': true,
       if (l.dig) 'dig': true,
       if (l.lens.enabled) 'lens': l.lens.toJson(),
-      if (l.stackKeys.isNotEmpty) 'stackKeys': [for (final k in l.stackKeys) [k.frame, k.position]],
+      if (l.stackKeys.isNotEmpty) 'stackKeys': [for (final k in l.stackKeys) [k.frame, k.position, if (k.hidden) 1]],
       if (l.stackBase != null) 'stackBase': l.stackBase,
+      if (l.stackBaseHidden) 'stackBaseHidden': true,
       if (l.scaleOrigin != null) 'scaleOrigin': l.scaleOrigin,
       if (l.rotateOrigin != null) 'rotateOrigin': l.rotateOrigin,
       if (l.editAll) 'editAll': true,
@@ -754,6 +819,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.mirrorAllLayers) 'mirrorAllLayers': true,
       if (l.locked) 'locked': true,
       if (l.parentKeepDifference) 'parentKeepDifference': true,
+      if (l.parentOutside) 'parentOutside': true,
       if (l.folder != null) 'folder': l.folder,
       if (l.rowId != null) 'row': l.rowId,
       if (l.splitRoot != null) 'splitRoot': l.splitRoot,
@@ -823,6 +889,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
 Layer layerFromJson(Map<String, dynamic> j) {
   final l = _layerFromJson(j);
   if (j['echo'] is Map) l.echo = Echo.fromJson(Map<String, dynamic>.from(j['echo'] as Map));
+  if (j['scaleWiggle'] is Map) l.scaleWiggle = wiggleFromJson(Map<String, dynamic>.from(j['scaleWiggle'] as Map));
   l.confirmHistory = [
     for (final h in (j['confirmHistory'] as List? ?? const [])) Map<String, dynamic>.from(h as Map)
   ];
@@ -966,9 +1033,10 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
       ..rotateOrigin = j['rotateOrigin'] is List ? [for (final v in j['rotateOrigin'] as List) (v as num).toDouble()] : null
       ..stackKeys = [
         for (final k in (j['stackKeys'] as List? ?? const []))
-          StackKey(((k as List)[0] as num).toInt(), (k[1] as num).toInt())
+          StackKey(((k as List)[0] as num).toInt(), (k[1] as num).toInt(), hidden: k.length > 2 && k[2] == 1)
       ]
       ..stackBase = (j['stackBase'] as num?)?.toInt()
+      ..stackBaseHidden = j['stackBaseHidden'] as bool? ?? false
       ..editAll = j['editAll'] as bool? ?? false
       ..inheritRounding = j['inheritRounding'] as bool? ?? false
       ..pathOffset = (j['pathOffset'] as List?)?.map((v) => (v as num).toDouble()).toList() ?? [0, 0]
@@ -981,6 +1049,7 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
       ..mirrorAllLayers = j['mirrorAllLayers'] == true
       ..locked = j['locked'] == true
       ..parentKeepDifference = j['parentKeepDifference'] == true
+      ..parentOutside = j['parentOutside'] == true
       ..folder = j['folder'] as String?
       ..mirrorSourceId = (j['mirror'] as Map?)?['source'] as String?
       ..mirrorAxis = (j['mirror'] as Map?)?['axis'] as String? ?? 'x';

@@ -278,6 +278,35 @@ class _DetachSectionState extends State<_DetachSection> {
           ],
         ),
         const Hint('Uses that layer\'s shape as it is now, at the current frame.'),
+        // what was applied, newest first: each one put back, or its line
+        // brought back to change it.
+        if (layer.pieceClips.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          const Text('Applied cuts', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          for (var i = layer.pieceClips.length - 1; i >= 0; i--)
+            ListTile(
+              key: ValueKey('crop-history-$i'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.history, size: 18),
+              title: Text('Cut ${i + 1}${layer.pieceClips[i].inside ? ' (outside kept)' : ''}'),
+              subtitle: Text('${layer.pieceClips[i].points.length} points'),
+              trailing: Wrap(children: [
+                IconButton(
+                  key: ValueKey('crop-history-edit-$i'),
+                  tooltip: 'its line again, to change and apply',
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  onPressed: () => app.editPieceCut(layer.id, i),
+                ),
+                IconButton(
+                  key: ValueKey('crop-history-undo-$i'),
+                  tooltip: 'put this cut back',
+                  icon: const Icon(Icons.restore, size: 18),
+                  onPressed: () => app.removePieceCut(layer.id, i),
+                ),
+              ]),
+            ),
+        ],
         if (layer.pieceClips.isNotEmpty)
           Align(
             alignment: Alignment.centerLeft,

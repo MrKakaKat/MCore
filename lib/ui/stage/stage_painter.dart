@@ -73,6 +73,10 @@ bool cameraViewActive = false;
 /// grid (off: the grid alone outlines the shape).
 bool showBoxOverEffectGrid = false;
 
+/// Stage: every layer's aids (ways, grids, masks), not only the picked
+/// one's.
+bool showAllVisuals = false;
+
 /// Links (dependencies) drawn on the stage, purple; the Links tab's eye.
 bool showPropLinks = true;
 const _propLinkColor = ui.Color(0xFFB065F0);
@@ -217,6 +221,20 @@ void paintStage({
     if (showMaskViz && selectedLayer != null && selectedLayer.masks.isNotEmpty) {
       _paintMaskSteps(canvas, project, selectedLayer, globalFrame, inv);
     }
+    // Stage: "Show every layer's aids" - the ways, effect grids, bend
+    // zones and masks of all the layers, not only the picked one.
+    if (showAllVisuals && !cameraViewActive) {
+      for (final l in project.layers) {
+        if (identical(l, selectedLayer) || l.hidden || isAudioShape(l.content.shape)) continue;
+        if (!getLayerStateAt(project, l.id, globalFrame).inRange) continue;
+        _paintPathVisual(canvas, project, l, globalFrame, inv);
+        if (getCornerPinInstance(l) == null && getMeshWarpInstance(l) == null) {
+          _paintEffectDeformationGrid(canvas, project, l, globalFrame, inv);
+        }
+        _paintBendZones(canvas, project, l, globalFrame, inv);
+        if (l.masks.isNotEmpty) _paintMaskSteps(canvas, project, l, globalFrame, inv);
+      }
+    }
     // "Show contour": outers orange, holes cyan, points as dots - drawn a
     // little inside the shape (into its body), so it never lies on the
     // handles' outline.
@@ -312,7 +330,7 @@ void paintStage({
     // (in camera view the scene is seen through the camera - the path and
     // effect guides are for the scene itself.)
     if (selectedLayer != null && selectedInRange && !cameraViewActive) {
-      _paintPathVisual(canvas, project, selectedLayer, globalFrame, inv);
+      _paintPathVisual(canvas, project, selectedLayer, globalFrame, inv, picked: true);
       // squeeze_axis/bend_arc (and any other vertex effect without its
       // own dedicated draggable handles) get a passive readout grid
       // here instead - see getEffectDeformationGridScreen's own doc
@@ -922,7 +940,7 @@ void _paintSnapGuides(ui.Canvas canvas, ActiveDragInfo? activeDrag, double inv) 
 }
 
 void _paintPathVisual(ui.Canvas canvas, Project project, Layer layer,
-    int globalFrame, double inv) {
+    int globalFrame, double inv, {bool picked = false}) {
   // with physics: the path and its stops are where the keys want it (the
   // push left out); the real, pushed path is drawn in green on top.
   final collide = layer.physics.collide;
@@ -989,9 +1007,13 @@ void _paintPathVisual(ui.Canvas canvas, Project project, Layer layer,
           ..style = ui.PaintingStyle.stroke
           ..strokeWidth = 1.2 * inv);
   }
+  // the picked layer's selected keys: their stops yellow.
+  final editing = activeAnimLayerOf(layer.transform.anchor)?.track ?? layer.transform.anchor;
   for (final st in stations) {
     final p = ui.Offset(st.screen[0], st.screen[1]);
-    canvas.drawCircle(p, 4 * inv, ui.Paint()..color = _stationFill);
+    final t = st.track ?? editing;
+    final keyPicked = picked && st.idx < t.keyframes.length && kfSelectedFrames.contains(t.keyframes[st.idx].frame + layer.startFrame);
+    canvas.drawCircle(p, (keyPicked ? 5.5 : 4) * inv, ui.Paint()..color = keyPicked ? const ui.Color(0xFFFFD600) : _stationFill);
     canvas.drawCircle(
       p,
       4 * inv,

@@ -60,6 +60,9 @@ void registerEdgeGlow() {
       ParamDef(key: 'strength', type: 'float', defaultValue: 0.8, range: [0, 1]),
       ParamDef(key: 'color', type: 'color', defaultValue: '#ffffff', animatable: false),
       ParamDef(key: 'position', type: 'enum', defaultValue: 'outside', animatable: false, options: ['outside', 'inside', 'both']),
+      // 'edges': the glow takes the object's own colours at its edges
+      // (each part its own, blending into each other) instead of one.
+      ParamDef(key: 'colorFrom', type: 'enum', defaultValue: 'color', animatable: false, options: ['color', 'edges']),
     ],
     apply: (grid, params, localFrame) => grid,
   ));

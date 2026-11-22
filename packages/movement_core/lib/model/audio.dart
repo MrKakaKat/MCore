@@ -199,3 +199,46 @@ Int16List pcmFromBytes(Uint8List bytes) {
   final b = ByteData.sublistView(bytes);
   return Int16List.fromList([for (var i = 0; i < n; i++) b.getInt16(i * 2, Endian.little)]);
 }
+
+/// A referenced project's sound as one clip of the host: what the
+/// source's own audio layers make, mixed (at the source's frame rate),
+/// laid out over the reference layer's length - repeated when it loops,
+/// silent past the end otherwise.
+typedef RefSound = ({Layer layer, Project source, int sourceFps, int sourceFrames, String endBehavior});
+
+/// The source's mix spread over the reference layer (host frame rate
+/// `hostFps`).
+Int16List refSoundPcm(RefSound r, Map<String, Int16List> pcmByAsset, int hostFps, {int sampleRate = audioSampleRate}) {
+  const ch = audioChannels;
+  final hostRate = fps;
+  fps = r.sourceFps;
+  final Int16List mix;
+  try {
+    mix = mixTimeline(r.source, pcmByAsset, seconds: r.sourceFrames / r.sourceFps, sampleRate: sampleRate);
+  } finally {
+    fps = hostRate;
+  }
+  final n = mix.length ~/ ch;
+  final total = (r.layer.durationFrames / hostFps * sampleRate).round();
+  final out = Int16List(total * ch);
+  if (n == 0) return out;
+  for (var i = 0; i < total; i++) {
+    var j = i;
+    if (j >= n) {
+      if (r.endBehavior != 'loop') break;
+      j %= n;
+    }
+    for (var c = 0; c < ch; c++) {
+      out[i * ch + c] = mix[j * ch + c];
+    }
+  }
+  return out;
+}
+
+/// The host clip standing for a reference's sound (`assetId` holds the
+/// PCM from refSoundPcm).
+Layer refSoundLayer(Layer ref, String assetId) => createLayer('audio')
+  ..id = 'refsound_${ref.id}'
+  ..startFrame = ref.startFrame
+  ..durationFrames = ref.durationFrames
+  ..content.audioAssetId = assetId;

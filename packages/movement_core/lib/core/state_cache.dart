@@ -73,6 +73,20 @@ List<double>? Function(Project project, String layerId, int frame)? physicsOffse
 bool physicsSuspended = false;
 
 final Map<String, LayerState> _stateCache = {};
+
+/// While true, layers are evaluated past their own time too (a child
+/// following its parent there - see Layer.parentOutside).
+bool _unclamped = false;
+
+T _withUnclamped<T>(bool on, T Function() f) {
+  if (!on || _unclamped) return f();
+  _unclamped = true;
+  try {
+    return f();
+  } finally {
+    _unclamped = false;
+  }
+}
 final Map<String, LayerBaseState> _baseStateCache = {};
 
 // cleared at the top of every render() call, and ALSO whenever
@@ -113,7 +127,7 @@ void clearStateCaches() {
 /// explicit `.round()` at their own call sites below, a deliberate,
 /// narrower fix rather than a wider one risking their own correctness.
 LayerBaseState getLayerBaseStateAt(Project project, String layerId, num globalFrame) {
-  final cacheKey = '${identityHashCode(project)}|$layerId|$globalFrame';
+  final cacheKey = '${_unclamped ? 'u' : ''}${identityHashCode(project)}|$layerId|$globalFrame';
   final cached = _baseStateCache[cacheKey];
   if (cached != null) return cached;
   final layer = findLayer(project, layerId);
@@ -126,7 +140,7 @@ LayerBaseState getLayerBaseStateAt(Project project, String layerId, num globalFr
     return const LayerBaseState(baseMatrix: [1, 0, 0, 1, 0, 0], anchor: [0, 0], baseRot: 0, scale: [1, 1], inRange: false);
   }
   final localFrame = globalFrame - layer.startFrame;
-  final clamped = math.min(layer.durationFrames, math.max(0, localFrame)).toDouble();
+  final clamped = _unclamped ? localFrame.toDouble() : math.min(layer.durationFrames, math.max(0, localFrame)).toDouble();
 
   List<double> anchor;
   final pf = layer.transform.pathFollow;
@@ -174,9 +188,13 @@ LayerBaseState getLayerBaseStateAt(Project project, String layerId, num globalFr
 
   // swing rocks the layer around its own rotation.
   final baseRot = (evaluateTrack(project, layer.transform.rotation, clamped, layer) as double) +
-      (effectActiveAt(layer, 'swing', clamped) ? evaluateSwing(layer.swing, clamped) : 0.0) +
+      (effectActiveAt(layer, 'swing', clamped) ? swingAngleAt(project, layer, clamped) : 0.0) +
       (layer.links.isEmpty ? 0.0 : linkOffset(project, layer, 'rotation', globalFrame));
   var scale = evaluateTrack(project, layer.transform.scale, clamped, layer) as List<double>;
+  if (layer.scaleWiggle.enabled && effectActiveAt(layer, 'scaleWiggle', clamped)) {
+    final k = evaluateScaleWiggle(layer, globalFrame.round());
+    scale = [scale[0] * k[0], scale[1] * k[1]];
+  }
   if (layer.links.isNotEmpty) {
     scale = [
       // its sides, and its whole size (both at once).
@@ -253,7 +271,7 @@ LayerState getLayerStateAt(Project project, String layerId, num globalFrame) {
 }
 
 LayerState _layerStateAt(Project project, String layerId, num globalFrame) {
-  final cacheKey = '${identityHashCode(project)}|$layerId|$globalFrame';
+  final cacheKey = '${_unclamped ? 'u' : ''}${identityHashCode(project)}|$layerId|$globalFrame';
   final cached = _stateCache[cacheKey];
   if (cached != null) {
     if (perfInstrumentation) perfCounters.stateHits++;
@@ -272,7 +290,7 @@ LayerState _layerStateAt(Project project, String layerId, num globalFrame) {
     return const LayerState(matrix: [1, 0, 0, 1, 0, 0], baseMatrix: [1, 0, 0, 1, 0, 0], anchor: [0, 0], rot: 0, scale: [1, 1], inRange: false);
   }
   final localFrame = globalFrame - layer.startFrame;
-  final clamped = math.min(layer.durationFrames, math.max(0, localFrame)).toDouble();
+  final clamped = _unclamped ? localFrame.toDouble() : math.min(layer.durationFrames, math.max(0, localFrame)).toDouble();
   final base = getLayerBaseStateAt(project, layerId, globalFrame);
   final anchor = base.anchor, baseRot = base.baseRot, scale = base.scale, inRange = base.inRange;
   final baseFinalMatrix = base.baseMatrix;
@@ -356,9 +374,10 @@ List<double> parentMatrixFor(Project project, Layer layer, num globalFrame) {
   final from = layer.parentFrom, until = layer.parentUntil;
   if (from != null && globalFrame < from) globalFrame = from;
   if (until != null && globalFrame > until) globalFrame = until;
-  final now = getLayerStateAt(project, pid, globalFrame).matrix;
+  final gf = globalFrame;
+  final now = _withUnclamped(layer.parentOutside, () => getLayerStateAt(project, pid, gf).matrix);
   if (layer.inheritPosition && layer.inheritRotation && layer.inheritScale && !layer.parentKeepDifference) return now;
-  final ref = getLayerStateAt(project, pid, layer.startFrame).matrix;
+  final ref = _withUnclamped(layer.parentOutside, () => getLayerStateAt(project, pid, layer.startFrame).matrix);
   final a = decomposeAffine(now), r = decomposeAffine(ref);
   var pos = layer.inheritPosition ? a.pos : r.pos;
   // its turn not followed: the parent turning round a point of its own
@@ -457,4 +476,34 @@ double motionBlurWindow(Project project, Layer layer, num globalFrame) {
   final speed = math.sqrt(dx * dx + dy * dy) + dl;
   if (speed < 1e-6) return shutter;
   return math.max(shutter, math.min(8.0, mb.sensitivity * 40 / speed));
+}
+
+/// The swing's angle at the layer's local frame. With damping it swings
+/// only from the object's moving: at full size while it moves, dying out
+/// after it stops - none before it first moves.
+double swingAngleAt(Project project, Layer layer, num localFrame) {
+  final s = layer.swing;
+  if (!s.enabled) return 0;
+  if (s.damping <= 0) return evaluateSwing(s, localFrame);
+  List<double> at(int f) {
+    final v = evaluateTrack(project, layer.transform.anchor, f.toDouble(), layer);
+    return [for (final e in v as List) (e as num).toDouble()];
+  }
+
+  final look = math.min(600, (fps * 6 / s.damping).ceil());
+  final f0 = localFrame.floor();
+  var env = 0.0;
+  var next = at(f0);
+  for (var f = f0; f > 0 && f >= f0 - look; f--) {
+    final prev = at(f - 1);
+    final moving = (next[0] - prev[0]).abs() > 1e-7 || (next[1] - prev[1]).abs() > 1e-7;
+    if (moving) {
+      env = math.exp(-s.damping * (localFrame - f) / fps);
+      break;
+    }
+    next = prev;
+  }
+  final center = (s.minAngle + s.maxAngle) / 2, amp = (s.maxAngle - s.minAngle) / 2;
+  final t = localFrame / fps;
+  return center + amp * env * math.sin(2 * math.pi * s.frequency * t + s.phase * math.pi / 180);
 }

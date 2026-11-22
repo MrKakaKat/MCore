@@ -6,12 +6,13 @@ import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show MethodChannel;
+import 'package:flutter/services.dart' show MethodChannel, rootBundle;
 import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 import '../../services/native_media.dart' show NativeVideoService;
 import '../../io/export.dart';
+import '../../io/ogg_cover.dart';
 
 /// the export dialog covering all three: a still image of the CURRENT playhead
 /// position (PNG/JPG, JPEG quality), a GIF over a frame range (fps/delay, loop
@@ -671,7 +672,15 @@ class _ExportViewState extends State<ExportView> {
       await pcm.writeAsBytes(bytes.sublist(44));
       final out = await app.audioService.encodePcm(pcm, '${tempDir.path}/sound.ogg', kbps: _audioKbps);
       final ext = out.path.split('.').last;
-      final path = await _saveBytes(exportFileName(app.projectName, ext), await out.readAsBytes());
+      var data = await out.readAsBytes();
+      // the app's logo as its cover (what players show).
+      if (ext == 'ogg') {
+        try {
+          final cover = await rootBundle.load('assets/branding/cover.png');
+          data = oggWithCover(data, cover.buffer.asUint8List(cover.offsetInBytes, cover.lengthInBytes), width: 400, height: 400);
+        } catch (_) {}
+      }
+      final path = await _saveBytes(exportFileName(app.projectName, ext), data);
       setState(() => _status = path == null ? 'Cancelled' : _saved(path));
     } finally {
       await tempDir.delete(recursive: true);

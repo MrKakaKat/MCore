@@ -489,7 +489,14 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                                   child: IgnorePointer(
                                     child: AnimatedBuilder(
                                       animation: widget.appState,
-                                      builder: (context, _) => kfSelectedFrames.isEmpty
+                                      builder: (context, _) {
+                                        // the keys kept selected on other layers count too.
+                                        final app = widget.appState;
+                                        var n = kfSelectedFrames.length;
+                                        for (final e in app.heldKeys.entries) {
+                                          if (e.key != app.selection.selectedLayer) n += e.value.length;
+                                        }
+                                        return n == 0
                                           ? const SizedBox.shrink()
                                           : Container(
                                               key: const ValueKey('selected-keys-count'),
@@ -499,9 +506,10 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                                                 borderRadius: BorderRadius.circular(4),
                                               ),
                                               child: Text(
-                                                  '${kfSelectedFrames.length} key${kfSelectedFrames.length == 1 ? '' : 's'}',
+                                                  '$n key${n == 1 ? '' : 's'}',
                                                   style: const TextStyle(fontSize: 10, color: Colors.black)),
-                                            ),
+                                            );
+                                      },
                                     ),
                                   ),
                                 ),
@@ -632,8 +640,25 @@ class _StageMenuState extends State<StageMenu> with SingleTickerProviderStateMix
   }
 
   void _toggle() {
-    setState(() => _open = !_open);
+    setState(() {
+      _open = !_open;
+      if (!_open) _exitLit = false;
+    });
     _open ? _anim.forward(from: 0) : _anim.reverse();
+  }
+
+  /// The phone's back gesture opened the fold: the way out lit up.
+  bool _exitLit = false;
+
+  /// Back: never straight out of the project - the fold opens with the
+  /// way out lit; back again folds it.
+  void _back() {
+    if (_open) {
+      _toggle();
+      return;
+    }
+    _toggle();
+    setState(() => _exitLit = true);
   }
 
   /// A menu item: shown, then gone - the menu folds.
@@ -692,8 +717,15 @@ class _StageMenuState extends State<StageMenu> with SingleTickerProviderStateMix
             ),
           ),
           if (canExit)
-            _stageOverlayIconButton(
-                icon: Icons.arrow_back, tooltip: 'projects', onPressed: _pick(() => Navigator.of(context).maybePop())),
+            KeyedSubtree(
+              key: const ValueKey('stage-menu-exit'),
+              child: _stageOverlayIconButton(
+                  icon: Icons.arrow_back,
+                  tooltip: 'projects',
+                  // lit (our purple) when the back gesture opened the fold.
+                  background: _exitLit ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.55) : null,
+                  onPressed: _pick(() => Navigator.of(context).pop())),
+            ),
         ];
         final row = <Widget>[
           if (!app.hideStageIcons) ...[
@@ -766,7 +798,7 @@ class _StageMenuState extends State<StageMenu> with SingleTickerProviderStateMix
             ),
           ),
         ];
-        return Column(
+        final menu = Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -787,6 +819,14 @@ class _StageMenuState extends State<StageMenu> with SingleTickerProviderStateMix
                   child: KeyedSubtree(key: ValueKey('stage-menu-item-$i'), child: items[i]),
                 ),
           ],
+        );
+        if (!canExit) return menu;
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _back();
+          },
+          child: menu,
         );
       },
     );
@@ -826,11 +866,12 @@ Widget _perfHud(AppState app) => Positioned(
 Widget _stageOverlayIconButton(
     {required IconData icon,
     required String tooltip,
-    required VoidCallback onPressed}) {
+    required VoidCallback onPressed,
+    Color? background}) {
   return Padding(
     padding: const EdgeInsets.all(2),
     child: Material(
-      color: Colors.black45,
+      color: background ?? Colors.black45,
       shape: const CircleBorder(),
       child: IconButton(
         icon: Icon(icon, size: 18),

@@ -255,12 +255,17 @@ List<TrackKeyframe> collectKeyframesAtFrames(
 /// spacing regardless of where the playhead is when you paste.
 class _ClipboardItem {
   final Track track;
+
+  /// The track's name (see visitLayerTracksNamed): where it goes on
+  /// another layer.
+  final String name;
   final int relFrame;
   final dynamic value;
   final Easing temporal;
   final SpatialTangent spatialTangent;
   _ClipboardItem(
       {required this.track,
+      required this.name,
       required this.relFrame,
       required this.value,
       required this.temporal,
@@ -268,6 +273,7 @@ class _ClipboardItem {
 }
 
 List<_ClipboardItem>? _clipboard;
+Layer? _clipboardFrom;
 
 /// copies the keyframe group at `selectedGlobalFrames` on `layer` -
 /// stores direct track references, so paste only makes sense back onto
@@ -280,10 +286,14 @@ void copySelectedKeyframes(Layer layer, Set<int> selectedGlobalFrames) {
   final items = collectKeyframesAtFrames(layer, localFrames);
   if (items.isEmpty) return;
   final minFrame = items.map((it) => it.keyframe.frame).reduce(math.min);
+  final names = <Track, String>{};
+  visitLayerTracksNamed(layer, (n, t) => names.putIfAbsent(t, () => n));
+  _clipboardFrom = layer;
   _clipboard = [
     for (final it in items)
       _ClipboardItem(
         track: it.track,
+        name: names[it.track] ?? '',
         relFrame: it.keyframe.frame - minFrame,
         value: it.keyframe.value is List
             ? [...(it.keyframe.value as List<double>)]
@@ -306,12 +316,24 @@ Set<int>? pasteKeyframes(Layer layer, int globalFrame) {
       layer.durationFrames, math.max(0, globalFrame - layer.startFrame));
   final touchedTracks = <Track>{};
   final newFrames = <int>{};
+  // another layer: each key into its track of the same name (a key layer
+  // it doesn't have: its base track; a parameter it doesn't have: left out).
+  final byName = <String, Track>{};
+  if (!identical(layer, _clipboardFrom)) visitLayerTracksNamed(layer, (n, t) => byName.putIfAbsent(n, () => t));
   for (final item in clip) {
+    final Track track;
+    if (identical(layer, _clipboardFrom)) {
+      track = item.track;
+    } else {
+      final t = byName[item.name] ?? byName[item.name.replaceFirst(RegExp(r' \+\d+$'), '')];
+      if (t == null) continue;
+      track = t;
+    }
     final targetFrame = localFrame + item.relFrame;
     newFrames.add(targetFrame + layer.startFrame);
     final newValue =
         item.value is List ? [...(item.value as List<double>)] : item.value;
-    final existing = item.track.keyframes
+    final existing = track.keyframes
         .cast<Keyframe?>()
         .firstWhere((k) => k!.frame == targetFrame, orElse: () => null);
     if (existing != null) {
@@ -319,13 +341,13 @@ Set<int>? pasteKeyframes(Layer layer, int globalFrame) {
       existing.temporal = item.temporal.copy();
       existing.spatialTangent = item.spatialTangent.copy();
     } else {
-      item.track.keyframes.add(Keyframe(
+      track.keyframes.add(Keyframe(
           frame: targetFrame,
           value: newValue,
           temporal: item.temporal.copy(),
           spatialTangent: item.spatialTangent.copy()));
     }
-    touchedTracks.add(item.track);
+    touchedTracks.add(track);
   }
   for (final trk in touchedTracks) {
     trk.keyframes.sort((a, b) => a.frame.compareTo(b.frame));
@@ -513,9 +535,14 @@ void unkeyAllTracks(Layer layer, int localFrame) {
 
 /// The same curve played backwards: t -> 1 - p(1 - t).
 Easing reversedEasing(Easing e) => Easing(1 - e.x2, 1 - e.y2, 1 - e.x1, 1 - e.y1,
-    kind: switch (e.kind) { 'overshoot' => 'anticipate', 'anticipate' => 'overshoot', _ => e.kind },
-    amount: e.amount,
-    bounces: e.bounces);
+    over: e.ant,
+    amount: e.antAmount,
+    bounces: e.antBounces,
+    damping: e.antDamping,
+    ant: e.over,
+    antAmount: e.amount,
+    antBounces: e.bounces,
+    antDamping: e.damping);
 
 /// "Reverse": appends a mirrored copy of the selected key cluster right
 /// after its last key, so the animation plays forward and then back.

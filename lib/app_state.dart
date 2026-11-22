@@ -25,7 +25,7 @@ import 'ui/common/hint.dart' show descriptionsVisible;
 import 'ui/common/param_editor.dart' show ParamEditor, rulerLengthScale;
 import 'ui/common/color_row.dart' show eyedropperOwner;
 import 'ui/stage/stage_camera.dart' show stageRotateEnabled;
-import 'ui/stage/stage_painter.dart' show cameraViewActive, showBoxOverEffectGrid, showFootprints, showMaskViz, showPropLinks, showRegionTints, stageRegionPickActive, stageSelectedRegionDepth, stageSelectedRegionSig, stageSelectedRegionNumber;
+import 'ui/stage/stage_painter.dart' show cameraViewActive, showAllVisuals, showBoxOverEffectGrid, showFootprints, showMaskViz, showPropLinks, showRegionTints, stageRegionPickActive, stageSelectedRegionDepth, stageSelectedRegionSig, stageSelectedRegionNumber;
 import 'services/audio_playback.dart';
 import 'services/audio_service.dart';
 import 'services/video_service.dart';
@@ -434,7 +434,22 @@ class AppState extends ChangeNotifier {
   String? audioError;
 
   /// Something in the project is heard.
-  bool get hasAudio => audibleLayers(project).isNotEmpty;
+  bool get hasAudio => audibleLayers(project).isNotEmpty || _refSounds().isNotEmpty;
+
+  /// The referenced projects that make sound (see refSoundPcm).
+  List<RefSound> _refSounds() => [
+        for (final l in project.layers)
+          if (l.content.shape == 'projectRef' && !l.hidden)
+            if (refStatus(l.content, refSources, renderer.refChain) == RefStatus.ok)
+              if (refSourceOf(l.content, refSources) case final s? when audibleLayers(s.project).isNotEmpty)
+                (
+                  layer: cloneLayer(l),
+                  source: Project(fps: s.fps, layers: [for (final a in audibleLayers(s.project)) cloneLayer(a)]),
+                  sourceFps: s.fps,
+                  sourceFrames: s.durationFrames,
+                  endBehavior: l.content.refEndBehavior,
+                ),
+      ];
 
   /// The waveform of an imported sound (see computePeaks), or null while
   /// it isn't decoded.
@@ -534,16 +549,31 @@ class AppState extends ChangeNotifier {
   Future<File?> buildAudioMix({double? seconds, File? into}) async {
     final store = audioStore;
     final layers = audibleLayers(project);
-    if (store == null || layers.isEmpty) return null;
+    // the sound of the projects placed in this one too.
+    final refs = _refSounds();
+    if (store == null || (layers.isEmpty && refs.isEmpty)) return null;
     final length = seconds ?? (maxFrame + 1) / fps;
     final pcm = <String, Int16List>{};
-    for (final id in {for (final l in layers) l.content.audioAssetId!}) {
-      if (store.pcmFile(id).existsSync()) pcm[id] = await _loadPcm(store, id);
+    for (final id in {
+      for (final l in layers) l.content.audioAssetId!,
+      for (final r in refs)
+        for (final a in r.source.layers) a.content.audioAssetId!,
+    }) {
+      try {
+        if (store.pcmFile(id).existsSync()) pcm[id] = await _loadPcm(store, id);
+      } catch (_) {
+        // a broken sound file: silent, the rest still mixes.
+      }
     }
     final snapshot = Project(fps: project.fps, layers: [for (final l in layers) cloneLayer(l)]);
     final rate = fps;
     final bytes = await Isolate.run(() {
       fps = rate; // the engine's frame rate is a per-isolate global
+      for (final r in refs) {
+        final id = 'refsound:${r.layer.id}';
+        pcm[id] = refSoundPcm(r, pcm, rate);
+        snapshot.layers.add(refSoundLayer(r.layer, id));
+      }
       return wavBytes(mixTimeline(snapshot, pcm, seconds: length));
     });
     final out = into ?? File('${store.pcmRoot.path}/preview_${_audioMixKey().hashCode.toUnsigned(32).toRadixString(16)}.wav');
@@ -553,7 +583,12 @@ class AppState extends ChangeNotifier {
   }
 
   /// Everything the preview mix depends on.
-  String _audioMixKey() => jsonEncode([fps, maxFrame, for (final l in audibleLayers(project)) layerToJson(l)]);
+  String _audioMixKey() => jsonEncode([
+        fps,
+        maxFrame,
+        for (final l in audibleLayers(project)) layerToJson(l),
+        for (final r in _refSounds()) [layerToJson(r.layer), for (final a in r.source.layers) layerToJson(a)],
+      ]);
 
   // ===== playback =====
 
@@ -687,7 +722,7 @@ class AppState extends ChangeNotifier {
 
   /// Playback starts over at the end (on) or stops there (off). Saved with
   /// the project.
-  bool loopPlayback = true;
+  bool loopPlayback = false;
 
 
   /// Timeline detail rows under the focused layer: 'none', 'effects'
@@ -1305,6 +1340,35 @@ class AppState extends ChangeNotifier {
     final w = b.maxX - b.minX, h = b.maxY - b.minY;
     if (w <= 0 || h <= 0 || maxX <= minX || maxY <= minY) return false;
     undo.pushUndoState(project);
+    layer.crop = [
+      ((minX - b.minX) / w).clamp(0.0, 0.95),
+      ((minY - b.minY) / h).clamp(0.0, 0.95),
+      ((b.maxX - maxX) / w).clamp(0.0, 0.95),
+      ((b.maxY - maxY) / h).clamp(0.0, 0.95),
+    ];
+    commitEdit();
+    return true;
+  }
+
+  /// The box drawn in to the shape's own points (its corners / a line's
+  /// points, as its effects bend them now) - not to the pixels drawn.
+  /// One undo step; false when there's nothing to fit.
+  bool fitBoxToPoints(String layerId) {
+    final layer = findLayer(project, layerId);
+    if (layer == null) return false;
+    final pts = getContentOutline(layer.content, layer, currentFrame, project: project);
+    if (pts.length < 2) return false;
+    var minX = double.infinity, minY = double.infinity, maxX = -double.infinity, maxY = -double.infinity;
+    for (final q in pts) {
+      minX = math.min(minX, q[0]);
+      minY = math.min(minY, q[1]);
+      maxX = math.max(maxX, q[0]);
+      maxY = math.max(maxY, q[1]);
+    }
+    final b = shapeBoundingBox(layer.content);
+    final w = b.maxX - b.minX, h = b.maxY - b.minY;
+    if (w <= 0 || h <= 0 || maxX <= minX || maxY <= minY) return false;
+    pushUndo();
     layer.crop = [
       ((minX - b.minX) / w).clamp(0.0, 0.95),
       ((minY - b.minY) / h).clamp(0.0, 0.95),
@@ -2509,7 +2573,8 @@ class AppState extends ChangeNotifier {
     if (s <= 0 || s >= layer.durationFrames) return;
     pushUndo();
     final right = splitLayer(project, layer, currentFrame, _newLayerId());
-    if (right != null) selection.selectedLayer = right.id;
+    // the piece after the cut is the one picked (and focused).
+    if (right != null) selectLayer(right.id);
     _fitTimeline();
     _render();
     notifyListeners();
@@ -2561,6 +2626,29 @@ class AppState extends ChangeNotifier {
     replaceLayerContent(layer, content);
     _render();
     notifyListeners();
+  }
+
+  /// Replace content with another layer's (this project): its shape or
+  /// media, and the keys that come with it (a line's points, a text's)
+  /// at the same moments as there - keys that fall outside this layer's
+  /// time are kept there, outside it. One undo step.
+  void replaceLayerContentFromLayer(String id, String sourceId) {
+    final layer = findLayer(project, id), src = findLayer(project, sourceId);
+    if (layer == null || src == null || identical(layer, src)) return;
+    final content = contentFromJson(contentToJson(src.content));
+    final shift = src.startFrame - layer.startFrame;
+    if (shift != 0) {
+      final carrier = createLayer('rect')..content = content;
+      for (final t in [carrier.transform.anchor, carrier.transform.rotation, carrier.transform.scale, carrier.transform.opacity]) {
+        t.keyframes.clear();
+      }
+      visitLayerTracks(carrier, (t) {
+        for (final k in t.keyframes) {
+          k.frame += shift;
+        }
+      });
+    }
+    replaceLayerContentWith(id, content);
   }
 
   /// Copy/paste parameters (Layers tab): everything except the shape and
@@ -2633,7 +2721,18 @@ class AppState extends ChangeNotifier {
     final l = findLayer(project, layerId);
     if (l == null) return;
     pushUndo();
-    setStackKey(l, currentFrame - l.startFrame, stackPlaceOf(project, l, currentFrame));
+    setStackKey(l, currentFrame - l.startFrame, stackPlaceOf(project, l, currentFrame),
+        hidden: stackHiddenAt(l, currentFrame));
+    commitEdit();
+  }
+
+  /// Order on stage: the layer shown or not in the stretch at the
+  /// playhead. One undo step.
+  void setStackHiddenHere(String layerId, bool hidden) {
+    final l = findLayer(project, layerId);
+    if (l == null) return;
+    pushUndo();
+    setStackHiddenAt(l, currentFrame - l.startFrame, hidden);
     commitEdit();
   }
 
@@ -2974,6 +3073,33 @@ class AppState extends ChangeNotifier {
     final ref = findLayer(project, referenceId);
     if (ref == null || referenceId == layerId) return null;
     return _detach(layerId, (l) => layerShapeRegion(project, l, ref, currentFrame));
+  }
+
+  /// Puts back one of a layer's own cuts (Crop: Applied cuts).
+  void removePieceCut(String layerId, int i) {
+    final layer = findLayer(project, layerId);
+    if (layer == null || i < 0 || i >= layer.pieceClips.length) return;
+    pushUndo();
+    layer.pieceClips.removeAt(i);
+    clearStateCaches();
+    _render();
+    notifyListeners();
+  }
+
+  /// A cut taken back into the line tool: its points as the line (closed,
+  /// inverted as it was), to change and apply again.
+  void editPieceCut(String layerId, int i) {
+    final layer = findLayer(project, layerId);
+    if (layer == null || i < 0 || i >= layer.pieceClips.length) return;
+    pushUndo();
+    final c = layer.pieceClips.removeAt(i);
+    final m = toFrameMatrix(getLayerStateAt(project, layer.id, currentFrame).matrix);
+    cropLine = [for (final p in c.points) applyAffine(m, p)];
+    cropLineClosed = true;
+    cropLineInvert = c.inside;
+    clearStateCaches();
+    _render();
+    notifyListeners();
   }
 
   /// Puts back all of a layer's own cuts (the detached pieces stay).
@@ -3795,9 +3921,17 @@ class AppState extends ChangeNotifier {
     selection.groupSelection.clear();
     selectLayer(id);
     final l = findLayer(project, id);
-    // a shape or a picture: a Fill button in the stage's corner until it
-    // is let go.
-    if (l != null && l.content.shape != 'text' && l.content.shape != 'audio' && l.content.shape != 'line') {
+    // a new layer turns round its middle (its anchor may lie elsewhere).
+    if (l != null && l.rotateOrigin == null && !isAudioShape(l.content.shape) && l.content.shape != 'line') {
+      try {
+        final b = shapeBoundingBox(l.content);
+        final c = [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2];
+        if (c[0].abs() > 0.5 || c[1].abs() > 0.5) setRotateOrigin(project, l, c, currentFrame);
+      } catch (_) {}
+    }
+    // a shape, a picture or a text: a Fill button in the stage's corner
+    // until it is let go.
+    if (l != null && l.content.shape != 'audio' && l.content.shape != 'line') {
       freshFillLayerId = id;
     }
   }
@@ -4482,7 +4616,7 @@ class AppState extends ChangeNotifier {
 
   /// Selective parenting (Movement tab): which parts of the parent this
   /// layer follows. One undo step.
-  void setInherit(String id, {bool? position, bool? rotation, bool? scale, bool? keepDifference}) {
+  void setInherit(String id, {bool? position, bool? rotation, bool? scale, bool? keepDifference, bool? outside}) {
     final layer = findLayer(project, id);
     if (layer == null) return;
     pushUndo();
@@ -4490,6 +4624,7 @@ class AppState extends ChangeNotifier {
     if (rotation != null) layer.inheritRotation = rotation;
     if (scale != null) layer.inheritScale = scale;
     if (keepDifference != null) layer.parentKeepDifference = keepDifference;
+    if (outside != null) layer.parentOutside = outside;
     _render();
     notifyListeners();
   }
@@ -4965,6 +5100,12 @@ class AppState extends ChangeNotifier {
     _trimGrab = (start: layer.startFrame, end: layer.startFrame + layer.durationFrames);
   }
 
+  /// The layer being dragged on the timeline and how (null: none).
+  ({String id, LayerDragMode mode})? get layerDrag {
+    final op = _layerDragOp;
+    return op == null ? null : (id: op.layer.id, mode: op.mode);
+  }
+
   Map<Layer, LayerTrackDragOp> _groupTrimOps = const {};
   ({int start, int end}) _trimGrab = (start: 0, end: 0);
 
@@ -5325,7 +5466,8 @@ class AppState extends ChangeNotifier {
     'masterKeysShareEase': (() => masterKeysShareEase, (v) => masterKeysShareEase = v as bool, true),
     'stageZoomLock': (() => stageZoomLock, (v) => stageZoomLock = v as bool, false),
     'timelineHandlesLocked': (() => timelineHandlesLocked, (v) => timelineHandlesLocked = v as bool, false),
-    'loopPlayback': (() => loopPlayback, (v) => loopPlayback = v as bool, true),
+    'loopPlayback': (() => loopPlayback, (v) => loopPlayback = v as bool, false),
+    'showAllVisuals': (() => showAllVisuals, (v) => showAllVisuals = v as bool, false),
     'timelineDetail': (() => timelineDetail, (v) => timelineDetail = v as String, 'none'),
     'rangeAsSelection': (() => rangeAsSelection, (v) => rangeAsSelection = v as bool, false),
     'timelineMaskRows': (() => showMaskRows, (v) => showMaskRows = v as bool, false),

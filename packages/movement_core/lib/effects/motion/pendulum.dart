@@ -53,8 +53,9 @@ double evaluatePendulumOffset(Project project, Layer layer, int globalFrame) {
   if (maxAngle == 0) return 0;
   final kfs = layer.transform.anchor.keyframes;
   // with keyframes: nothing before the track's own first keyframe.
-  // Without (a chain link moved only by its parent): from frame 0.
-  final startLocalFrame = kfs.isNotEmpty ? kfs.first.frame : 0;
+  // Without, or with a parent (moved by it before its own keys too): from
+  // frame 0.
+  final startLocalFrame = kfs.isNotEmpty && layer.parentId == null ? kfs.first.frame : 0;
   final endLocalFrame = globalFrame - layer.startFrame;
   if (endLocalFrame <= startLocalFrame) return 0;
 

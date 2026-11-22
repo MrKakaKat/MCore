@@ -9,12 +9,13 @@ import 'dart:convert';
 import 'project.dart';
 import 'project_json.dart';
 
-const motionPanelIds = ['motionBlur', 'echo', 'wiggle', 'pendulum', 'swing', 'path', 'timeQuantize'];
+const motionPanelIds = ['motionBlur', 'echo', 'wiggle', 'scaleWiggle', 'pendulum', 'swing', 'path', 'timeQuantize'];
 
 bool _motionOn(Layer layer, String id) => switch (id) {
       'motionBlur' => layer.motionBlur.enabled,
       'echo' => layer.echo.enabled,
       'wiggle' => layer.wiggle.enabled,
+      'scaleWiggle' => layer.scaleWiggle.enabled,
       'pendulum' => layer.pendulum.enabled,
       'swing' => layer.swing.enabled,
       'timeQuantize' => layer.timeQuantize.enabled,
@@ -61,6 +62,8 @@ void addMotionPanelEntry(Layer layer, String id) {
       layer.echo = Echo(enabled: true);
     case 'wiggle':
       layer.wiggle = Wiggle(enabled: true);
+    case 'scaleWiggle':
+      layer.scaleWiggle = Wiggle(enabled: true, amplitude: 10);
     case 'pendulum':
       layer.pendulum = Pendulum(enabled: true);
     case 'swing':
@@ -90,6 +93,8 @@ void removeMotionPanelEntry(Layer layer, String id) {
       layer.echo = Echo();
     case 'wiggle':
       layer.wiggle = Wiggle();
+    case 'scaleWiggle':
+      layer.scaleWiggle = Wiggle(amplitude: 10);
     case 'pendulum':
       layer.pendulum = Pendulum();
     case 'swing':
@@ -114,6 +119,8 @@ Map<String, dynamic>? effectEntryToJson(Layer layer, String id) {
       return {'kind': id, 'settings': layer.echo.toJson()};
     case 'wiggle':
       return {'kind': id, 'settings': wiggleToJson(layer.wiggle)};
+    case 'scaleWiggle':
+      return {'kind': id, 'settings': wiggleToJson(layer.scaleWiggle)};
     case 'pendulum':
       return {'kind': id, 'settings': pendulumToJson(layer.pendulum)};
     case 'swing':
@@ -152,6 +159,8 @@ String? pasteEffectEntry(Layer layer, Map<String, dynamic> entry) {
       layer.echo = Echo.fromJson(settings)..enabled = true;
     case 'wiggle':
       layer.wiggle = wiggleFromJson(settings)..enabled = true;
+    case 'scaleWiggle':
+      layer.scaleWiggle = wiggleFromJson(settings)..enabled = true;
     case 'pendulum':
       layer.pendulum = pendulumFromJson(settings)..enabled = true;
     case 'swing':

@@ -33,23 +33,45 @@ double solveCubicBezierY(double x1, double y1, double x2, double y2, double x) {
 /// Overshoot: a damped swing that ends exactly on 1 - starts at 0,
 /// passes 1 by about `amount` and swings `bounces` more times, getting
 /// smaller each time, before landing (y(0) = 0, y(1) = 1).
-double overshootCurve(double amount, int bounces, double x) {
+///
+/// `damping` (1: as before) makes the later swings die out sooner (> 1)
+/// or later (< 1): the first one stays about `amount`.
+double overshootCurve(double amount, int bounces, double x, {double damping = 1}) {
   if (x <= 0) return 0;
   if (x >= 1) return 1;
   final a = amount.clamp(0.001, 1.0);
   final w = math.pi * (bounces.clamp(0, 10) + 1.5);
   // first peak past 1 at x = pi / w: damp so it is about `amount`.
   final k = -math.log(a) * w / math.pi;
-  return 1 - math.exp(-k * x) * math.cos(w * x);
+  final d = damping.clamp(0.2, 5.0);
+  if (d == 1) return 1 - math.exp(-k * x) * math.cos(w * x);
+  // the swings after the first die out `d` times as fast: the envelope
+  // bends at the first peak (x0) and is joined smoothly there.
+  final x0 = math.pi / w;
+  final env = x <= x0 ? math.exp(-k * x) : math.exp(-k * x0 - k * d * (x - x0));
+  // ends exactly on 1: what is left at x = 1 fades out linearly.
+  final rest = math.exp(-k * x0 - k * d * (1 - x0)) * math.cos(w);
+  return 1 - env * math.cos(w * x) + rest * x;
 }
 
 /// The eased progress (0 at the start, 1 at the end, possibly outside
-/// in between) of `e` at `x` in 0..1.
-double easeProgress(Easing e, double x) => switch (e.kind) {
-      'overshoot' => overshootCurve(e.amount, e.bounces, x),
-      'anticipate' => 1 - overshootCurve(e.amount, e.bounces, 1 - x),
-      _ => solveCubicBezierY(e.x1, e.y1, e.x2, e.y2, x),
-    };
+/// in between) of `e` at `x` in 0..1. Anticipation and overshoot
+/// together: the swing back takes the first half (half the way), the
+/// overshoot the rest.
+double easeProgress(Easing e, double x) {
+  double over(double u, {double scale = 1}) =>
+      overshootCurve((e.amount * scale).clamp(0.001, 1.0), e.bounces, u, damping: e.damping);
+  double ant(double u, {double scale = 1}) =>
+      1 - overshootCurve((e.antAmount * scale).clamp(0.001, 1.0), e.antBounces, 1 - u, damping: e.antDamping);
+  if (e.over && e.ant) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    return x < 0.5 ? 0.5 * ant(x * 2, scale: 2) : 0.5 + 0.5 * over((x - 0.5) * 2, scale: 2);
+  }
+  if (e.over) return over(x);
+  if (e.ant) return ant(x);
+  return solveCubicBezierY(e.x1, e.y1, e.x2, e.y2, x);
+}
 
 /// Speed-graph editing: a bezier whose speed peaks at `peak` (0..1 of
 /// the time) - `smooth` 0 is a sharp spike there, 1 an even speed.
@@ -487,7 +509,12 @@ dynamic _evaluateOwn(Project? project, Track trk, double localFrame, [Layer? lay
       }
       final a = kfs[j], b = kfs[j + 1];
       final span = b.frame - a.frame;
-      final t = span == 0 ? 0.0 : (at - a.frame) / span;
+      var t = span == 0 ? 0.0 : (at - a.frame) / span;
+      // a point of the way drawn with the hand's own pace: its stretch
+      // eased as the hand went.
+      if (b.passive && !b.temporal.isOvershoot && (b.temporal.x1 != 0 || b.temporal.y1 != 0 || b.temporal.x2 != 1 || b.temporal.y2 != 1)) {
+        t = easeProgress(b.temporal, t);
+      }
       if (a.value is List<double>) {
         if (trk.spatial) return spatialLerpVec2(a, b, t);
         final v0 = a.value as List<double>, v1 = b.value as List<double>;
@@ -541,36 +568,110 @@ List<double> catmullRomTangent(List<List<double>> points, int i, double tension)
   return [k * (pn[0] - pp[0]) / 2, k * (pn[1] - pp[1]) / 2];
 }
 
+/// The keys of one movement: a stretch between holds (two keys in a row
+/// at the same place - where one movement ends and the next begins, as
+/// order keys put them). Indices [a, b].
+List<(int, int)> pathRuns(Track trk) {
+  final kfs = trk.keyframes;
+  final out = <(int, int)>[];
+  var start = 0;
+  for (var i = 0; i < kfs.length - 1; i++) {
+    if (_sameValue(kfs[i].value, kfs[i + 1].value)) {
+      if (i > start) out.add((start, i));
+      start = i + 1;
+    }
+  }
+  if (kfs.length - 1 > start) out.add((start, kfs.length - 1));
+  return out;
+}
+
+/// The movement (see pathRuns) the local `frame` is in, or null.
+(int, int)? pathRunAt(Track trk, num frame) {
+  final kfs = trk.keyframes;
+  for (final r in pathRuns(trk)) {
+    if (frame >= kfs[r.$1].frame && frame <= kfs[r.$2].frame) return r;
+  }
+  return null;
+}
+
+/// The smooth handles of key `i` from its neighbours in its movement
+/// (none across a hold).
+SpatialTangent _runTangent(Track trk, int i, double tension) {
+  final kfs = trk.keyframes;
+  final run = pathRuns(trk).where((r) => i >= r.$1 && i <= r.$2).firstOrNull;
+  if (run == null) return SpatialTangent.zero();
+  final points = [
+    for (var j = run.$1; j <= run.$2; j++) [for (final v in kfs[j].value as List) (v as num).toDouble()]
+  ];
+  final m = catmullRomTangent(points, i - run.$1, tension);
+  final st = SpatialTangent(outTan: [m[0] / 3, m[1] / 3], inTan: [-m[0] / 3, -m[1] / 3]);
+  // the movement's ends: nothing beyond them.
+  if (i == run.$1) st.inTan = [0, 0];
+  if (i == run.$2) st.outTan = [0, 0];
+  return st;
+}
+
+/// Straight where the object holds: a key's handle into / out of a hold
+/// (no going out and back while standing still).
+void _straightHolds(Track trk) {
+  final kfs = trk.keyframes;
+  for (var i = 0; i < kfs.length - 1; i++) {
+    if (!_sameValue(kfs[i].value, kfs[i + 1].value)) continue;
+    kfs[i].spatialTangent = SpatialTangent(inTan: [...kfs[i].spatialTangent.inTan], outTan: [0, 0]);
+    kfs[i + 1].spatialTangent = SpatialTangent(inTan: [0, 0], outTan: [...kfs[i + 1].spatialTangent.outTan]);
+  }
+}
+
 void autoComputeTangents(Track trk) {
   final kfs = trk.keyframes;
-  // handles set by hand stay as they are.
-  if (kfs.length < 2 || trk.handTangents) return;
+  if (kfs.length < 2 || kfs.first.value is! List) return;
   final tension = trk.tension ?? 1.0;
   final points = [for (final k in kfs) k.value as List<double>];
+  final holds = kfs.length > 2 && pathRuns(trk).length != 1;
   for (var i = 0; i < kfs.length; i++) {
+    // handles set by hand stay as they are.
+    if (kfs[i].hand) continue;
+    if (holds) {
+      kfs[i].spatialTangent = _runTangent(trk, i, tension);
+      continue;
+    }
     final m = catmullRomTangent(points, i, tension);
     kfs[i].spatialTangent = SpatialTangent(
       outTan: [m[0] / 3, m[1] / 3],
       inTan: [-m[0] / 3, -m[1] / 3],
     );
   }
+  _straightHolds(trk);
 }
 
-/// Curve handles to be set by hand: each key keeps the handles it has;
+/// Curve handles to be set by hand on the keys of local frames
+/// `from`..`to` (all: the whole track): each keeps the handles it has;
 /// one with none (a straight path) gets a smooth pair along its
-/// neighbours, to be dragged from. Then they are the track's own.
-void startHandTangents(Track trk) {
+/// neighbours in its movement, to be dragged from.
+void startHandTangents(Track trk, {int? from, int? to}) {
   final kfs = trk.keyframes;
   trk.handTangents = true;
   if (kfs.length < 2 || kfs.first.value is! List) return;
-  final points = [for (final k in kfs) [for (final v in k.value as List) (v as num).toDouble()]];
   for (var i = 0; i < kfs.length; i++) {
-    final st = kfs[i].spatialTangent;
+    final k = kfs[i];
+    if ((from != null && k.frame < from) || (to != null && k.frame > to)) continue;
+    k.hand = true;
+    final st = k.spatialTangent;
     final none = st.inTan.every((v) => v.abs() < 1e-9) && st.outTan.every((v) => v.abs() < 1e-9);
-    if (!none) continue;
-    final m = catmullRomTangent(points, i, 0);
-    kfs[i].spatialTangent = SpatialTangent(outTan: [m[0] / 3, m[1] / 3], inTan: [-m[0] / 3, -m[1] / 3]);
+    if (none) k.spatialTangent = _runTangent(trk, i, 0);
   }
+  _straightHolds(trk);
+}
+
+/// Curve handles back to the tension on the keys of `from`..`to` (all:
+/// the whole track).
+void stopHandTangents(Track trk, {int? from, int? to}) {
+  for (final k in trk.keyframes) {
+    if ((from != null && k.frame < from) || (to != null && k.frame > to)) continue;
+    k.hand = false;
+  }
+  trk.handTangents = trk.keyframes.any((k) => k.hand);
+  autoComputeTangents(trk);
 }
 
 // ===== elasticity: a value springing after its keys =====

@@ -39,7 +39,7 @@ class EffectsView extends StatelessWidget {
   /// The types the Effects tab sorts its effects into.
   static String typeOf(Layer layer, String id) {
     switch (id) {
-      case 'wiggle' || 'pendulum' || 'swing' || 'path':
+      case 'wiggle' || 'scaleWiggle' || 'pendulum' || 'swing' || 'path':
         return 'Motion';
       case 'motionBlur' || 'timeQuantize' || 'echo':
         return 'Time';
@@ -241,6 +241,7 @@ class EffectsView extends StatelessWidget {
                             'motionBlur' => _motionBlurBody(layer),
                             'echo' => _echoBody(layer),
                             'wiggle' => _wiggleBody(layer),
+                            'scaleWiggle' => _wiggleBody(layer, scale: true),
                             'timeQuantize' => _timeQuantizeBody(layer),
                             'swing' => _swingBody(layer),
                             'path' => _pathBody(context, layer, localFrame),
@@ -259,10 +260,13 @@ class EffectsView extends StatelessWidget {
     if (inst.effectId == 'bend_arc' && !isBendV2(inst)) _withBendBase(inst);
     // bends saved before "react" get it (at its no-op default).
     if (inst.effectId == 'bend_arc' && isBendV2(inst)) inst.params.putIfAbsent('react', () => track(0.0));
+    // edge glows saved before the colour choice get it.
+    if (inst.effectId == 'edge_glow') inst.params.putIfAbsent('colorFrom', () => 'color');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (isPinEffect(inst.effectId)) _confirmShapeButton(layer, inst, _confirmCornerPinShape),
+        if (inst.effectId == 'corner_pin') _pinAxisLink(inst),
         if (inst.effectId == 'mesh_warp') _meshWarpControls(layer, inst),
         if (inst.effectId == 'origami_fold') _origamiControls(inst),
         // colours (Outline): not animated, a palette.
@@ -318,6 +322,57 @@ class EffectsView extends StatelessWidget {
     );
   }
 
+  /// Corner pin: its corners' rulers linked along an axis - one corner
+  /// moved, the others go as far that way.
+  static final Map<String, String> _pinLink = {};
+
+  Widget _pinAxisLink(EffectInstance inst) {
+    final cur = _pinLink[inst.id] ?? 'none';
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(children: [
+        const Text('Link corners', style: TextStyle(fontSize: 12)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: SegmentedButton<String>(
+            key: ValueKey('pin-link-${inst.id}'),
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: 'none', label: Text('Off')),
+              ButtonSegment(value: 'x', label: Text('x')),
+              ButtonSegment(value: 'y', label: Text('y')),
+              ButtonSegment(value: 'xy', label: Text('x y')),
+            ],
+            selected: {cur},
+            onSelectionChanged: (v) {
+              _pinLink[inst.id] = v.first;
+              app.notifyListeners();
+            },
+          ),
+        ),
+      ]),
+    );
+  }
+
+  /// The other corners moved with `key` (from `before` to `after`) along
+  /// the linked axes.
+  void _moveLinkedCorners(EffectInstance inst, String key, List<double> before, List<double> after, int frame, double localFrame) {
+    final link = _pinLink[inst.id] ?? 'none';
+    if (inst.effectId != 'corner_pin' || link == 'none' || before.length < 2) return;
+    final corner = RegExp(r'^(tl|tr|br|bl|p\d+)$');
+    if (!corner.hasMatch(key)) return;
+    final dx = link.contains('x') ? after[0] - before[0] : 0.0, dy = link.contains('y') ? after[1] - before[1] : 0.0;
+    if (dx == 0 && dy == 0) return;
+    for (final e in inst.params.entries) {
+      if (e.key == key || !corner.hasMatch(e.key) || e.value is! Track) continue;
+      final t = e.value as Track;
+      final v = evaluateTrack(app.project, t, localFrame);
+      if (v is! List) continue;
+      setTrackValueAt(t, frame, <double>[(v[0] as num).toDouble() + dx, (v[1] as num).toDouble() + dy]);
+    }
+  }
+
   void _deleteInstance(Layer layer, EffectInstance inst) {
     app.pushUndo();
     layer.effectStack.removeWhere((i) => i.id == inst.id);
@@ -339,6 +394,11 @@ class EffectsView extends StatelessWidget {
     // text / vector-text shapes keep the effect live (baking would lose the
     // letters' holes).
     if (layer.content.shape == 'text' || layer.content.shape == 'compound') return const SizedBox.shrink();
+    // a picture, a film, a placed project: baked into a polygon it would
+    // lose its pixels - the pin stays live.
+    if (const {'image', 'video', 'gif', 'projectRef', 'placeholder'}.contains(layer.content.shape)) {
+      return const Hint('A picture keeps the pin live (confirming would turn it into a plain shape).');
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: OutlinedButton(
@@ -810,12 +870,16 @@ class EffectsView extends StatelessWidget {
         componentLabels: valueList.length > 1 ? const ['x', 'y'] : null,
         onEditStart: () => _beginEdit(inst),
         onChanged: (v) {
+          final before = evaluateTrack(app.project, trk, localFrame);
           setTrackValueAt(trk, frame, out(v));
+          if (before is List) _moveLinkedCorners(inst, key, [for (final e in before) (e as num).toDouble()], v, frame, localFrame);
           app.commitEdit();
         },
         onCommit: (v) {
           _beginEdit(inst);
+          final before = evaluateTrack(app.project, trk, localFrame);
           setTrackValueAt(trk, frame, out(v));
+          if (before is List) _moveLinkedCorners(inst, key, [for (final e in before) (e as num).toDouble()], v, frame, localFrame);
           app.commitEdit();
         },
         trailing: [
@@ -1843,23 +1907,45 @@ class EffectsView extends StatelessWidget {
     );
   }
 
-  Widget _wiggleBody(Layer layer) {
-    final w = layer.wiggle;
+  /// Wiggle (its place) or Scale wiggle (its size): speed, how far, how
+  /// smooth, and an offset - another wander, so a copy of the effect on
+  /// another layer doesn't move in step.
+  Widget _wiggleBody(Layer layer, {bool scale = false}) {
+    final w = scale ? layer.scaleWiggle : layer.wiggle;
+    final d = scale ? Wiggle(amplitude: 10) : Wiggle();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sliderRow('speed', w.speed, 100, Wiggle().speed, (v) {
+        _sliderRow('speed', w.speed, 100, d.speed, (v) {
           w.speed = v;
           app.commitEdit();
         }),
-        _sliderRow('amplitude', w.amplitude, 100, Wiggle().amplitude, (v) {
+        _sliderRow(scale ? 'amount %' : 'amplitude', w.amplitude, 100, d.amplitude, (v) {
           w.amplitude = v;
           app.commitEdit();
         }),
-        _sliderRow('smoothness', w.smoothness, 100, Wiggle().smoothness, (v) {
+        _sliderRow('smoothness', w.smoothness, 100, d.smoothness, (v) {
           w.smoothness = v;
           app.commitEdit();
         }),
+        _sliderRow('offset', w.wiggleSeed ?? 0, 100, 0, (v) {
+          w.wiggleSeed = v;
+          app.commitEdit();
+        }),
+        if (scale)
+          SwitchListTile(
+            key: const ValueKey('scale-wiggle-axes'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Each side its own way', style: TextStyle(fontSize: 13)),
+            subtitle: const Text('Off: the whole size wobbles together', style: TextStyle(fontSize: 11)),
+            value: w.axes,
+            onChanged: (v) {
+              app.pushUndo();
+              w.axes = v;
+              app.commitEdit();
+            },
+          ),
       ],
     );
   }
@@ -2173,6 +2259,7 @@ const motionPanelNames = {
   'motionBlur': 'Motion blur',
   'echo': 'Echo (trail of copies)',
   'wiggle': 'Wiggle',
+  'scaleWiggle': 'Scale wiggle',
   'pendulum': 'Pendulum',
   'swing': 'Swing',
   'path': 'Along a path',

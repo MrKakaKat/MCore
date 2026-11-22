@@ -345,17 +345,42 @@ class LayerPanelView extends StatelessWidget {
         },
       );
 
-  /// Every lost picture looked for in the phone's gallery by its name.
+  /// Every lost picture looked for in the phone's gallery by its name -
+  /// a window says what it is doing until it is done.
   Future<void> _findInGallery(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     final before = app.missingImageLayers.length;
-    messenger.showSnackBar(const SnackBar(content: Text('Looking in the gallery...')));
-    final finder = GalleryFinder();
-    final n = await app.findMissingImages(finder.find);
+    final status = ValueNotifier('Looking in the gallery...');
+    final navigator = Navigator.of(context);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (d) => AlertDialog(
+        key: const ValueKey('gallery-find-progress'),
+        content: Row(children: [
+          const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+          const SizedBox(width: 16),
+          Expanded(child: ValueListenableBuilder<String>(valueListenable: status, builder: (_, v, __) => Text(v))),
+        ]),
+      ),
+    );
+    final finder = GalleryFinder(onStatus: (s) => status.value = s);
+    var n = 0;
+    try {
+      n = await app.findMissingImages((name) {
+        status.value = 'Looking for $name';
+        return finder.find(name);
+      });
+    } finally {
+      navigator.pop();
+      status.dispose();
+    }
     messenger.showSnackBar(SnackBar(
-        content: Text(n == before
-            ? 'All $n found again'
-            : '$n of $before found again - the rest: tap the broken picture to pick its file')));
+        content: Text(!finder.access
+            ? 'No access to the gallery - allow it in the phone\'s settings, or tap the broken picture to pick its file'
+            : n == before
+                ? 'All $n found again'
+                : '$n of $before found again - the rest: tap the broken picture to pick its file')));
   }
 
   /// A lost picture: its file picked again.

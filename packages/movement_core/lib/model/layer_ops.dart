@@ -143,41 +143,46 @@ void reparentPreservingWorldPosition(Project project, Layer layer, String? newPa
     clearStateCaches();
   }
 
-  final newParentMatrix = newParentId != null
-      ? parentMatrixFor(project, layer, globalFrame)
-      : <double>[1, 0, 0, 1, 0, 0];
-  final desiredAnchor = mm.applyAffine(mm.invertAffine(newParentMatrix), oldWorldPos);
-
-  final localFrame = layerLocalFrame(layer, globalFrame);
-  final existingAnchor = evaluateTrack(project, layer.transform.anchor, localFrame) as List<double>;
-  final delta = [desiredAnchor[0] - existingAnchor[0], desiredAnchor[1] - existingAnchor[1]];
-
-  final trk = layer.transform.anchor;
-  final trkDefault = trk.defaultValue as List<double>;
-  trk.defaultValue = [trkDefault[0] + delta[0], trkDefault[1] + delta[1]];
-  for (final k in trk.keyframes) {
-    final v = k.value as List<double>;
-    k.value = [v[0] + delta[0], v[1] + delta[1]];
-  }
-  if (trk.spatial) autoComputeTangents(trk);
-
-  // also preserve VISUAL SIZE, not just position - the new parent may
-  // have its own scale, which the child inherits through the normal
-  // matrix chain. compensate the child's OWN scale by the ratio needed
-  // to cancel out whatever the new parent's contribution changed.
-  final newWorldMatrix = getLayerStateAt(project, layer.id, globalFrame).matrix; // fresh, now WITH the new parentId
-  final newWorldScale = _matrixScaleMagnitude(newWorldMatrix);
+  // SIZE next (before the place: a size kept on one side - a size handle
+  // dragged - moves the object when its scale changes, which put it off
+  // by its edge when this came last): the new parent may have its own
+  // scale, which the child inherits through the matrix chain.
+  final newWorldScale = _matrixScaleMagnitude(getLayerStateAt(project, layer.id, globalFrame).matrix);
   final scaleRatio = [
     oldWorldScale[0] / math.max(1e-6, newWorldScale[0]),
     oldWorldScale[1] / math.max(1e-6, newWorldScale[1]),
   ];
-  final scaleTrk = layer.transform.scale;
-  final scaleDefault = scaleTrk.defaultValue as List<double>;
-  scaleTrk.defaultValue = [scaleDefault[0] * scaleRatio[0], scaleDefault[1] * scaleRatio[1]];
-  for (final k in scaleTrk.keyframes) {
-    final v = k.value as List<double>;
-    k.value = [v[0] * scaleRatio[0], v[1] * scaleRatio[1]];
+  if ((scaleRatio[0] - 1).abs() > 1e-9 || (scaleRatio[1] - 1).abs() > 1e-9) {
+    final scaleTrk = layer.transform.scale;
+    final scaleDefault = scaleTrk.defaultValue as List<double>;
+    scaleTrk.defaultValue = [scaleDefault[0] * scaleRatio[0], scaleDefault[1] * scaleRatio[1]];
+    for (final k in scaleTrk.keyframes) {
+      final v = k.value as List<double>;
+      k.value = [v[0] * scaleRatio[0], v[1] * scaleRatio[1]];
+    }
+    clearStateCaches();
   }
+
+  // the PLACE last: where it is now against where it was, moved back by
+  // that (in the new parent's space) - measured, so whatever shifts its
+  // anchor (a point of its own it turns or scales round) counts too.
+  final trk = layer.transform.anchor;
+  for (var pass = 0; pass < 3; pass++) {
+    final now = getLayerStateAt(project, layer.id, globalFrame).matrix;
+    final dw = [oldWorldPos[0] - now[4], oldWorldPos[1] - now[5]];
+    if (dw[0].abs() < 1e-12 && dw[1].abs() < 1e-12) break;
+    final pm = newParentId != null ? parentMatrixFor(project, layer, globalFrame) : <double>[1, 0, 0, 1, 0, 0];
+    final inv = mm.invertAffine([pm[0], pm[1], pm[2], pm[3], 0, 0]);
+    final delta = mm.applyAffine(inv, dw);
+    final trkDefault = trk.defaultValue as List<double>;
+    trk.defaultValue = [trkDefault[0] + delta[0], trkDefault[1] + delta[1]];
+    for (final k in trk.keyframes) {
+      final v = k.value as List<double>;
+      k.value = [v[0] + delta[0], v[1] + delta[1]];
+    }
+    clearStateCaches();
+  }
+  if (trk.spatial) autoComputeTangents(trk);
 
   // the newWorldMatrix read above cached (layer.id, globalFrame) BEFORE
   // this scale compensation was applied - clear again so the function

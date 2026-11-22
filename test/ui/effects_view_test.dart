@@ -222,7 +222,7 @@ void main() {
     await addEffect(tester, 'Wiggle');
 
     expect(layer.wiggle.enabled, isTrue);
-    expect(find.byType(Slider), findsNWidgets(3));
+    expect(find.byType(Slider), findsNWidgets(4));
 
     final speedBefore = layer.wiggle.speed;
     await tester.drag(find.byType(Slider).first, const Offset(50, 0));

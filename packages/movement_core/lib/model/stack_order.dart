@@ -77,11 +77,39 @@ void setStackPlaceAt(Layer l, int frame, int place) {
   }
 }
 
+/// Whether `l` is left out (Order on stage: not shown) at `globalFrame`.
+bool stackHiddenAt(Layer l, num globalFrame) {
+  if (l.stackKeys.isEmpty) return l.stackBaseHidden;
+  final f = layerLocalFrame(l, globalFrame);
+  var out = l.stackBaseHidden;
+  var at = -1 << 30;
+  for (final k in l.stackKeys) {
+    if (k.frame <= f && k.frame >= at) {
+      at = k.frame;
+      out = k.hidden;
+    }
+  }
+  return out;
+}
+
+/// The stretch `l`'s local frame `frame` is in shown or not.
+void setStackHiddenAt(Layer l, int frame, bool hidden) {
+  StackKey? at;
+  for (final k in l.stackKeys) {
+    if (k.frame <= frame && (at == null || k.frame >= at.frame)) at = k;
+  }
+  if (at == null) {
+    l.stackBaseHidden = hidden;
+  } else {
+    at.hidden = hidden;
+  }
+}
+
 /// Sets (or replaces) `l`'s key at local frame `frame`.
-void setStackKey(Layer l, int frame, int position) {
+void setStackKey(Layer l, int frame, int position, {bool hidden = false}) {
   l.stackKeys.removeWhere((k) => k.frame == frame);
   l.stackKeys
-    ..add(StackKey(frame, position < 1 ? 1 : position))
+    ..add(StackKey(frame, position < 1 ? 1 : position, hidden: hidden))
     ..sort((a, b) => a.frame.compareTo(b.frame));
 }
 

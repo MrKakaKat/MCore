@@ -145,6 +145,39 @@ Future<void> showAddLayerDialog(BuildContext context, AppState app, {String? rep
               Text('Text'),
             ]),
           ),
+        // Replace content: another layer of this project (with its keys).
+        if (replaceId != null)
+          SimpleDialogOption(
+            key: const ValueKey('replace-from-layer'),
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              final others = [
+                for (final l in app.project.layers.reversed)
+                  if (l.id != replaceId && !isAudioShape(l.content.shape)) l
+              ];
+              final pick = await showDialog<String>(
+                context: context,
+                builder: (c) => SimpleDialog(
+                  title: const Text('A layer of this project'),
+                  children: [
+                    if (others.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('No other layer.')),
+                    for (final l in others)
+                      SimpleDialogOption(
+                        key: ValueKey('replace-from-${l.id}'),
+                        onPressed: () => Navigator.pop(c, l.id),
+                        child: Text(l.name, overflow: TextOverflow.ellipsis),
+                      ),
+                  ],
+                ),
+              );
+              if (pick != null) app.replaceLayerContentFromLayer(replaceId, pick);
+            },
+            child: const Row(children: [
+              Icon(Icons.layers_outlined),
+              SizedBox(width: 8),
+              Expanded(child: Text('A layer of this project...')),
+            ]),
+          ),
         // another saved project, rendered live.
         if (replaceId == null && app.projectStore != null)
           SimpleDialogOption(

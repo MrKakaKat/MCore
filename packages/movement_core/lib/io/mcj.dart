@@ -844,8 +844,8 @@ Map<String, dynamic> compactToMcj(Project project,
 double _r(double v) => (v * 1000).roundToDouble() / 1000;
 
 Object _easeName(Easing e) {
-  if (e.kind == 'overshoot') return 'overshoot';
-  if (e.kind == 'anticipate') return 'anticipate';
+  if (e.over) return 'overshoot';
+  if (e.ant) return 'anticipate';
   for (final p in easingPresets.entries) {
     final v = p.value;
     if (v.x1 == e.x1 && v.y1 == e.y1 && v.x2 == e.x2 && v.y2 == e.y2) return p.key;

@@ -218,21 +218,86 @@ class SpatialTangent {
 class Easing {
   final double x1, y1, x2, y2;
 
-  /// 'bezier' (the x1..y2 curve), 'overshoot': the value passes the end
-  /// by about `amount` (0..1 of the change) and settles back after
-  /// `bounces` extra swings, or 'anticipate': the same backwards (a
-  /// swing back before leaving the start). x1..y2 are kept so switching
-  /// back restores the bezier.
-  final String kind;
+  /// Overshoot: the value passes the end by about `amount` (0..1 of the
+  /// change) and settles back after `bounces` extra swings, dying out as
+  /// fast as `damping` says (1: as the first swing; more: sooner).
+  final bool over;
   final double amount;
   final int bounces;
-  const Easing(this.x1, this.y1, this.x2, this.y2, {this.kind = 'bezier', this.amount = 0.2, this.bounces = 0});
-  bool get isOvershoot => kind == 'overshoot' || kind == 'anticipate';
-  Easing copy() => Easing(x1, y1, x2, y2, kind: kind, amount: amount, bounces: bounces);
-  Easing withBezier(double x1, double y1, double x2, double y2) =>
-      Easing(x1, y1, x2, y2, kind: kind, amount: amount, bounces: bounces);
-  Easing withOvershoot({String? kind, double? amount, int? bounces}) => Easing(x1, y1, x2, y2,
-      kind: kind ?? this.kind, amount: amount ?? this.amount, bounces: bounces ?? this.bounces);
+  final double damping;
+
+  /// Anticipation: a swing back before leaving the start (`antAmount`,
+  /// `antBounces` swings, `antDamping`) - on its own or with the
+  /// overshoot (first the swing back, then the overshoot). x1..y2 are
+  /// kept so switching both off restores the bezier.
+  final bool ant;
+  final double antAmount;
+  final int antBounces;
+  final double antDamping;
+
+  /// `kind` ('bezier', 'overshoot', 'anticipate') reads the older
+  /// single choice.
+  const Easing(this.x1, this.y1, this.x2, this.y2,
+      {String kind = 'bezier',
+      this.amount = 0.2,
+      this.bounces = 0,
+      bool? over,
+      bool? ant,
+      double? antAmount,
+      int? antBounces,
+      this.damping = 1,
+      this.antDamping = 1})
+      : over = over ?? kind == 'overshoot',
+        ant = ant ?? kind == 'anticipate',
+        antAmount = antAmount ?? amount,
+        antBounces = antBounces ?? bounces;
+
+  /// The older single choice: 'overshoot' / 'anticipate' when only that
+  /// one is on, 'both', or 'bezier'.
+  String get kind => over && ant
+      ? 'both'
+      : over
+          ? 'overshoot'
+          : ant
+              ? 'anticipate'
+              : 'bezier';
+  bool get isOvershoot => over || ant;
+  Easing copy() => _with();
+  Easing _with(
+          {double? x1,
+          double? y1,
+          double? x2,
+          double? y2,
+          bool? over,
+          double? amount,
+          int? bounces,
+          double? damping,
+          bool? ant,
+          double? antAmount,
+          int? antBounces,
+          double? antDamping}) =>
+      Easing(x1 ?? this.x1, y1 ?? this.y1, x2 ?? this.x2, y2 ?? this.y2,
+          over: over ?? this.over,
+          amount: amount ?? this.amount,
+          bounces: bounces ?? this.bounces,
+          damping: damping ?? this.damping,
+          ant: ant ?? this.ant,
+          antAmount: antAmount ?? this.antAmount,
+          antBounces: antBounces ?? this.antBounces,
+          antDamping: antDamping ?? this.antDamping);
+  Easing withBezier(double x1, double y1, double x2, double y2) => _with(x1: x1, y1: y1, x2: x2, y2: y2);
+
+  /// `kind` sets the older single choice (one on, the other off).
+  Easing withOvershoot({String? kind, double? amount, int? bounces, double? damping}) => _with(
+      over: kind == null ? null : kind == 'overshoot',
+      ant: kind == null ? null : kind == 'anticipate',
+      amount: amount,
+      bounces: bounces,
+      damping: damping);
+  Easing withAnticipate({bool? on, double? amount, int? bounces, double? damping}) =>
+      _with(ant: on, antAmount: amount, antBounces: bounces, antDamping: damping);
+  Easing withOver({bool? on, double? amount, int? bounces, double? damping}) =>
+      _with(over: on, amount: amount, bounces: bounces, damping: damping);
 }
 
 const easingPresets = <String, Easing>{
@@ -262,14 +327,33 @@ class Keyframe {
   /// it shapes the path, but is no key to pick - faint on the layer's
   /// line, left out of the key layers' rows.
   bool passive;
+
+  /// Its curve handles are set by hand (Curve handles on for its
+  /// movement): the tension leaves them as they are.
+  bool hand;
+
+  /// The end of a drawn way squeezed into fewer frames than it has
+  /// points: the way as it was drawn, to come back whole when there is
+  /// room again.
+  DrawnWay? way;
   Keyframe({
     required this.frame,
     required this.value,
     Easing? temporal,
     SpatialTangent? spatialTangent,
     this.passive = false,
+    this.hand = false,
   })  : temporal = temporal ?? easingPresets['linear']!,
         spatialTangent = spatialTangent ?? SpatialTangent.zero();
+}
+
+/// A drawn way between two keys, every point of it (see Keyframe.way):
+/// each point's share of the time between the keys, its place, handles
+/// and ease; the keys' places and their handles into it.
+class DrawnWay {
+  final List<double> aValue, bValue, aOut, bIn;
+  final List<({double share, List<double> value, SpatialTangent tangent, Easing temporal})> points;
+  const DrawnWay({required this.aValue, required this.bValue, required this.aOut, required this.bIn, required this.points});
 }
 
 class Track {
@@ -1227,13 +1311,20 @@ class Wiggle {
   double speed;
   double amplitude;
   double smoothness;
-  double? wiggleSeed; // layer._wiggleSeed
+  double? wiggleSeed; // layer._wiggleSeed - "offset": another wander
+
+  /// Scale wiggle: the two sides wobble each their own way (off: the
+  /// whole size together).
+  bool axes;
   Wiggle(
       {this.enabled = false,
       this.speed = 30,
       this.amplitude = 20,
       this.smoothness = 70,
-      this.wiggleSeed});
+      this.wiggleSeed,
+      this.axes = false});
+  Wiggle copy() =>
+      Wiggle(enabled: enabled, speed: speed, amplitude: amplitude, smoothness: smoothness, wiggleSeed: wiggleSeed, axes: axes);
 }
 
 class Pendulum {
@@ -1807,7 +1898,10 @@ class PropLink {
 class StackKey {
   int frame;
   int position;
-  StackKey(this.frame, this.position);
+
+  /// The layer isn't shown from this border on (until the next one).
+  bool hidden;
+  StackKey(this.frame, this.position, {this.hidden = false});
 }
 
 /// What a 'follow' link can move: a position axis or one size handle.
@@ -2273,6 +2367,10 @@ class Layer {
   /// Copies trailing behind it (Effects tab, "Echo").
   Echo echo = Echo();
   Wiggle wiggle;
+
+  /// Effects tab, "Scale wiggle": its size wobbles at random (amplitude:
+  /// % of its size), the whole of it or each side its own way.
+  Wiggle scaleWiggle = Wiggle(amplitude: 10);
   Pendulum pendulum;
   TimeQuantize timeQuantize;
   PhysicsSettings physics;
@@ -2351,6 +2449,9 @@ class Layer {
   List<StackKey> stackKeys = [];
   int? stackBase;
 
+  /// Not shown before its first order border (see StackKey.hidden).
+  bool stackBaseHidden = false;
+
   /// Keyframes tab, "Edit the whole object": while it is selected, an edit
   /// moves every key of the parameter by the same amount - the object
   /// changes over its whole animation, the animation itself doesn't.
@@ -2394,6 +2495,10 @@ class Layer {
   /// grow by as many pixels (not by the same factor), and its distance
   /// from the parent isn't stretched.
   bool parentKeepDifference = false;
+
+  /// Follows its parent past the parent's own time too (its keys and
+  /// effects going on there) - off: the parent as at its ends.
+  bool parentOutside = false;
 
   /// Layers tab folder it sits in (null: none).
   String? folder;
@@ -2629,7 +2734,9 @@ Track cloneTrack(Track src) {
           value: cloneValue(k.value),
           temporal: k.temporal.copy(),
           spatialTangent: k.spatialTangent.copy(),
-          passive: k.passive),
+          passive: k.passive,
+          hand: k.hand)
+        ..way = k.way,
   ];
   return t;
 }
@@ -2773,7 +2880,8 @@ Layer cloneLayer(Layer src) {
         speed: src.wiggle.speed,
         amplitude: src.wiggle.amplitude,
         smoothness: src.wiggle.smoothness,
-        wiggleSeed: src.wiggle.wiggleSeed),
+        wiggleSeed: src.wiggle.wiggleSeed,
+        axes: src.wiggle.axes),
     pendulum: Pendulum(
       enabled: src.pendulum.enabled,
       frequency: src.pendulum.frequency,
@@ -2811,8 +2919,10 @@ Layer cloneLayer(Layer src) {
     ..mirrorProbe = src.mirrorProbe
     ..dig = src.dig
     ..lens = src.lens.copy()
-    ..stackKeys = [for (final k in src.stackKeys) StackKey(k.frame, k.position)]
+    ..stackKeys = [for (final k in src.stackKeys) StackKey(k.frame, k.position, hidden: k.hidden)]
     ..stackBase = src.stackBase
+    ..stackBaseHidden = src.stackBaseHidden
+    ..scaleWiggle = src.scaleWiggle.copy()
     ..scaleOrigin = src.scaleOrigin == null ? null : [...src.scaleOrigin!]
     ..rotateOrigin = src.rotateOrigin == null ? null : [...src.rotateOrigin!]
     ..editAll = src.editAll
@@ -2827,6 +2937,7 @@ Layer cloneLayer(Layer src) {
     ..mirrorAllLayers = src.mirrorAllLayers
     ..locked = src.locked
     ..parentKeepDifference = src.parentKeepDifference
+    ..parentOutside = src.parentOutside
     ..folder = src.folder
     ..mirrorAxis = src.mirrorAxis;
 }

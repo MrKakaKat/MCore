@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../stage/marquee_settings_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:movement_core/movement_core.dart';
@@ -84,6 +86,20 @@ class ParamsPanelView extends StatelessWidget {
                 },
                 icon: const Icon(Icons.fit_screen_outlined, size: 18),
                 label: const Text('Fit to the contour'),
+              ),
+            ),
+            // the box to the shape's own points (corners, a line's points).
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                key: const ValueKey('fit-points'),
+                onPressed: () {
+                  if (!app.fitBoxToPoints(layer.id)) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No points to fit to')));
+                  }
+                },
+                icon: const Icon(Icons.polyline_outlined, size: 18),
+                label: const Text('Fit to the points'),
               ),
             ),
             _parentSelector(context, layer),
@@ -327,6 +343,8 @@ class ParamsPanelView extends StatelessWidget {
               chip('Rotation', layer.inheritRotation, (v) => app.setInherit(layer.id, rotation: v)),
               chip('Scale', layer.inheritScale, (v) => app.setInherit(layer.id, scale: v)),
               chip('Keep difference', layer.parentKeepDifference, (v) => app.setInherit(layer.id, keepDifference: v)),
+              // the parent's moves past its own time followed too.
+              chip('Outside its time', layer.parentOutside, (v) => app.setInherit(layer.id, outside: v)),
               // its corners rounded like the parent's (off: its own).
               chip('Rounding', layer.inheritRounding, (v) {
                 app.pushUndo();
@@ -524,8 +542,9 @@ class ParamsPanelView extends StatelessWidget {
     final ro = layer.rotateOrigin;
     List<double> at(double fx, double fy) => [b.minX + (b.maxX - b.minX) * fx, b.minY + (b.maxY - b.minY) * fy];
     bool picked(double fx, double fy) {
-      if (ro == null) return false;
       final q = at(fx, fy);
+      // none of its own: its anchor - the middle when that is where it is.
+      if (ro == null) return q[0].abs() < 1e-6 && q[1].abs() < 1e-6;
       return (q[0] - ro[0]).abs() < 1e-6 && (q[1] - ro[1]).abs() < 1e-6;
     }
 
@@ -718,26 +737,55 @@ class ParamsPanelView extends StatelessWidget {
         Builder(builder: (context) {
           final t = anchor;
           if (!t.spatial) return const SizedBox.shrink();
+          // one movement at a time: the two keys picked (their stretch),
+          // else the movement at the playhead, else the whole way.
+          final layer = findLayer(app.project, app.selection.selectedLayer);
+          final start = layer?.startFrame ?? 0;
+          final picked = [
+            for (final k in t.keyframes)
+              if (kfSelectedFrames.contains(k.frame + start)) k.frame
+          ];
+          int? from, to;
+          if (picked.length >= 2) {
+            from = picked.reduce(math.min);
+            to = picked.reduce(math.max);
+          } else {
+            final run = pathRunAt(t, layer == null ? 0 : layerLocalFrame(layer, app.currentFrame));
+            if (run != null) {
+              from = t.keyframes[run.$1].frame;
+              to = t.keyframes[run.$2].frame;
+            }
+          }
+          final inRange = [
+            for (final k in t.keyframes)
+              if ((from == null || k.frame >= from) && (to == null || k.frame <= to)) k
+          ];
+          final on = inRange.isNotEmpty && inRange.every((k) => k.hand);
           return Row(children: [
             const SizedBox(width: 90, child: Text('Curve handles')),
             Checkbox(
               key: const ValueKey('path-hand-tangents'),
-              value: t.handTangents,
-              onChanged: (on) {
+              value: on,
+              onChanged: (v) {
                 app.pushUndo();
                 // they start from the curve as it is (a straight one gets
                 // smooth handles to drag); off: from the tension again.
-                if (on ?? false) {
-                  startHandTangents(t);
+                if (v ?? false) {
+                  startHandTangents(t, from: from, to: to);
                 } else {
-                  t.handTangents = false;
-                  autoComputeTangents(t);
+                  stopHandTangents(t, from: from, to: to);
                 }
                 clearStateCaches();
                 app.commitEdit();
               },
             ),
-            if (t.handTangents) const Expanded(child: Hint('drag the squares on the stage')),
+            Expanded(
+              child: Hint(from == null
+                  ? 'the whole way'
+                  : on
+                      ? 'frames ${from + start}-${to! + start}: drag the squares on the stage'
+                      : 'frames ${from + start}-${to! + start} (pick two keys for another stretch)'),
+            ),
           ]);
         }),
         // one speed along the whole path; the keys stay where they are,

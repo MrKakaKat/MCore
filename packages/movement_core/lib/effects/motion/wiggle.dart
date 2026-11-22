@@ -18,8 +18,8 @@ double _hashToUnit(double n) {
   return x - x.floorToDouble();
 }
 
-List<double> _wiggleWaypoint(Layer layer, int i, double amplitude) {
-  final seed = i * 1000.7 + (layer.wiggle.wiggleSeed ?? 0);
+List<double> _wiggleWaypoint(Wiggle w, int i, double amplitude, [double salt = 0]) {
+  final seed = i * 1000.7 + (w.wiggleSeed ?? 0) * 7.31 + salt;
   final angle = _hashToUnit(seed) * math.pi * 2;
   final r = amplitude * math.sqrt(_hashToUnit(seed + 0.37)); // sqrt -> uniform over the DISK, not just the radius
   return [math.cos(angle) * r, math.sin(angle) * r];
@@ -28,8 +28,23 @@ List<double> _wiggleWaypoint(Layer layer, int i, double amplitude) {
 List<double> evaluateWiggleOffset(Layer layer, int globalFrame) {
   final w = layer.wiggle;
   if (!w.enabled) return [0, 0];
+  return _wander(w, globalFrame, (w.amplitude / 100) * 0.15); // 0..100 -> 0..15% of canvas
+}
+
+/// Scale wiggle: what the size is multiplied by now (1: as it is) -
+/// the same wander, `amplitude` % of the size; both sides alike unless
+/// `axes`.
+List<double> evaluateScaleWiggle(Layer layer, int globalFrame) {
+  final w = layer.scaleWiggle;
+  if (!w.enabled) return [1, 1];
+  final a = w.amplitude / 100;
+  final o = _wander(w, globalFrame, a, 91.3);
+  // the disk's points spread both ways: one number of it for the whole size.
+  return w.axes ? [1 + o[0], 1 + o[1]] : [1 + o[0], 1 + o[0]];
+}
+
+List<double> _wander(Wiggle w, int globalFrame, double amplitude, [double salt = 0]) {
   final speedHz = 0.1 + (w.speed / 100) * 3.9; // 0..100 -> 0.1..4 new waypoints/sec (never fully frozen)
-  final amplitude = (w.amplitude / 100) * 0.15; // 0..100 -> 0..15% of canvas
   final tension = w.smoothness / 100; // 0..100 -> 0..1, same convention as path tension
 
   final framesPerWaypoint = fps / speedHz;
@@ -37,10 +52,10 @@ List<double> evaluateWiggleOffset(Layer layer, int globalFrame) {
   final i0 = t.floor();
   final localT = t - i0;
 
-  final pM1 = _wiggleWaypoint(layer, i0 - 1, amplitude);
-  final p0 = _wiggleWaypoint(layer, i0, amplitude);
-  final p1 = _wiggleWaypoint(layer, i0 + 1, amplitude);
-  final p2 = _wiggleWaypoint(layer, i0 + 2, amplitude);
+  final pM1 = _wiggleWaypoint(w, i0 - 1, amplitude, salt);
+  final p0 = _wiggleWaypoint(w, i0, amplitude, salt);
+  final p1 = _wiggleWaypoint(w, i0 + 1, amplitude, salt);
+  final p2 = _wiggleWaypoint(w, i0 + 2, amplitude, salt);
 
   final k = 1 - tension; // identical to catmullRomTangent's own k
   final m0 = [k * (p1[0] - pM1[0]) / 2, k * (p1[1] - pM1[1]) / 2];

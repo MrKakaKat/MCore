@@ -851,7 +851,8 @@ List<PathTangentHandle> getPathTangentHandlesScreen(Project project, Layer layer
     if (!trk.handTangents || kfs.length < 2 || kfs.first.value is! List) continue;
     for (var i = 0; i < kfs.length; i++) {
       final k = kfs[i];
-      if (k.passive) continue;
+      // only the movement(s) whose handles are set by hand.
+      if (k.passive || !k.hand) continue;
       final g = k.frame + layer.startFrame;
       final st = pathPointAt(project, layer, g);
       final m = _screenPerLocal(project, layer, st, g);

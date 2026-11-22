@@ -5,6 +5,7 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/reset_button.dart';
+import 'stage_painter.dart' show showAllVisuals;
 
 /// aspect-ratio presets (a custom size) for the frame, plus the
 /// off-canvas-content visibility toggle. The frame's own boundary always stays
@@ -181,6 +182,18 @@ class _StageSettingsViewState extends State<StageSettingsView> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // every layer's ways, effect grids and masks, not only the
+              // picked one's.
+              SwitchListTile(
+                key: const ValueKey('show-all-visuals'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Show all visualizations'),
+                subtitle: const Text('Paths, effect grids, masks of every layer', style: TextStyle(fontSize: 11)),
+                value: showAllVisuals,
+                onChanged: (v) => widget.app.setAppPreference('showAllVisuals', v),
+              ),
+              const Divider(),
               _cameraSection(),
               const Divider(),
               const Text('Background', style: TextStyle(fontWeight: FontWeight.bold)),

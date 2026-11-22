@@ -31,6 +31,37 @@ void main() {
     return worst;
   }
 
+  test('drawn as the hand went: a pause in the drawing is a pause in the move', () {
+    final l = createLayer('rect')
+      ..id = 'A'
+      ..durationFrames = 300;
+    l.transform.anchor.defaultValue = <double>[0.1, 0.5];
+    final p = Project(layers: [l]);
+    // 0 -> 300 px in 0.5 s, still for 0.5 s, on to 600 px in 0.5 s.
+    final pts = <List<double>>[], times = <double>[];
+    for (var i = 0; i <= 30; i++) {
+      pts.add([100.0 + i * 10, 500]);
+      times.add(i / 60);
+    }
+    for (var i = 1; i <= 30; i++) {
+      pts.add([400.0, 500]);
+      times.add(0.5 + i / 60);
+    }
+    for (var i = 1; i <= 30; i++) {
+      pts.add([400.0 + i * 10, 500]);
+      times.add(1.0 + i / 60);
+    }
+    fps = 60;
+    final n = addFreeMoveLayer(p, l, pts, 0, 0, smoothing: 0, times: times);
+    expect(n, greaterThan(0));
+    clearStateCaches();
+    double x(int f) => (getLayerStateAt(p, 'A', f).matrix[4]) * 1000;
+    expect(x(45), closeTo(400, 3), reason: 'standing still in the pause');
+    expect(x(55), closeTo(400, 3));
+    expect(x(15), inInclusiveRange(200, 300));
+    expect(x(90), closeTo(700, 3));
+  });
+
   for (final where in ['key layer', 'base keys'])
     test('a free move squeezed into fewer frames than it has points ($where): fewer points, one a frame, the same way', () {
       final l = createLayer('rect')
@@ -59,10 +90,18 @@ void main() {
       expect(t.keyframes.where((k) => k.passive).length, lessThanOrEqualTo(5));
       expect(t.keyframes.where((k) => k.passive).every((k) => k.frame > 0 && k.frame < 6), isTrue);
       expect(far(shape(t), before), lessThan(0.02), reason: 'about the same way (fractions of the stage)');
-      // stretched back out: its points spread over the time again.
+      // stretched back out: every point it was drawn with comes back -
+      // the same wave, not a few straight stretches.
       end.frame = 100;
       bindFreeMoveKeys(l);
       expect(t.keyframes.where((k) => k.passive).every((k) => k.frame > 0 && k.frame < 100), isTrue);
       expect(t.keyframes.where((k) => k.passive).last.frame, greaterThan(50));
+      expect(t.keyframes.where((k) => k.passive).length, points);
+      expect(far(shape(t), before), lessThan(1e-6));
+      // and kept through a save.
+      end.frame = 6;
+      bindFreeMoveKeys(l);
+      final back = trackFromJson(trackToJson(t));
+      expect(back.keyframes.where((k) => k.way != null).length, 1);
     });
 }

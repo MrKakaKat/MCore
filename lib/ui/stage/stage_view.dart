@@ -274,7 +274,8 @@ class _StageViewState extends State<StageView> {
           bottom: widget.app.drawTool == 'fill' ? 56 : 8,
           child: FilledButton.tonalIcon(
             key: const ValueKey('stage-fresh-fill'),
-            onPressed: () => widget.app.fitSelectedToStage('fill'),
+            // a text fills the frame across (all of it seen), the rest cover it.
+            onPressed: () => widget.app.fitSelectedToStage(selectedLayer.content.shape == 'text' ? 'fit' : 'fill'),
             icon: const Icon(Icons.crop_square, size: 18),
             label: const Text('Fill'),
           ),

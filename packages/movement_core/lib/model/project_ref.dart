@@ -135,6 +135,7 @@ int? refSourceFrameAt(num local, RefSource s, int hostFps, String endBehavior) {
   final seconds = local / hostFps;
   final f = (seconds * s.fps + 1e-6).floor();
   final n = s.durationFrames;
+  if (n <= 0) return 0; // an empty source: its first (only) frame
   if (f < 0) return 0;
   if (f < n) return f;
   return switch (endBehavior) {
@@ -156,7 +157,7 @@ int refHostLocalFrame(int sourceFrame, RefSource s, int hostFps) => (sourceFrame
 bool projectIsStatic(Project p) {
   for (final l in p.layers) {
     if (isTimedMedia(l.content.shape) || l.content.shape == 'projectRef') return false;
-    if (l.wiggle.enabled || l.pendulum.enabled || l.swing.enabled || l.physics.collide) return false;
+    if (l.wiggle.enabled || l.scaleWiggle.enabled || l.pendulum.enabled || l.swing.enabled || l.physics.collide) return false;
     var keyed = false;
     visitLayerTracks(l, (t) {
       if (t.keyframes.length > 1 || t.expression != null) keyed = true;

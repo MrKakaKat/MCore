@@ -368,6 +368,9 @@ class CanvasRenderer implements Renderer {
     for (final inst in layer.effectStack) {
       if (!inst.enabled || inst.effectId != 'edge_glow' || !effectActiveAt(layer, inst.id, lf)) continue;
       final prm = resolveEffectParams(inst, lf);
+      // the object's own colours: drawn from its picture (see
+      // _edgeColourGlows).
+      if (prm['colorFrom'] == 'edges') continue;
       final position = prm['position'] as String? ?? 'outside';
       if (behind ? position == 'inside' : position == 'outside') continue;
       final r = (prm['radius'] as num?)?.toDouble() ?? 0;
@@ -401,6 +404,60 @@ class CanvasRenderer implements Renderer {
         canvas.restore();
       }
     }
+  }
+
+  /// Edge glow in the object's own colours: its picture blurred out
+  /// behind it (outside) and / or softly over itself (inside) - every
+  /// part of the edge glows in the colour it has there.
+  ui.Picture _edgeColourGlows(ui.Picture content, Layer layer, List<double> mCanvas, int globalFrame) {
+    final lf = math.min(layer.durationFrames, math.max(0, layerTimeFrame(layer, globalFrame) - layer.startFrame)).toDouble();
+    final glows = [
+      for (final inst in layer.effectStack)
+        if (inst.enabled && inst.effectId == 'edge_glow' && inst.params['colorFrom'] == 'edges' && effectActiveAt(layer, inst.id, lf))
+          resolveEffectParams(inst, lf)
+    ];
+    if (glows.isEmpty) return content;
+    // its radius is in the layer's own px: as large on the canvas.
+    final k = math.sqrt((mCanvas[0] * mCanvas[3] - mCanvas[1] * mCanvas[2]).abs()).clamp(1e-3, 1e3);
+    final rec = ui.PictureRecorder();
+    final c = ui.Canvas(rec);
+    ({double sigma, double strength, String position})? read(Map<String, dynamic> prm) {
+      final r = (prm['radius'] as num?)?.toDouble() ?? 0;
+      final strength = ((prm['strength'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0);
+      if (r <= 0 || strength <= 0) return null;
+      return (sigma: r * k / 2, strength: strength, position: prm['position'] as String? ?? 'outside');
+    }
+
+    for (final prm in glows) {
+      final g = read(prm);
+      if (g == null || g.position == 'inside') continue;
+      c.saveLayer(
+          null,
+          ui.Paint()
+            ..color = ui.Color.fromRGBO(0, 0, 0, g.strength)
+            ..imageFilter = ui.ImageFilter.blur(sigmaX: g.sigma, sigmaY: g.sigma));
+      // twice: a glow, not a faint haze.
+      c.drawPicture(content);
+      c.drawPicture(content);
+      c.restore();
+    }
+    c.drawPicture(content);
+    for (final prm in glows) {
+      final g = read(prm);
+      if (g == null || g.position == 'outside') continue;
+      // kept on the object itself, lightening.
+      c.saveLayer(null, ui.Paint()..blendMode = ui.BlendMode.srcATop);
+      c.saveLayer(
+          null,
+          ui.Paint()
+            ..color = ui.Color.fromRGBO(0, 0, 0, g.strength)
+            ..blendMode = ui.BlendMode.screen
+            ..imageFilter = ui.ImageFilter.blur(sigmaX: g.sigma, sigmaY: g.sigma));
+      c.drawPicture(content);
+      c.restore();
+      c.restore();
+    }
+    return rec.endRecording();
   }
 
   /// Edge blur: the content (and its outlines) kept by its own contour
@@ -606,6 +663,8 @@ class CanvasRenderer implements Renderer {
       if (l.hidden) continue; // explicit hide, independent of opacity
       // where one layer ends and another begins on this frame: the upper.
       if (junction.contains(l.id)) continue;
+      // Order on stage: not shown in this stretch.
+      if (stackHiddenAt(l, frame)) continue;
       // export: a still layer is drawn once and replayed on every frame.
       if (_stillIds.contains(l.id)) {
         if (frame < l.startFrame || frame > l.startFrame + l.durationFrames) continue;
@@ -628,7 +687,7 @@ class CanvasRenderer implements Renderer {
         keep[l.id] = pic;
         canvas.drawPicture(pic);
       } else {
-        _drawLayer(canvas, project, l.id, frame);
+        _safeDraw(canvas, l, () => _drawLayer(canvas, project, l.id, frame));
       }
       if (t != null) layerCosts!.add(LayerCost(l.name, t.elapsedMicroseconds / 1000));
     }
@@ -644,6 +703,27 @@ class CanvasRenderer implements Renderer {
       PerfMonitor.instance.recordRender(totalMs: perfWatch!.elapsedMicroseconds / 1000, layers: layerCosts!);
     }
   }
+
+  /// One layer drawn; if it fails (a broken file, bad data) it is left
+  /// out of this frame and the others are still drawn - an export never
+  /// stops on one layer.
+  void _safeDraw(ui.Canvas canvas, Layer l, void Function() draw) {
+    final saves = canvas.getSaveCount();
+    try {
+      draw();
+    } catch (e, st) {
+      canvas.restoreToCount(saves);
+      brokenLayers.add(l.id);
+      assert(() {
+        // ignore: avoid_print
+        print('layer ${l.name} not drawn: $e\n$st');
+        return true;
+      }());
+    }
+  }
+
+  /// Layers that failed to draw (see _safeDraw).
+  final Set<String> brokenLayers = {};
 
   // ===== mirror layers =====
 
@@ -1366,6 +1446,7 @@ class CanvasRenderer implements Renderer {
     }
 
     var contentPicture = contentRecorder.endRecording();
+    if (!isPrecompose) contentPicture = _edgeColourGlows(contentPicture, layer, mCanvas, globalFrame);
     // opacity AND blend composite together in one saveLayer, against
     // destCanvas's actual current contents - this matters for motion
     // blur (blend: BlendMode.plus): each sample has to accumulate
@@ -2733,11 +2814,12 @@ class CanvasRenderer implements Renderer {
         if (index == null || asset == null) continue;
         needed.add(VideoFrameCache.keyOf(asset, index));
         jobs.add(() async {
-          final image = await videoFrames.load(layer.content, index);
+          // a broken video file: that layer stays empty, the export goes on.
+          final image = await videoFrames.load(layer.content, index).catchError((Object _) => null);
           if (image != null && f == globalFrame && (layer.chromaKey.active || _edgeMatteOn(layer))) {
             await _ensureKeyed(layer, VideoFrameCache.keyOf(asset, index), image);
           }
-        }());
+        }().catchError((Object _) {}));
       }
     }
     videoFrames.pinned = needed;
@@ -2745,7 +2827,7 @@ class CanvasRenderer implements Renderer {
     for (final layer in project.layers) {
       if (layer.content.shape != 'projectRef' || layer.hidden) continue;
       final job = _prepareRef(layer, globalFrame);
-      if (job != null) jobs.add(job);
+      if (job != null) jobs.add(job.catchError((Object _) {}));
     }
     await Future.wait(jobs);
   }
@@ -2767,6 +2849,17 @@ class CanvasRenderer implements Renderer {
   final Map<String, CanvasRenderer> _refRenderers = {};
   final LinkedHashMap<String, ui.Image> _refFrames = LinkedHashMap();
   static const _refFrameBudget = 32;
+
+  /// Kept frames of all references together stay under this many bytes
+  /// (several references at full size ran the phone out of memory).
+  static const _refFrameBytes = 96 << 20;
+  int _refBytes() {
+    var n = 0;
+    for (final i in _refFrames.values) {
+      n += i.width * i.height * 4;
+    }
+    return n;
+  }
   final Expando<bool> _refStatic = Expando('static source');
 
   // HUD: nested renders and cache hits in the last second, the last
@@ -2782,13 +2875,24 @@ class CanvasRenderer implements Renderer {
 
   /// Forgets rendered frames (a source was reloaded).
   void clearRefFrames() {
+    for (final i in _refFrames.values) {
+      _disposeLater(i);
+    }
     _refFrames.clear();
     for (final r in _refRenderers.values) {
       r.clearRefFrames();
     }
   }
 
-  void _dropRefFrames(String id) => _refFrames.removeWhere((k, _) => k.startsWith('ref:$id:'));
+  void _dropRefFrames(String id) => _refFrames.removeWhere((k, v) {
+        final drop = k.startsWith('ref:$id:');
+        if (drop) _disposeLater(v);
+        return drop;
+      });
+
+  /// An image let go after this frame is drawn (it may still be in the
+  /// picture being recorded).
+  void _disposeLater(ui.Image i) => Future<void>.delayed(const Duration(seconds: 2), i.dispose);
 
   CanvasRenderer _refRenderer(RefSource s) {
     final r = _refRenderers[s.id] ??= CanvasRenderer()
@@ -2864,8 +2968,9 @@ class CanvasRenderer implements Renderer {
     final image = rec.endRecording().toImageSync(w, h);
     if (s.revision >= 0) {
       _refFrames[key] = image;
-      while (_refFrames.length > _refFrameBudget) {
-        _refFrames.remove(_refFrames.keys.first);
+      while (_refFrames.length > 1 && (_refFrames.length > _refFrameBudget || _refBytes() > _refFrameBytes)) {
+        final old = _refFrames.remove(_refFrames.keys.first);
+        if (old != null) _disposeLater(old);
       }
     }
     refLastMs = sw.elapsedMicroseconds / 1000;

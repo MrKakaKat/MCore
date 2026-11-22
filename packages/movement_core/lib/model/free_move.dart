@@ -123,24 +123,40 @@ int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath,
   if (timed) frames = math.max(1, (times.last * fps).round());
   if (frames < 1) return 0;
   // the pieces, in frame px; at most one per frame.
-  List<({List<List<double>> curve, int from, int to})> pieces;
-  if (smoothing >= 0.999) {
-    pieces = [(curve: _fitPiece(framePath), from: 0, to: framePath.length - 1)];
-  } else {
-    var x0 = double.infinity, y0 = double.infinity, x1 = -double.infinity, y1 = -double.infinity;
-    for (final p in framePath) {
-      x0 = math.min(x0, p[0]);
-      x1 = math.max(x1, p[0]);
-      y0 = math.min(y0, p[1]);
-      y1 = math.max(y1, p[1]);
+  var x0 = double.infinity, y0 = double.infinity, x1 = -double.infinity, y1 = -double.infinity;
+  for (final p in framePath) {
+    x0 = math.min(x0, p[0]);
+    x1 = math.max(x1, p[0]);
+    y0 = math.min(y0, p[1]);
+    y1 = math.max(y1, p[1]);
+  }
+  final size = math.max(1.0, math.sqrt(math.pow(x1 - x0, 2) + math.pow(y1 - y0, 2)));
+  // as drawn: where the hand stood still, the object stands still as long.
+  final pauses = timed ? _pauses(framePath, times) : const <(int, int)>[];
+  List<({List<List<double>> curve, int from, int to})> fitAll(double tol) {
+    List<({List<List<double>> curve, int from, int to})> fitRange(int a, int b) {
+      final sub = framePath.sublist(a, b + 1);
+      if (smoothing >= 0.999) return [(curve: _fitPiece(sub), from: a, to: b)];
+      return [for (final p in _fitIndexed(sub, tol)) (curve: p.curve, from: p.from + a, to: p.to + a)];
     }
-    final size = math.max(1.0, math.sqrt(math.pow(x1 - x0, 2) + math.pow(y1 - y0, 2)));
-    var tol = 0.75 + smoothing * smoothing * 0.15 * size;
-    pieces = _fitIndexed(framePath, tol);
-    while (pieces.length > frames) {
-      tol *= 2;
-      pieces = _fitIndexed(framePath, tol);
+
+    final out = <({List<List<double>> curve, int from, int to})>[];
+    var cursor = 0;
+    for (final (i, j) in pauses) {
+      if (i > cursor) out.addAll(fitRange(cursor, i));
+      final p = framePath[i];
+      out.add((curve: [p, p, p, p], from: i, to: j));
+      cursor = j;
     }
+    if (cursor < framePath.length - 1) out.addAll(fitRange(cursor, framePath.length - 1));
+    return out;
+  }
+
+  var tol = 0.75 + smoothing * smoothing * 0.15 * size;
+  var pieces = fitAll(tol);
+  while (pieces.length > frames && tol < size * 64) {
+    tol *= 2;
+    pieces = fitAll(tol);
   }
   // in the position's own space (a parent's too), from the start.
   final o = anchorLocalFromScreen(project, layer, first[0], first[1], globalFrame);
@@ -182,7 +198,9 @@ int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath,
         return Keyframe(
             frame: keyTimes[i],
             value: <double>[p[0], p[1]],
-            temporal: linear,
+            // as drawn: each stretch's speed as the hand went.
+            // (the last key's ease is the whole way's: even)
+            temporal: timed && i > 0 && i < pieces.length ? _paceEase(framePath, times, pieces[i - 1].from, pieces[i - 1].to) : linear,
             spatialTangent: SpatialTangent(inTan: inTan, outTan: outTan),
             // the way's own points: no keys to pick.
             passive: i > 0 && i < pieces.length);
@@ -198,6 +216,54 @@ int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath,
   if (f0 + frames > layer.durationFrames) layer.durationFrames = f0 + frames;
   clearStateCaches();
   return n;
+}
+
+/// Where the hand stood still while drawing (at most 3 px apart for at
+/// least 0.15 s): point index ranges [i, j].
+List<(int, int)> _pauses(List<List<double>> pts, List<double> times) {
+  final out = <(int, int)>[];
+  var i = 0;
+  while (i < pts.length - 1) {
+    var j = i;
+    while (j + 1 < pts.length && math.sqrt(math.pow(pts[j + 1][0] - pts[i][0], 2) + math.pow(pts[j + 1][1] - pts[i][1], 2)) < 3) {
+      j++;
+    }
+    if (j > i && times[j] - times[i] >= 0.15) {
+      out.add((i, j));
+      i = j;
+    } else {
+      i++;
+    }
+  }
+  return out;
+}
+
+/// The ease of the stroke between points `a` and `b`: how far along it
+/// the hand was when (a bezier with x1 = 1/3, x2 = 2/3 fitted to that).
+Easing _paceEase(List<List<double>> pts, List<double> times, int a, int b) {
+  const linear = Easing(0, 0, 1, 1);
+  if (b - a < 3) return linear;
+  final d = <double>[0];
+  for (var i = a + 1; i <= b; i++) {
+    d.add(d.last + math.sqrt(math.pow(pts[i][0] - pts[i - 1][0], 2) + math.pow(pts[i][1] - pts[i - 1][1], 2)));
+  }
+  final span = times[b] - times[a];
+  if (d.last <= 1e-9 || span <= 1e-9) return linear;
+  // y(x) = 3(1-x)^2 x y1 + 3(1-x) x^2 y2 + x^3: least squares for y1, y2.
+  var c11 = 0.0, c12 = 0.0, c22 = 0.0, r1 = 0.0, r2 = 0.0;
+  for (var i = a; i <= b; i++) {
+    final x = (times[i] - times[a]) / span, y = d[i - a] / d.last;
+    final b1 = 3 * (1 - x) * (1 - x) * x, b2 = 3 * (1 - x) * x * x, r = y - x * x * x;
+    c11 += b1 * b1;
+    c12 += b1 * b2;
+    c22 += b2 * b2;
+    r1 += b1 * r;
+    r2 += b2 * r;
+  }
+  final det = c11 * c22 - c12 * c12;
+  if (det.abs() < 1e-12) return linear;
+  final y1 = ((r1 * c22 - r2 * c12) / det).clamp(0.0, 1.0), y2 = ((c11 * r2 - c12 * r1) / det).clamp(0.0, 1.0);
+  return Easing(1 / 3, y1, 2 / 3, y2);
 }
 
 /// A free move drawn into the keys being edited (`trk`: the position's
@@ -281,6 +347,49 @@ bool _followEnds(Track trk) {
     final a1 = ka.frame, b1 = kb.frame, room = b1 - a1 - 1;
     if (oa == a1 && ob == b1 && ps.length <= room) continue;
     changed = true;
+    // the way as drawn kept on its end key the first time it is squeezed:
+    // stretched out again, every point of it comes back.
+    var w = kb.way;
+    if (w != null && !(_same(w.aValue, ka.value) && _same(w.bValue, kb.value))) w = kb.way = null;
+    if (w == null && ps.length > room && ka.value is List) {
+      w = kb.way = DrawnWay(
+        aValue: _vec(ka.value),
+        bValue: _vec(kb.value),
+        aOut: [...ka.spatialTangent.outTan],
+        bIn: [...kb.spatialTangent.inTan],
+        points: [
+          for (final k in ps)
+            (share: (k.frame - oa) / (ob - oa), value: _vec(k.value), tangent: k.spatialTangent.copy(), temporal: k.temporal)
+        ],
+      );
+    }
+    if (w != null) {
+      trk.keyframes.removeWhere((k) => ps.contains(k));
+      ka.spatialTangent = SpatialTangent(inTan: ka.spatialTangent.inTan, outTan: [...w.aOut]);
+      kb.spatialTangent = SpatialTangent(inTan: [...w.bIn], outTan: kb.spatialTangent.outTan);
+      final full = [
+        for (final p in w.points)
+          Keyframe(
+              frame: (a1 + p.share * (b1 - a1)).round(),
+              value: <double>[...p.value],
+              temporal: p.temporal,
+              spatialTangent: p.tangent.copy(),
+              passive: true)
+      ];
+      if (full.length <= room) {
+        var last = a1;
+        for (var j = 0; j < full.length; j++) {
+          full[j].frame = full[j].frame.clamp(last + 1, b1 - (full.length - j));
+          last = full[j].frame;
+        }
+        trk.keyframes.addAll(full);
+        // whole again: nothing to keep any more.
+        kb.way = null;
+      } else {
+        _thinWay(trk, ka, kb, full, room);
+      }
+      continue;
+    }
     if (ps.length > room) {
       // not frames enough for them all: fewer, the way's shape kept.
       _thinWay(trk, ka, kb, ps, room);
@@ -297,6 +406,16 @@ bool _followEnds(Track trk) {
   if (changed) trk.keyframes.sort((x, y) => x.frame.compareTo(y.frame));
   return changed;
 }
+
+bool _same(dynamic a, dynamic b) {
+  if (a is! List || b is! List || a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (((a[i] as num) - (b[i] as num)).abs() > 1e-9) return false;
+  }
+  return true;
+}
+
+List<double> _vec(dynamic v) => [for (final e in v as List) (e as num).toDouble()];
 
 /// The drawn way between `ka` and `kb` (its points `ps`) made again of at
 /// most `room` points (one a frame between the keys), as close to its

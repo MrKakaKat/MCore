@@ -7,11 +7,17 @@ import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:movement_core/movement_core.dart' hide Transform;
 
 import '../../app_state.dart';
+
 import '../common/tool_guide.dart';
 import 'layer_detail_rows.dart';
+
+/// A layer's edge (or the layer itself) is being held on the timeline:
+/// a hold there is never a ruler mark - the layer first, then the mark.
+bool timelineLayerHeld = false;
 
 /// Ported from movement-core/src/ui/timeline/timelinePanel.js - a
 /// multi-layer timeline: one row per layer, showing its active range
@@ -292,6 +298,11 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
   Duration? _trimDownTime;
   bool _trimMoved = false;
   static const Duration _trimTapTimeout = Duration(milliseconds: 350);
+
+  /// Held still on an edge: the press became the layer's move (the edge
+  /// is part of the layer, not a second handle fighting it).
+  bool _trimAsMove = false;
+  Timer? _trimHold;
 
   /// Which lane is at a content point (x from the timeline start, y from
   /// the top) - set by build() for the current rows.
@@ -578,19 +589,35 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
             _trimDownAt = Offset(left + d.localPosition.dx, d.localPosition.dy);
             _trimDownTime = d.timeStamp;
             _trimMoved = false;
+            _trimAsMove = false;
+            timelineLayerHeld = true;
             widget.app.beginLayerDrag(layer.id, mode);
             _setScrubDragActive(true);
+            // held still: the layer moves instead.
+            _trimHold?.cancel();
+            _trimHold = Timer(kLongPressTimeout, () {
+              _trimHold = null;
+              if (_trimMoved || _trimStartGlobalX == null || widget.app.timelineHandlesLocked) return;
+              widget.app.cancelLayerDrag();
+              widget.app.beginLayerDrag(layer.id, LayerDragMode.move);
+              _trimAsMove = true;
+              HapticFeedback.selectionClick();
+              setState(() {});
+            });
           },
           onPointerMove: (d) {
             final start = _trimStartGlobalX;
             if (start == null) return;
-            if (!_trimMoved && (d.position.dx - start).abs() < _trimTapSlop) return;
+            if (!_trimAsMove && !_trimMoved && (d.position.dx - start).abs() < _trimTapSlop) return;
             _trimMoved = true;
+            _trimHold?.cancel();
             widget.app.updateLayerDrag(((d.position.dx - start) / ppf).round());
           },
           onPointerUp: (d) {
+            _trimHold?.cancel();
+            timelineLayerHeld = false;
             final at = _trimDownAt, t0 = _trimDownTime;
-            if (!_trimMoved && at != null && t0 != null && d.timeStamp - t0 < _trimTapTimeout) {
+            if (!_trimAsMove && !_trimMoved && at != null && t0 != null && d.timeStamp - t0 < _trimTapTimeout) {
               _trimStartGlobalX = null;
               widget.app.cancelLayerDrag(); // nothing changed, no undo step
               _setScrubDragActive(false);
@@ -599,7 +626,11 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
             }
             end();
           },
-          onPointerCancel: (_) => end(),
+          onPointerCancel: (_) {
+            _trimHold?.cancel();
+            timelineLayerHeld = false;
+            end();
+          },
           child: CustomPaint(
               painter: _MarkerLinePainter(color: color, x: x - left)),
         ),
@@ -1833,7 +1864,7 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
                                         _pinnedHold = null;
                                         _pinnedHeld = true;
                                         // the timeline scrolled meanwhile: a drag, no hold.
-                                        if (widget.app.currentFrame != frame || onSelectedLane(y)) return;
+                                        if (widget.app.currentFrame != frame || timelineLayerHeld || onSelectedLane(y)) return;
                                         widget.app.toggleMarker(widget.app.currentFrame);
                                       });
                                     },
@@ -2347,6 +2378,24 @@ class _LayerLaneState extends State<_LayerLane>
     super.dispose();
   }
 
+  /// The link icon on one line down all the layers linked with this one:
+  /// where they all are at once; with a gap between them, at the edge
+  /// facing the others (the earlier one's end, the later one's start).
+  double? _linkIconX() {
+    final id = widget.layer.linkId;
+    if (id == null) return null;
+    final group = [for (final l in widget.app.project.layers) if (l.linkId == id) l];
+    if (group.length < 2) return null;
+    var a = -1 << 30, b = 1 << 30;
+    for (final l in group) {
+      a = math.max(a, l.startFrame);
+      b = math.min(b, l.startFrame + l.durationFrames);
+    }
+    final me = widget.layer;
+    if (a < b) return _frameToX(a) + 6;
+    return me.startFrame + me.durationFrames <= a ? _frameToX(me.startFrame + me.durationFrames) - 6 : _frameToX(me.startFrame) + 6;
+  }
+
   @override
   Widget build(BuildContext context) {
     final startX = _frameToX(widget.layer.startFrame);
@@ -2433,8 +2482,24 @@ class _LayerLaneState extends State<_LayerLane>
               mediaSpeed: widget.layer.content.mediaSpeed,
               pixelsPerFrame: widget.pixelsPerFrame,
               linked: widget.layer.linkId != null,
+              linkX: _linkIconX(),
             ),
           ))),
+          // held to move: arrows over its ends, pointing out to its edges.
+          if (widget.app.layerDrag case final d? when d.id == widget.layer.id && d.mode == LayerDragMode.move) ...[
+            Positioned(
+              key: ValueKey('move-arrow-left-${widget.layer.id}'),
+              left: startX - 2,
+              top: -2,
+              child: IgnorePointer(child: Icon(Icons.arrow_left, size: 16, color: color)),
+            ),
+            Positioned(
+              key: ValueKey('move-arrow-right-${widget.layer.id}'),
+              left: endX - 14,
+              top: -2,
+              child: IgnorePointer(child: Icon(Icons.arrow_right, size: 16, color: color)),
+            ),
+          ],
           // inertia: a thin line from where contact ended to where the
           // layer comes to rest, a ring at its end.
           if (widget.layer.physics.collide)
@@ -2703,6 +2768,9 @@ class _LaneLinePainter extends CustomPainter {
 
   /// Linked in time to other layers (a small chain at its start).
   final bool linked;
+
+  /// Where the link icon sits (one line for all the linked layers).
+  final double? linkX;
   _LaneLinePainter({
     required this.startX,
     required this.endX,
@@ -2724,6 +2792,7 @@ class _LaneLinePainter extends CustomPainter {
     this.mediaSpeed = 1,
     this.pixelsPerFrame = 1,
     this.linked = false,
+    this.linkX,
   });
 
   @override
@@ -2758,7 +2827,7 @@ class _LaneLinePainter extends CustomPainter {
         ..color = Colors.white.withOpacity(alpha * 0.9)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2;
-      final x = startX + 6;
+      final x = linkX ?? startX + 6;
       canvas.drawOval(Rect.fromCenter(center: Offset(x - 2, midY), width: 6, height: 4), chain);
       canvas.drawOval(Rect.fromCenter(center: Offset(x + 2, midY), width: 6, height: 4), chain);
     }
@@ -2877,7 +2946,8 @@ class _LaneLinePainter extends CustomPainter {
       oldDelegate.sourceIn != sourceIn ||
       oldDelegate.mediaSpeed != mediaSpeed ||
       oldDelegate.pixelsPerFrame != pixelsPerFrame ||
-      oldDelegate.linked != linked;
+      oldDelegate.linked != linked ||
+      oldDelegate.linkX != linkX;
 }
 
 /// Recorded waveforms, so a lane's bars are drawn once - not again on
@@ -3045,8 +3115,8 @@ class _PlayheadState extends State<_Playhead>
             final y = d.localPosition.dy;
             _holdTimer = Timer(kLongPressTimeout, () {
               _holdTimer = null;
-              // held on the selected layer: that's its move, not a mark.
-              if (widget.onSelectedLane?.call(y) ?? false) return;
+              // held on the selected layer (or its edge): that's its move, not a mark.
+              if (timelineLayerHeld || (widget.onSelectedLane?.call(y) ?? false)) return;
               widget.app.toggleMarker(widget.app.currentFrame);
             });
             widget.onDragActiveChanged(true);
