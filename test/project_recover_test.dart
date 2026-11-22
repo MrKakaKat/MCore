@@ -46,4 +46,12 @@ void main() {
     await store.delete(f);
     expect(await store.list(), isEmpty);
   });
+
+  test('a file that cannot be read at all is listed as unreadable, not hidden', () async {
+    final f = File('${dir.path}/projects/999.json');
+    await f.parent.create(recursive: true);
+    await f.writeAsString('');
+    expect(await store.list(), isEmpty);
+    expect(store.unreadable.single.size, 0);
+  });
 }

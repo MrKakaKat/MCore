@@ -5248,11 +5248,17 @@ class AppState extends ChangeNotifier {
   /// background included) and autosaves every change back to that same
   /// file - debounced, plus `saveNow()` on backgrounding. A missing or
   /// unreadable file leaves the current (default) state in place.
-  Future<void> openProject(File file) async {
+  /// Why the last openProject couldn't read its file (null: it did).
+  Object? openError;
+
+  Future<bool> openProject(File file) async {
     _autosaveFile = file;
+    openError = null;
+    var loaded = false;
     if (await file.exists()) {
       try {
         final data = await loadProjectFromFile(file);
+        loaded = true;
         projectId = data.id ?? newProjectId();
         projectRevision = data.revision;
         project = data.project;
@@ -5283,12 +5289,19 @@ class AppState extends ChangeNotifier {
         unawaited(keepReferencedImages());
         unawaited(restoreAudio());
         await loadReferences();
-      } catch (_) {
-        // not a recognized project file - keep the default project.
+      } catch (e) {
+        // not read: NEVER saved over (an empty project written into its
+        // file lost the project) - the file stays as it is.
+        if (!loaded) {
+          _autosaveFile = null;
+          openError = e;
+          return false;
+        }
       }
     }
     addListener(_scheduleAutosave);
     addListener(_prepareAudioSoon);
+    return true;
   }
 
   void _scheduleAutosave() {

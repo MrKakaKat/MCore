@@ -116,7 +116,28 @@ class _HomeScreenState extends State<HomeScreen> {
       // a reference's "Open source": that project in its own editor, on
       // top of this one.
       ..onOpenProject = _openById;
-    await app.openProject(meta.file);
+    // not read: not opened (nothing is ever saved over it).
+    if (!await app.openProject(meta.file)) {
+      if (!mounted) return;
+      final err = '${app.openError}';
+      showDialog<void>(
+        context: context,
+        builder: (c) => AlertDialog(
+          key: const ValueKey('open-failed'),
+          title: Text('"${meta.name}" ${tr('could not be opened')}'),
+          content: SingleChildScrollView(
+              child: SelectableText('${tr('Its file is left as it is. Copy this and send it to get it fixed:')}\n\n$err',
+                  style: const TextStyle(fontSize: 12))),
+          actions: [
+            TextButton(
+                onPressed: () => Clipboard.setData(ClipboardData(text: 'open failed: ${meta.file.path}\n$err')),
+                child: Text(tr('Copy'))),
+            TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('OK'))),
+          ],
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
     // a crash in it is told where it was.
     CrashLog.instance?.status = () => {
@@ -135,6 +156,54 @@ class _HomeScreenState extends State<HomeScreen> {
     await app.saveNow();
     await widget.store.cleanupVideos();
     _refresh();
+  }
+
+  /// A project file that doesn't read: what it is, a copy of it saved
+  /// outside the app (to be sent on and repaired), or deleted.
+  Widget _unreadableTile(({File file, int size, String reason}) b) {
+    final ts = int.tryParse(b.file.uri.pathSegments.last.replaceAll('.json', ''));
+    final made = ts == null ? '' : _formatDate(DateTime.fromMicrosecondsSinceEpoch(ts));
+    final size = b.size < 1024 ? '${b.size} B' : '${(b.size / 1024).toStringAsFixed(1)} KB';
+    return ListTile(
+      key: ValueKey('home-unreadable-${b.file.path}'),
+      leading: const Icon(Icons.broken_image_outlined, color: Colors.orangeAccent),
+      title: Text(tr('Damaged project file')),
+      subtitle: hint('${made.isEmpty ? '' : '$made  ·  '}$size  ·  ${b.size == 0 ? tr('empty: nothing left in it') : b.reason}'),
+      trailing: PopupMenuButton<String>(
+        onSelected: (a) async {
+          final messenger = ScaffoldMessenger.of(context);
+          if (a == 'save') {
+            final folder = await pickOutsideFolder();
+            if (folder == null) return;
+            try {
+              await writeIntoFolder(folder.uri, 'MCore-damaged-${b.file.uri.pathSegments.last}', b.file, mime: 'application/json');
+              messenger.showSnackBar(SnackBar(content: Text('${tr('Saved to')} ${folder.name}')));
+            } catch (e) {
+              messenger.showSnackBar(SnackBar(content: Text('$e')));
+            }
+          } else if (a == 'delete') {
+            final ok = await showDialog<bool>(
+              context: context,
+              builder: (c) => AlertDialog(
+                title: Text(tr('Delete the damaged file?')),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(c, false), child: Text(tr('Cancel'))),
+                  TextButton(onPressed: () => Navigator.pop(c, true), child: Text(tr('Delete'))),
+                ],
+              ),
+            );
+            if (ok == true) {
+              await widget.store.delete(b.file);
+              _refresh();
+            }
+          }
+        },
+        itemBuilder: (_) => [
+          PopupMenuItem(value: 'save', child: Text(tr('Save a copy outside the app'))),
+          PopupMenuItem(value: 'delete', child: Text(tr('Delete'))),
+        ],
+      ),
+    );
   }
 
   Future<void> _openById(String id) async {
@@ -536,16 +605,20 @@ class _HomeScreenState extends State<HomeScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           final projects = snapshot.data!;
-          if (projects.isEmpty) {
+          // project files that don't read: shown, never hidden away.
+          final bad = widget.store.unreadable;
+          if (projects.isEmpty && bad.isEmpty) {
             return const Center(
               child: Text('No projects yet - tap "New project" to start.', style: TextStyle(color: Colors.grey)),
             );
           }
           return ListView.separated(
             padding: const EdgeInsets.only(bottom: 88),
-            itemCount: projects.length,
+            itemCount: projects.length + bad.length,
             separatorBuilder: (_, __) => const Divider(height: 1),
             itemBuilder: (context, i) {
+              if (i < bad.length) return _unreadableTile(bad[i]);
+              i -= bad.length;
               final p = projects[i];
               final picked = _picked.contains(p.file.path);
               return ListTile(

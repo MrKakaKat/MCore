@@ -103,17 +103,26 @@ class ProjectStore {
     return metas;
   }
 
+  /// Project files that could not be read at the last listing (never
+  /// hidden away: shown, to be saved outside or repaired).
+  List<({File file, int size, String reason})> unreadable = [];
+
   Future<List<ProjectMeta>> _metasIn(Directory dir) async {
     if (!await dir.exists()) return [];
     final metas = <ProjectMeta>[];
+    final bad = <({File file, int size, String reason})>[];
     // a save the app closed in the middle of: the whole one it was
     // writing, or the one before it, back in place.
     if (dir.path == _dir.path) await _recoverOrphans(dir);
     await for (final entity in dir.list()) {
       if (entity is! File || !entity.path.endsWith('.json')) continue;
       try {
-        var data = await _readOrRecover(entity);
-        if (data is! Map<String, dynamic>) continue;
+        final data = await _readOrRecover(entity);
+        if (data is! Map<String, dynamic>) {
+          final size = await entity.length();
+          bad.add((file: entity, size: size, reason: size == 0 ? 'empty' : 'cannot be read'));
+          continue;
+        }
         // files saved before ids get one now (kept from then on).
         if (data['id'] is! String) {
           data['id'] = newProjectId();
@@ -132,10 +141,14 @@ class ProjectStore {
               ? DateTime.tryParse(data['trashedAt'] as String? ?? '') ?? await entity.lastModified()
               : null,
         ));
-      } catch (_) {
+      } catch (e) {
+        try {
+          bad.add((file: entity, size: await entity.length(), reason: '$e'));
+        } catch (_) {}
         continue;
       }
     }
+    if (dir.path == _dir.path) unreadable = bad;
     // file names are creation timestamps - the tiebreak for mtimes that
     // land in the same second.
     metas.sort((a, b) {
