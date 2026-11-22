@@ -492,13 +492,18 @@ dynamic _evaluateOwn(Project? project, Track trk, double localFrame, [Layer? lay
   // inside a drawn way (free move: its own points between two keys): one
   // ease - the end key's - over the whole way, its points at an even pace
   // in between (they were laid out by length).
-  if (k0.passive || k1.passive) {
+  if (k0.passive || k1.passive || k1.pace != null) {
     var s = i, e = i + 1;
     while (s > 0 && kfs[s].passive) {
       s--;
     }
     while (e < kfs.length - 1 && kfs[e].passive) {
       e++;
+    }
+    // drawn as the hand went: along the way at exactly its pace.
+    final pace = kfs[e].pace;
+    if (pace != null && pace.length >= 2 && trk.spatial && !kfs[s].passive && kfs[s].value is List) {
+      return _alongDrawnWay(kfs, s, e, pace, frame);
     }
     if (!kfs[s].passive && !kfs[e].passive) {
       final whole = applyTemporalEasing(kfs[s], kfs[e], frame);
@@ -533,6 +538,61 @@ dynamic _evaluateOwn(Project? project, Track trk, double localFrame, [Layer? lay
     return [for (var idx = 0; idx < v0.length; idx++) lerp(v0[idx], v1[idx], easedT)]; // independent channels
   }
   return lerp((k0.value as num).toDouble(), (k1.value as num).toDouble(), easedT);
+}
+
+/// A drawn way's run (keys s..e) at `frame`, as far along its length as
+/// the hand's pace says at that share of its time.
+List<double> _alongDrawnWay(List<Keyframe> kfs, int s, int e, List<double> pace, num frame) {
+  final span = kfs[e].frame - kfs[s].frame;
+  final u = span <= 0 ? 1.0 : ((frame - kfs[s].frame) / span).clamp(0.0, 1.0);
+  final x = u * (pace.length - 1);
+  final j = x.floor().clamp(0, pace.length - 2);
+  final p = pace[j] + (pace[j + 1] - pace[j]) * (x - j);
+  final table = _runTable(kfs, s, e);
+  final target = p * table.total;
+  var lo = 0, hi = table.len.length - 1;
+  while (lo < hi - 1) {
+    final mid = (lo + hi) >> 1;
+    if (table.len[mid] <= target) {
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  final a = table.len[lo], b = table.len[hi];
+  final f = b - a <= 1e-15 ? 0.0 : (target - a) / (b - a);
+  final q0 = table.pts[lo], q1 = table.pts[hi];
+  return [q0[0] + (q1[0] - q0[0]) * f, q0[1] + (q1[1] - q0[1]) * f];
+}
+
+final _runTables = Expando<({String sig, List<List<double>> pts, List<double> len, double total})>('drawnRuns');
+
+/// The run's points (16 a stretch) and the length along it to each.
+({String sig, List<List<double>> pts, List<double> len, double total}) _runTable(List<Keyframe> kfs, int s, int e) {
+  final end = kfs[e];
+  final sig = StringBuffer('$s:$e');
+  for (var k = s; k <= e; k++) {
+    final v = kfs[k].value as List;
+    final st = kfs[k].spatialTangent;
+    sig.write('|${v[0]},${v[1]},${st.inTan[0]},${st.inTan[1]},${st.outTan[0]},${st.outTan[1]}');
+  }
+  final key = sig.toString();
+  final cached = _runTables[end];
+  if (cached != null && cached.sig == key) return cached;
+  final pts = <List<double>>[];
+  final len = <double>[];
+  var acc = 0.0;
+  for (var k = s; k < e; k++) {
+    for (var q = (k == s ? 0 : 1); q <= 16; q++) {
+      final pt = spatialLerpVec2(kfs[k], kfs[k + 1], q / 16);
+      if (pts.isNotEmpty) acc += math.sqrt(math.pow(pt[0] - pts.last[0], 2) + math.pow(pt[1] - pts.last[1], 2));
+      pts.add(pt);
+      len.add(acc);
+    }
+  }
+  final t = (sig: key, pts: pts, len: len, total: acc);
+  _runTables[end] = t;
+  return t;
 }
 
 /// Whole-path pace at `x`. A bezier is clamped to [0,1] - a y-overshoot

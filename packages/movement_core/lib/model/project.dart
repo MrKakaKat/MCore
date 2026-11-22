@@ -336,6 +336,11 @@ class Keyframe {
   /// points: the way as it was drawn, to come back whole when there is
   /// room again.
   DrawnWay? way;
+
+  /// The end of a way drawn "as drawn": how far along the way (0..1) the
+  /// hand was at evenly spaced moments from the way's first key to this
+  /// one - the object goes along it at exactly that pace.
+  List<double>? pace;
   Keyframe({
     required this.frame,
     required this.value,
@@ -2736,7 +2741,8 @@ Track cloneTrack(Track src) {
           spatialTangent: k.spatialTangent.copy(),
           passive: k.passive,
           hand: k.hand)
-        ..way = k.way,
+        ..way = k.way
+        ..pace = k.pace == null ? null : [...k.pace!],
   ];
   return t;
 }

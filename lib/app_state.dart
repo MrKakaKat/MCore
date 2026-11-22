@@ -3532,6 +3532,9 @@ class AppState extends ChangeNotifier {
 
   /// The recorded path as a key layer: two keys, `freeMoveSeconds` apart
   /// from the playhead, the curve in their handles.
+  /// As drawn: the moments the way's points were drawn at (null: off).
+  List<double>? get _drawnTimes => freeMoveAsDrawn && freeMoveTimes.length == freeMovePath.length ? freeMoveTimes : null;
+
   void confirmFreeMove() {
     final l = findLayer(project, selection.selectedLayer);
     if (l == null || freeMovePath.length < 2) {
@@ -3543,7 +3546,8 @@ class AppState extends ChangeNotifier {
     freeMoveStart = null;
     if (range != null) {
       pushUndo();
-      final ok = replaceMoveBetweenKeys(project, l, range.trk, range.a, range.b, freeMovePath, smoothing: freeMoveSmoothing);
+      final ok = replaceMoveBetweenKeys(project, l, range.trk, range.a, range.b, freeMovePath,
+          smoothing: freeMoveSmoothing, times: _drawnTimes);
       freeMoveRecording = false;
       freeMoveReplace = false;
       freeMovePath = [];
@@ -3563,7 +3567,7 @@ class AppState extends ChangeNotifier {
     if (keyMode != 'order') {
       final ok = addFreeMoveInto(project, l, editTrackOf(l.transform.anchor), freeMovePath, currentFrame,
           math.max(2, (freeMoveSeconds * fps).round()),
-          smoothing: freeMoveSmoothing);
+          smoothing: freeMoveSmoothing, times: _drawnTimes);
       freeMoveRecording = false;
       freeMovePath = [];
       if (!ok) {
@@ -3579,7 +3583,7 @@ class AppState extends ChangeNotifier {
     final keep = activeAnimLayer;
     final n = addFreeMoveLayer(project, l, freeMovePath, currentFrame, math.max(1, (freeMoveSeconds * fps).round()),
         smoothing: freeMoveSmoothing,
-        times: freeMoveAsDrawn && freeMoveTimes.length == freeMovePath.length ? freeMoveTimes : null);
+        times: _drawnTimes);
     activeAnimLayer = keep;
     freeMoveRecording = false;
     freeMovePath = [];

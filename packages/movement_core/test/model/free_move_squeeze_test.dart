@@ -63,6 +63,43 @@ void main() {
   });
 
   for (final where in ['key layer', 'base keys'])
+    test('as drawn ($where): the object goes exactly as fast as the finger did, pauses too', () {
+      fps = 60;
+      final l = createLayer('rect')
+        ..id = 'A'
+        ..durationFrames = 300;
+      l.transform.anchor.defaultValue = <double>[0.1, 0.5];
+      final p = Project(layers: [l]);
+      // slow for 1 s (100 -> 400 px), still for 0.5 s, fast for 0.2 s (-> 700 px).
+      final pts = <List<double>>[], times = <double>[];
+      for (var i = 0; i <= 60; i++) {
+        pts.add([100.0 + i * 5, 500]);
+        times.add(i / 60);
+      }
+      for (var i = 1; i <= 30; i++) {
+        pts.add([400.0, 500]);
+        times.add(1 + i / 60);
+      }
+      for (var i = 1; i <= 12; i++) {
+        pts.add([400.0 + i * 25, 500]);
+        times.add(1.5 + i / 60);
+      }
+      if (where == 'key layer') {
+        expect(addFreeMoveLayer(p, l, pts, 0, 0, smoothing: 0, times: times), greaterThan(0));
+      } else {
+        expect(addFreeMoveInto(p, l, l.transform.anchor, pts, 0, 10, smoothing: 0, times: times), isTrue);
+      }
+      double x(int f) {
+        clearStateCaches();
+        return getLayerStateAt(p, 'A', f).matrix[4] * 1000;
+      }
+      expect(x(30), closeTo(250, 6), reason: 'half way through the slow part');
+      expect(x(75), closeTo(400, 4), reason: 'in the pause');
+      expect(x(96), closeTo(550, 15), reason: 'half way through the fast part');
+      expect(x(102), closeTo(700, 4));
+    });
+
+  for (final where in ['key layer', 'base keys'])
     test('a free move squeezed into fewer frames than it has points ($where): fewer points, one a frame, the same way', () {
       final l = createLayer('rect')
         ..id = 'A'

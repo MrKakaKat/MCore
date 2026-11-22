@@ -69,6 +69,7 @@ Map<String, dynamic> keyframeToJson(Keyframe k) => {
       'spatialTangent': spatialTangentToJson(k.spatialTangent),
       if (k.passive) 'passive': true,
       if (k.hand) 'hand': true,
+      if (k.pace != null) 'pace': [for (final v in k.pace!) double.parse(v.toStringAsFixed(4))],
       if (k.way case final w?)
         'way': {
           'a': w.aValue,
@@ -106,7 +107,9 @@ DrawnWay? _wayFromJson(Object? j) {
   }
 }
 
-Keyframe keyframeFromJson(Map<String, dynamic> j) => _keyframeFromJson(j)..way = _wayFromJson(j['way']);
+Keyframe keyframeFromJson(Map<String, dynamic> j) => _keyframeFromJson(j)
+  ..way = _wayFromJson(j['way'])
+  ..pace = j['pace'] is List ? _dl(j['pace']) : null;
 
 Keyframe _keyframeFromJson(Map<String, dynamic> j) => Keyframe(
       frame: j['frame'] as int,

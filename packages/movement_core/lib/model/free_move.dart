@@ -211,11 +211,43 @@ int addFreeMoveLayer(Project project, Layer layer, List<List<double>> framePath,
     // last.
     trk.constantSpeed = true;
     trk.globalEasing = ease ?? newKeyEasing();
+  } else {
+    // as drawn: exactly the hand's pace along it.
+    trk.keyframes.last.pace = drawnPace(framePath, times);
   }
   // its time reaches the last key.
   if (f0 + frames > layer.durationFrames) layer.durationFrames = f0 + frames;
   clearStateCaches();
   return n;
+}
+
+/// The hand's pace along a drawn way: how far along it (0..1 of its
+/// length) the finger was at `n + 1` evenly spaced moments from its first
+/// point to its last (see Keyframe.pace). Null when there is no time.
+List<double>? drawnPace(List<List<double>> pts, List<double>? times, {int n = 64}) {
+  if (times == null || times.length != pts.length || pts.length < 2) return null;
+  final total = times.last - times.first;
+  if (total <= 1e-9) return null;
+  final d = <double>[0];
+  for (var i = 1; i < pts.length; i++) {
+    d.add(d.last + math.sqrt(math.pow(pts[i][0] - pts[i - 1][0], 2) + math.pow(pts[i][1] - pts[i - 1][1], 2)));
+  }
+  if (d.last <= 1e-9) return null;
+  final out = <double>[];
+  var i = 0;
+  for (var j = 0; j <= n; j++) {
+    final t = times.first + total * j / n;
+    while (i < pts.length - 2 && times[i + 1] < t) {
+      i++;
+    }
+    final span = times[i + 1] - times[i];
+    final u = span <= 1e-12 ? 1.0 : ((t - times[i]) / span).clamp(0.0, 1.0);
+    final v = (d[i] + (d[i + 1] - d[i]) * u) / d.last;
+    out.add(out.isEmpty ? v : math.max(out.last, v));
+  }
+  out[0] = 0;
+  out[n] = 1;
+  return out;
 }
 
 /// Where the hand stood still while drawing (at most 3 px apart for at
@@ -272,7 +304,9 @@ Easing _paceEase(List<List<double>> pts, List<double> times, int a, int b) {
 /// the drawn way ends, the way's own points between them - any keys there
 /// before give way to it. Returns false when there is nothing to make.
 bool addFreeMoveInto(Project project, Layer layer, Track trk, List<List<double>> framePath, int globalFrame, int frames,
-    {double smoothing = 1}) {
+    {double smoothing = 1, List<double>? times}) {
+  // as drawn: as long as the hand took.
+  if (times != null && times.length == framePath.length && times.last > 0) frames = math.max(2, (times.last * fps).round());
   if (framePath.length < 2 || frames < 2) return false;
   final first = framePath.first;
   if (framePath.every((p) => (p[0] - first[0]).abs() < 1e-9 && (p[1] - first[1]).abs() < 1e-9)) return false;
@@ -299,7 +333,7 @@ bool addFreeMoveInto(Project project, Layer layer, Track trk, List<List<double>>
     ..sort((a, b) => a.frame.compareTo(b.frame));
   if (!trk.spatial && identical(trk, base)) trk.spatial = true;
   clearStateCaches();
-  return replaceMoveBetweenKeys(project, layer, trk, f0, f1, framePath, smoothing: smoothing);
+  return replaceMoveBetweenKeys(project, layer, trk, f0, f1, framePath, smoothing: smoothing, times: times);
 }
 
 /// Each position track's own keys (not the drawn way's points) as last
@@ -639,7 +673,7 @@ bool removeMoveBetweenKeys(Track trk, int a, int b) {
 /// values; the drawn way's own points come between them (passive, by
 /// length - one pace). False when there is nothing to replace.
 bool replaceMoveBetweenKeys(Project project, Layer layer, Track trk, int a, int b, List<List<double>> framePath,
-    {double smoothing = 1}) {
+    {double smoothing = 1, List<double>? times}) {
   final ka = keyframeAt(trk, a), kb = keyframeAt(trk, b);
   if (ka == null || kb == null || b - a < 1 || framePath.length < 2) return false;
   if (trk.keyframes.any((k) => k.frame > a && k.frame < b && !k.passive)) return false;
@@ -731,6 +765,8 @@ bool replaceMoveBetweenKeys(Project project, Layer layer, Track trk, int a, int 
   ka.spatialTangent = SpatialTangent(inTan: st.inTan, outTan: [local[0][1][0] - local[0][0][0], local[0][1][1] - local[0][0][1]]);
   final sb = kb.spatialTangent;
   kb.spatialTangent = SpatialTangent(inTan: [local.last[2][0] - local.last[3][0], local.last[2][1] - local.last[3][1]], outTan: sb.outTan);
+  // as drawn: the hand's own pace along it (else the keys' ease).
+  kb.pace = drawnPace(framePath, times);
   trk.keyframes.sort((x, y) => x.frame.compareTo(y.frame));
   clearStateCaches();
   return true;
