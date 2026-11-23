@@ -125,7 +125,7 @@ class CrashLog with WidgetsBindingObserver {
         ? 'MCore froze (${c['time']})'
         : 'MCore closed ${c['state'] == 'running' ? 'unexpectedly' : 'after errors'} at ${c['time']}');
     if (c['project'] != null) b.writeln('project: ${c['project']}');
-    for (final k in ['frame', 'playing', 'layers', 'refs', 'version']) {
+    for (final k in ['frame', 'playing', 'layers', 'refs', 'memory MB', 'version']) {
       if (c[k] != null) b.writeln('$k: ${c[k]}');
     }
     for (final e in (c['errors'] as List? ?? const [])) {

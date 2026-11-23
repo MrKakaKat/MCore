@@ -1269,10 +1269,11 @@ class AppState extends ChangeNotifier {
   /// Lets go of the renderer's caches (they fill again as needed).
   void trimMemory(String why) {
     _lastTrim = DateTime.now();
+    final held = renderer.memoryReport().entries.map((e) => '${e.key} ${e.value}').join(', ');
     renderer.trimMemory(usedSources: directRefs(project));
     _contextRenderer.trimMemory();
     clearStateCaches();
-    CrashLog.instance?.error('memory: caches let go ($why)');
+    CrashLog.instance?.error('memory: caches let go ($why; held MB: $held)');
   }
 
   /// Renders the frame again (the stage's handle cuts changed size).

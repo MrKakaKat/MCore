@@ -134,6 +134,23 @@ class CanvasRenderer implements Renderer {
     return all;
   }
 
+  /// What its pictures take (MB), by kind, with its placed projects'.
+  Map<String, int> memoryReport() {
+    int img(Iterable<ui.Image> xs) => xs.fold(0, (a, i) => a + i.width * i.height * 4);
+    final m = <String, int>{
+      'pictures': img(_imageCache.values),
+      'placed frames': img(_refFrames.values),
+      'keyed': img({for (final k in _keyed.values) k.image, ..._keyedRecent.values}),
+      'pixels': _sourcePixels.values.fold(0, (a, p) => a + p.rgba.lengthInBytes),
+      'video': videoFrames.bytes,
+      'waiting to go': img(_toDispose),
+    };
+    for (final r in _refRenderers.values) {
+      r.memoryReport().forEach((k, v) => m['in placed: $k'] = (m['in placed: $k'] ?? 0) + (v << 20));
+    }
+    return {for (final e in m.entries) if (e.value > 0) e.key: e.key.startsWith('in placed') ? e.value >> 20 : e.value >> 20};
+  }
+
   /// Pictures are decoded at most this big (longest side, px).
   int maxImageSide = 3072;
 
@@ -645,7 +662,11 @@ class CanvasRenderer implements Renderer {
     // the stage's time limit for this frame (a placed project's frame is
     // part of its host's).
     final topLevel = refChain.length <= 1;
-    if (topLevel) RenderBudget.start(timeBudget);
+    if (topLevel) {
+      RenderBudget.start(timeBudget);
+      // what the frames before let go of.
+      _disposeNow();
+    }
     final where = topLevel ? '' : '${refChain.skip(1).join(' > ')}: ';
     FreezeWatch.at('${where}frame $frame');
 
@@ -956,6 +977,8 @@ class CanvasRenderer implements Renderer {
       r.dispose();
     }
     _refRenderers.clear();
+    _reading.clear();
+    _disposeNow();
   }
 
   // ============================================================
@@ -3017,7 +3040,39 @@ class CanvasRenderer implements Renderer {
 
   /// An image let go after this frame is drawn (it may still be in the
   /// picture being recorded).
-  void _disposeLater(ui.Image i) => Future<void>.delayed(const Duration(seconds: 2), i.dispose);
+  ///
+  /// Let go at the next frame (a picture already drawn keeps its own hold
+  /// on the pixels). It used to wait 2 s: playing five placed projects
+  /// made hundreds of 1080 x 1080 frames in that time, waiting - the
+  /// phone ran out of memory.
+  void _disposeLater(ui.Image i) {
+    _toDispose.add(i);
+    _disposeTimer ??= Timer(const Duration(milliseconds: 300), _disposeNow);
+  }
+
+  final List<ui.Image> _toDispose = [];
+  Timer? _disposeTimer;
+
+  /// Pictures being read back (keying): let go once read.
+  final Set<ui.Image> _reading = {};
+
+  void _disposeNow() {
+    _disposeTimer?.cancel();
+    _disposeTimer = null;
+    if (_toDispose.isEmpty) return;
+    final keep = <ui.Image>[];
+    for (final i in _toDispose) {
+      if (_reading.contains(i)) {
+        keep.add(i);
+      } else {
+        i.dispose();
+      }
+    }
+    _toDispose
+      ..clear()
+      ..addAll(keep);
+    if (keep.isNotEmpty) _disposeTimer = Timer(const Duration(milliseconds: 300), _disposeNow);
+  }
 
   CanvasRenderer _refRenderer(RefSource s) {
     final r = _refRenderers[s.id] ??= CanvasRenderer()
@@ -3255,6 +3310,7 @@ class CanvasRenderer implements Renderer {
     final cached = _sourcePixels[key];
     if (cached != null) return Future.value(cached);
     return _pixelsLoading.putIfAbsent(key, () async {
+      _reading.add(image);
       try {
         final data = await image.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
         if (data == null) return null;
@@ -3292,6 +3348,7 @@ class CanvasRenderer implements Renderer {
       } catch (_) {
         return null; // e.g. a video frame that left the window meanwhile
       } finally {
+        _reading.remove(image);
         _pixelsLoading.remove(key);
       }
     });
