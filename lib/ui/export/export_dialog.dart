@@ -781,6 +781,9 @@ class _ExportViewState extends State<ExportView> {
     // the picture is what the stage camera sees.
     final camera = widget.app.renderer.useStageCamera;
     widget.app.renderer.useStageCamera = true;
+    // export: motion blur in all its passes, whatever the stage does.
+    final blurCap = widget.app.renderer.maxBlurSamples;
+    widget.app.renderer.maxBlurSamples = null;
     // mask regions: their episodes baked in full before any frame goes out.
     widget.app.renderer.bakeRegionsNow = true;
     // the stage's handle cuts are a view thing - never exported.
@@ -821,6 +824,7 @@ class _ExportViewState extends State<ExportView> {
       // whatever frame the user actually has selected before returning.
       widget.app.renderer.chromaMatteLayerId = matte;
       widget.app.renderer.useStageCamera = camera;
+      widget.app.renderer.maxBlurSamples = blurCap;
       widget.app.renderer.bakeRegionsNow = false;
       widget.app.renderer.stageCuts = cuts;
       widget.app.renderer.outputScale = 1;

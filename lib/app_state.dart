@@ -1962,6 +1962,8 @@ class AppState extends ChangeNotifier {
   void togglePlay() {
     if (!playing && !canPlay) return;
     playing = !playing;
+    // playing: motion blur in fewer passes, so frames keep up.
+    renderer.maxBlurSamples = playing ? 4 : null;
     _playSession++;
     _audioClock = false;
     _audioPending = false;

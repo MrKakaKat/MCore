@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import '../../core/interpolation.dart' show evaluateTrack;
+import '../../core/motion_sig.dart';
 import '../../core/stage_size.dart';
 import '../../core/state_cache.dart';
 import '../../model/project.dart';
@@ -129,6 +130,11 @@ class _Pose {
 
 class _Cache {
   String sig = '';
+
+  /// The project as of the last check of the target's poses, and how far
+  /// (frames from the start) they were checked then.
+  int checkedSig = 0;
+  int checkedUpTo = -1;
   final List<_Pose> targets = [];
   // spring states per frame: x, y, rot, sx, sy and their velocities.
   final List<List<double>> states = [];
@@ -179,13 +185,18 @@ List<double> applyFollow(Project project, Layer layer, num globalFrame, List<dou
       c
         ..sig = sig
         ..targets.clear()
-        ..states.clear();
+        ..states.clear()
+        ..checkedUpTo = -1;
     }
     // the follower's own pose where it starts (the follow is relative to it).
     final own0 = _Pose.of(_ownAt(project, layer, start));
     final t0 = _Pose.of(getLayerStateAt(project, target.id, start).matrix);
-    // re-run from the first frame whose target pose changed.
-    for (var g = start; g <= frame; g++) {
+    // re-run from the first frame whose target pose changed - looked at
+    // again only after something changed (every frame from the start,
+    // every frame, made a long timeline slower and slower to play).
+    final msig = projectMotionSig(project);
+    final from = c.checkedSig == msig ? math.max(start, start + c.checkedUpTo + 1) : start;
+    for (var g = from; g <= frame; g++) {
       final i = g - start;
       final p = _Pose.of(getLayerStateAt(project, target.id, g).matrix);
       if (i < c.targets.length) {
@@ -195,6 +206,8 @@ List<double> applyFollow(Project project, Layer layer, num globalFrame, List<dou
       }
       c.targets.add(p);
     }
+    c.checkedUpTo = math.max(c.checkedSig == msig ? c.checkedUpTo : -1, frame - start);
+    c.checkedSig = msig;
     // the point aimed at: the target's pose plus the offset in its space.
     List<double> aim(int i) {
       final tp = c.targets[i];

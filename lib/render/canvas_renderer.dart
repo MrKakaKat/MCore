@@ -788,6 +788,10 @@ class CanvasRenderer implements Renderer {
 
   // ===== export: still layers drawn once =====
 
+  /// At most this many motion-blur passes (null: as each layer says) - set
+  /// while the stage plays.
+  int? maxBlurSamples;
+
   /// Draw through the stage camera (see model/stage_camera.dart). On for
   /// export and the player; on the stage only in "camera view" - its
   /// handles are for the scene itself.
@@ -897,7 +901,9 @@ class CanvasRenderer implements Renderer {
       // the shutter angle as a fraction of one frame's duration (longer
       // for a slow move with sensitivity on).
       final shutterFrames = window;
-      final samples = mb.samples;
+      // playing on the stage: fewer passes (the streak a little coarser,
+      // the frame in time); export and a still frame: all of them.
+      final samples = maxBlurSamples == null ? mb.samples : math.min(mb.samples, maxBlurSamples!);
       final sampleFrames = <double>[];
       for (var s = 0; s < samples; s++) {
         final t =
@@ -958,7 +964,7 @@ class CanvasRenderer implements Renderer {
     final ancestor = blurringAncestor(project, layer, globalFrame);
     if (ancestor != null) {
       final amb = ancestor.motionBlur;
-      final n = amb.samples;
+      final n = maxBlurSamples == null ? amb.samples : math.max(2, math.min(amb.samples, maxBlurSamples!));
       canvas.saveLayer(null, ui.Paint());
       for (var s = 0; s < n; s++) {
         final f = globalFrame + ((s / (n - 1)) - 0.5) * amb.shutterAngle / 360;
@@ -2907,6 +2913,7 @@ class CanvasRenderer implements Renderer {
       };
     r
       ..refSources = refSources
+      ..maxBlurSamples = maxBlurSamples
       ..refsLoading = refsLoading
       ..refChain = [...refChain, s.id]
       ..backgroundColor = s.backgroundRgb == null ? null : ui.Color(0xFF000000 | s.backgroundRgb!);
