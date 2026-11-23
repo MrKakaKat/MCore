@@ -32,6 +32,42 @@ void main() {
         videoFrameCount: count,
       );
 
+  test('one video shown by several copies at once (a placed project four times): no endless decoding', () async {
+    final c = video('a');
+    var redraws = 0, decodes = 0;
+    late VideoFrameCache cache;
+    void draw() {
+      for (final (who, f) in [('r0', 0), ('r1', 3), ('r2', 6), ('r3', 9)]) {
+        cache.frameFor(c, f, consumer: who);
+      }
+    }
+
+    cache = VideoFrameCache(prefetch: 6, maxConcurrent: 2, capacity: 8, settle: const Duration(milliseconds: 5),
+        decoder: (p) async {
+      decodes++;
+      return solid(indexOfPath(p));
+    })
+      ..framesRoot = '/frames'
+      ..onDecoded = () {
+        redraws++;
+        draw(); // each redraw asks for the frames again
+      };
+    draw();
+    for (var i = 0; i < 40; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(decodes, lessThan(40));
+    final settled = redraws;
+    for (var i = 0; i < 20; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(redraws, settled, reason: 'it came to rest');
+    for (final f in [0, 3, 6, 9]) {
+      expect(cache.isDecoded(c, f), isTrue);
+    }
+    cache.dispose();
+  });
+
   group('scrubbing', () {
     late List<int> decoded;
     late Map<int, Completer<void>> gates;

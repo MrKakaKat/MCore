@@ -115,6 +115,28 @@ class CanvasRenderer implements Renderer {
   /// instead of staying blank until some unrelated later render call.
   void Function()? onImageDecoded;
 
+  /// What asked for new frames, and how often (the stage tells it when
+  /// they don't stop).
+  final Map<String, int> notifyCounts = {};
+
+  void _notify(String why) {
+    notifyCounts[why] = (notifyCounts[why] ?? 0) + 1;
+    onImageDecoded?.call();
+  }
+
+  /// Who keeps asking for new frames, here and in the placed projects.
+  Map<String, int> allNotifyCounts() {
+    final all = {...notifyCounts};
+    for (final r in _refRenderers.values) {
+      r.allNotifyCounts().forEach((k, v) => all['in placed: $k'] = (all['in placed: $k'] ?? 0) + v);
+    }
+    return all;
+  }
+
+  /// Which placed copy this renderer draws now (a placed project's
+  /// renderer draws all of its copies): its videos keep a playhead each.
+  String videoConsumer = '';
+
   /// Whether the physics bake is behind the frame shown ("baking...").
   bool physicsBaking = false;
 
@@ -133,11 +155,11 @@ class CanvasRenderer implements Renderer {
     // smooth; a re-bake that takes longer finishes over the next renders),
     // then the rest of the timeline in the background.
     if (!world.bakeTo(frame, budget: const Duration(milliseconds: 20))) {
-      Future<void>.delayed(Duration.zero, () => onImageDecoded?.call());
+      Future<void>.delayed(Duration.zero, () => _notify('physics'));
       return true;
     }
     final end = world.endFrame;
-    if (!world.bakeTo(end, budget: budget)) Future<void>.delayed(Duration.zero, () => onImageDecoded?.call());
+    if (!world.bakeTo(end, budget: budget)) Future<void>.delayed(Duration.zero, () => _notify('physics'));
     return false;
   }
 
@@ -219,7 +241,7 @@ class CanvasRenderer implements Renderer {
           size: [...c.size],
           params: p,
           crop: crop,
-          onReady: () => onImageDecoded?.call());
+          onReady: () => _notify('contour'));
     } else {
       raw = _vectorContour(project, layer, globalFrame, p, crop);
     }
@@ -1548,7 +1570,7 @@ class CanvasRenderer implements Renderer {
     _filterProgramLoading = true;
     ui.FragmentProgram.fromAsset('shaders/filter.frag').then((p) {
       _filterProgram = p;
-      onImageDecoded?.call();
+      _notify('filter shader');
     }, onError: (Object _) {});
   }
 
@@ -1616,7 +1638,7 @@ class CanvasRenderer implements Renderer {
         _lensProgramLoading = true;
         ui.FragmentProgram.fromAsset('shaders/lens.frag').then((p) {
           _lensProgram = p;
-          onImageDecoded?.call();
+          _notify('lens shader');
         }, onError: (Object _) {});
       }
       return;
@@ -2752,7 +2774,7 @@ class CanvasRenderer implements Renderer {
   /// video_frame_cache.dart). AppState points `framesRoot` at the frame
   /// cache; tests swap the decoder.
   late final VideoFrameCache videoFrames = VideoFrameCache()
-    ..onDecoded = (() => onImageDecoded?.call())
+    ..onDecoded = (() => _notify('video'))
     ..onEvict = _sourcePixels.remove;
 
   /// The source frame a video layer shows at `globalFrame` (its own time,
@@ -2773,7 +2795,7 @@ class CanvasRenderer implements Renderer {
     if (c.shape == 'projectRef') return _projectRefImage(layer, globalFrame);
     if (c.shape == 'video') {
       final index = videoFrameIndex(layer, globalFrame);
-      return index == null ? null : videoFrames.frameFor(c, index);
+      return index == null ? null : videoFrames.frameFor(c, index, consumer: '$videoConsumer/${layer.id}');
     }
     final decoded = _getDecodedImage(c);
     final key = _imageCacheKey(c);
@@ -2945,7 +2967,7 @@ class CanvasRenderer implements Renderer {
         // the source drew something new (an image decoded, physics
         // baked on): its frames are re-rendered.
         _dropRefFrames(s.id);
-        onImageDecoded?.call();
+        _notify('placed project');
       };
     r
       ..refSources = refSources
@@ -3003,6 +3025,8 @@ class CanvasRenderer implements Renderer {
     }
     final sw = Stopwatch()..start();
     final child = _refRenderer(s);
+    // its videos keep one playhead per placed copy (see frameFor).
+    child.videoConsumer = '$videoConsumer/${layer.id}';
     final pic = _inSource(s, () {
       child.setSize(s.width, s.height);
       child.renderFrame(s.project, sf);
@@ -3237,7 +3261,7 @@ class CanvasRenderer implements Renderer {
       _keyingInFlight.remove(layerId);
       if (done) {
         _keyFailed.remove(sig);
-        onImageDecoded?.call();
+        _notify('chroma keying');
       } else {
         // nothing new to show: no new frame (it would only try again).
         _keyFailed[sig] = DateTime.now();
@@ -3259,7 +3283,7 @@ class CanvasRenderer implements Renderer {
     if (px == null) {
       if (!_pixelsLoading.containsKey(src.key)) {
         _pixelsOf(src.key, src.image).then((px) {
-          if (px != null) onImageDecoded?.call();
+          if (px != null) _notify('pixels');
         });
       }
       return null;
@@ -3309,7 +3333,7 @@ class CanvasRenderer implements Renderer {
       // yet" case in this renderer (e.g. a not-yet-decoded precompose).
     } finally {
       _decodingKeys.remove(key);
-      onImageDecoded?.call();
+      _notify('image');
     }
   }
 

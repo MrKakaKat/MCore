@@ -147,35 +147,42 @@ class VideoFrameCache {
   /// The frame to draw now: the exact one if decoded, else the nearest
   /// decoded frame of this video (null only before any frame of it is).
   /// Asks for the exact frame (and, while playing, the ones after it).
-  ({String key, ui.Image image})? frameFor(Content c, int index) {
+  ///
+  /// `consumer`: who shows it - one placed project shown several times
+  /// (at different frames) draws its video for each; each keeps its own
+  /// playhead here. They looked like one playhead jumping around, every
+  /// draw read as playing (frames decoded ahead for each, more than fit,
+  /// pushing each other out and decoding again) - endlessly.
+  ({String key, ui.Image image})? frameFor(Content c, int index, {String consumer = ''}) {
     final asset = assetOf(c);
     if (asset == null) return null;
     final key = keyOf(asset, index);
-    final last = _lastIndex[asset];
-    _lastIndex[asset] = index;
+    final who = '$asset|$consumer';
+    final last = _lastIndex[who];
+    _lastIndex[who] = index;
     // playing: a small step forward. The same frame again (a redraw, or a
     // 30 fps clip in a 60 fps project) changes nothing. Anything else is
     // a scrub or a jump.
     final playing = last == null || (index > last && index - last <= prefetch + 1);
     if (index == last) {
-      if (!_settleTimers.containsKey(asset)) _enqueue(c, asset, index);
+      if (!_settleTimers.containsKey(who)) _enqueue(c, asset, index, who);
     } else if (playing) {
-      _settleTimers.remove(asset)?.cancel();
+      _settleTimers.remove(who)?.cancel();
       // queued frames behind the playhead won't be shown any more.
-      _dropQueued(asset, (i) => i < index);
+      _dropQueued(who, (i) => i < index);
       final count = c.videoFrameCount ?? 0;
-      _enqueue(c, asset, index);
+      _enqueue(c, asset, index, who);
       for (var i = index + 1; i <= index + prefetch && i < count; i++) {
-        _enqueue(c, asset, i);
+        _enqueue(c, asset, i, who);
       }
     } else {
       // only the latest wanted frame matters; decode it once it rests.
-      _dropQueued(asset, (_) => true);
-      _settleTimers.remove(asset)?.cancel();
+      _dropQueued(who, (_) => true);
+      _settleTimers.remove(who)?.cancel();
       if (!_frames.containsKey(key)) {
-        _settleTimers[asset] = Timer(settle, () {
-          _settleTimers.remove(asset);
-          if (_lastIndex[asset] == index) _enqueue(c, asset, index);
+        _settleTimers[who] = Timer(settle, () {
+          _settleTimers.remove(who);
+          if (_lastIndex[who] == index) _enqueue(c, asset, index, who);
         });
       }
     }
@@ -200,20 +207,20 @@ class VideoFrameCache {
     return _loading[key] ?? _start(key, c, asset, index, notify: false);
   }
 
-  void _enqueue(Content c, String asset, int index) {
+  void _enqueue(Content c, String asset, int index, [String who = '']) {
     final key = keyOf(asset, index);
     if (_frames.containsKey(key) || _failed.contains(key) || _loading.containsKey(key) || _queue.containsKey(key)) {
       return;
     }
     if (pathOf(c, index) == null) return;
-    _queue[key] = _Job(c, asset, index);
+    _queue[key] = _Job(c, asset, index, who);
     _pump();
   }
 
-  void _dropQueued(String asset, bool Function(int index) stale) {
+  void _dropQueued(String who, bool Function(int index) stale) {
     final drop = [
       for (final e in _queue.entries)
-        if (e.value.asset == asset && stale(e.value.index)) e.key
+        if (e.value.who == who && stale(e.value.index)) e.key
     ];
     for (final k in drop) {
       _queue.remove(k);
@@ -243,7 +250,9 @@ class VideoFrameCache {
         _bytes += image.width * image.height * 4;
         (_decodedByAsset[asset] ??= SplayTreeSet()).add(index);
         _evictOver(keep: key);
-        if (notify) onDecoded?.call();
+        // a redraw only for a frame someone shows now - frames decoded
+        // ahead are drawn by the playback that comes to them.
+        if (notify && _isWanted(asset, index)) onDecoded?.call();
         return image;
       } catch (_) {
         _failed.add(key);
@@ -256,6 +265,14 @@ class VideoFrameCache {
     }();
     _loading[key] = future;
     return future;
+  }
+
+  bool _isWanted(String asset, int index) {
+    final prefix = '$asset|';
+    for (final e in _lastIndex.entries) {
+      if (e.value == index && e.key.startsWith(prefix)) return true;
+    }
+    return false;
   }
 
   ui.Image? _touch(String key) {
@@ -293,7 +310,10 @@ class VideoFrameCache {
 
   void _evictOver({required String keep}) {
     while (_over) {
-      bool evictable(String k) => k != keep && !pinned.contains(k);
+      // (frames shown now stay: those decoded ahead pushed them out, and
+      // nothing asked for them again.)
+      final shown = {for (final e in _lastIndex.entries) keyOf(e.key.substring(0, e.key.lastIndexOf('|')), e.value)};
+      bool evictable(String k) => k != keep && !pinned.contains(k) && !shown.contains(k);
       // frames of videos no layer uses go first, then the least recently
       // used of the rest.
       var victim = _frames.keys.firstWhere((k) => evictable(k) && !liveAssets.contains(_assetOfKey(k)), orElse: () => '');
@@ -347,5 +367,6 @@ class _Job {
   final Content content;
   final String asset;
   final int index;
-  _Job(this.content, this.asset, this.index);
+  final String who;
+  _Job(this.content, this.asset, this.index, this.who);
 }

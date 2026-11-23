@@ -1207,30 +1207,40 @@ class AppState extends ChangeNotifier {
 
   bool _decodeRenderQueued = false;
   final List<DateTime> _decodeRenders = [];
-  DateTime? _decodeStormUntil;
+
+  /// Pictures kept asking for new frames without end: they are not
+  /// listened to until something else draws the stage (the frame moves,
+  /// an edit, play) - each pause used to end in the same storm again.
+  bool _decodeStormHeld = false;
+  bool _inDecodeRender = false;
 
   /// A picture came in: one new frame for all that came in together (each
   /// asked for its own, and each frame could start more), and never
-  /// without end - past so many in a short while they stop for a moment
-  /// (the app kept working on its own and froze).
+  /// without end.
   void _decodedRender() {
-    if (_decodeRenderQueued) return;
-    final now = DateTime.now();
-    final until = _decodeStormUntil;
-    if (until != null && now.isBefore(until)) return;
+    if (_decodeRenderQueued || _decodeStormHeld) return;
     _decodeRenderQueued = true;
     scheduleMicrotask(() {
       _decodeRenderQueued = false;
-      if (_disposed) return;
+      if (_disposed || _decodeStormHeld) return;
       final t = DateTime.now();
       _decodeRenders.add(t);
       _decodeRenders.removeWhere((d) => t.difference(d) > const Duration(seconds: 2));
-      if (_decodeRenders.length > 60) {
+      // playing draws every frame anyway: only standing still counts.
+      if (!playing && _decodeRenders.length > 60) {
         _decodeRenders.clear();
-        _decodeStormUntil = t.add(const Duration(seconds: 2));
-        CrashLog.instance?.error('render storm: pictures kept asking for new frames (paused 2 s)');
+        _decodeStormHeld = true;
+        final who = renderer.allNotifyCounts().entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+        CrashLog.instance?.error('render storm at frame $currentFrame: pictures kept asking for new frames - '
+            'held until the next change. Asked by: ${who.take(6).map((e) => '${e.key} ${e.value}').join(', ')}');
+        return;
       }
-      _render();
+      _inDecodeRender = true;
+      try {
+        _render();
+      } finally {
+        _inDecodeRender = false;
+      }
       notifyListeners();
     });
   }
@@ -1244,6 +1254,8 @@ class AppState extends ChangeNotifier {
   void _render() {
     // getting ready: the stage is covered, its frames come once it's done.
     if (preparing) return;
+    // drawn for another reason: pictures are listened to again.
+    if (!_inDecodeRender) _decodeStormHeld = false;
     renderer.renderFrame(project, currentFrame,
         clipToFrame: !(showOffCanvasContent || cameraView), underlay: contextUnderlay);
     _freshRender = true;
