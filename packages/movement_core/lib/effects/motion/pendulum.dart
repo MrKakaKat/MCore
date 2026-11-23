@@ -36,6 +36,7 @@ import '../../core/stage_size.dart';
 import '../../core/state_cache.dart';
 import '../../geometry/shapes.dart';
 import '../../model/project.dart';
+import '../../ui_geometry/keyframe_strip.dart' show visitLayerTracks;
 
 /// The pendulum's weight (content-local): its own point, or the middle
 /// of the content.
@@ -88,9 +89,28 @@ double evaluatePendulumOffset(Project project, Layer layer, int globalFrame) {
   final step = dt / fps;
   const substeps = 4;
   final hStep = step / substeps;
-  var prev = matrixAt(startLocalFrame - 1), cur = matrixAt(startLocalFrame);
-  var theta = 0.0, rate = 0.0; // degrees, degrees per second
-  for (var lf = startLocalFrame; lf < endLocalFrame; lf++) {
+  // the swing so far is kept: going on from the furthest frame worked out
+  // (from the start every time, a long timeline - a chain of pendulums
+  // most of all - took longer each frame until playback froze).
+  final sig = '${_motionSig(project)}|${p.frequency},${p.damping},${p.sensitivity},${p.freeze},${p.maxAngle},'
+      '${p.weightPoint},$fps,$w,$h,${layer.startFrame},$startLocalFrame';
+  var run = _runs[layer];
+  if (run == null || run.sig != sig) {
+    run = _runs[layer] = _PendRun(sig, startLocalFrame);
+  }
+  final have = run.start + run.theta.length - 1; // the furthest frame kept
+  if (endLocalFrame <= have) {
+    final th = run.theta[endLocalFrame - run.start];
+    return maxAngle * _tanh(th / maxAngle);
+  }
+  final from = have < run.start ? startLocalFrame : have;
+  var prev = matrixAt(from - 1), cur = matrixAt(from);
+  var theta = have < run.start ? 0.0 : run.theta.last, rate = have < run.start ? 0.0 : run.rate.last; // degrees, degrees per second
+  if (run.theta.isEmpty) {
+    run.theta.add(0);
+    run.rate.add(0);
+  }
+  for (var lf = from; lf < endLocalFrame; lf++) {
     final next = matrixAt(lf + 1);
     final px = [prev[4] * w, prev[5] * h], qx = [cur[4] * w, cur[5] * h], nx = [next[4] * w, next[5] * h];
     final vx = (nx[0] - px[0]) / (2 * step) / norm, vy = (nx[1] - px[1]) / (2 * step) / norm;
@@ -108,8 +128,60 @@ double evaluatePendulumOffset(Project project, Layer layer, int globalFrame) {
     }
     prev = cur;
     cur = next;
+    run.theta.add(theta);
+    run.rate.add(rate);
   }
   return maxAngle * _tanh(theta / maxAngle);
+}
+
+class _PendRun {
+  final String sig;
+  final int start;
+  final List<double> theta = [], rate = [];
+  _PendRun(this.sig, this.start);
+}
+
+final _runs = Expando<_PendRun>('pendulumRuns');
+final _sigs = Expando<(int, int)>('motionSig');
+
+/// What the motion of the project's layers depends on, as one number -
+/// worked out once per state epoch (a kept swing is used only while it
+/// is unchanged).
+int _motionSig(Project project) {
+  final c = _sigs[project];
+  if (c != null && c.$1 == stateEpoch) return c.$2;
+  var h = 17;
+  void add(Object? o) => h = Object.hash(h, o);
+  void addValue(dynamic v) => v is List ? add(Object.hashAll(v)) : add(v);
+  for (final l in project.layers) {
+    add(l.id);
+    add(l.parentId);
+    add(l.startFrame);
+    add(l.durationFrames);
+    add(Object.hash(l.inheritPosition, l.inheritRotation, l.inheritScale, l.parentKeepDifference, l.parentFrom, l.parentUntil,
+        l.parentOutside));
+    add(Object.hash(l.pendulum.enabled, l.pendulum.frequency, l.pendulum.damping, l.pendulum.sensitivity, l.pendulum.freeze,
+        l.pendulum.maxAngle));
+    add(Object.hash(l.swing.enabled, l.swing.minAngle, l.swing.maxAngle, l.swing.frequency, l.swing.damping, l.swing.phase));
+    add(Object.hash(l.wiggle.enabled, l.wiggle.speed, l.wiggle.amplitude, l.wiggle.wiggleSeed, l.scaleWiggle.enabled,
+        l.scaleWiggle.amplitude, l.scaleWiggle.speed, l.scaleWiggle.axes));
+    add(Object.hash(l.follow.enabled, l.physics.collide, l.links.length, l.transform.pathFollow.enabled, l.loopEnabled, l.loopUntil));
+    add(Object.hash(Object.hashAll(l.content.size), Object.hashAll(l.content.offset), l.rotateOrigin == null ? 0 : Object.hashAll(l.rotateOrigin!),
+        l.scaleOrigin == null ? 0 : Object.hashAll(l.scaleOrigin!)));
+    visitLayerTracks(l, (t) {
+      addValue(t.defaultValue);
+      add(Object.hash(t.loop, t.loopMode, t.loopFrom, t.loopEnd, t.constantSpeed, t.tension));
+      for (final k in t.keyframes) {
+        add(k.frame);
+        addValue(k.value);
+        final e = k.temporal;
+        add(Object.hash(e.x1, e.y1, e.x2, e.y2, e.over, e.ant, e.amount, e.bounces));
+        add(Object.hash(Object.hashAll(k.spatialTangent.inTan), Object.hashAll(k.spatialTangent.outTan)));
+      }
+    });
+  }
+  _sigs[project] = (stateEpoch, h);
+  return h;
 }
 
 double _tanh(double x) {

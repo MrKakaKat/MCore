@@ -96,7 +96,13 @@ final Map<String, LayerBaseState> _baseStateCache = {};
 void clearStateCaches() {
   _stateCache.clear();
   _baseStateCache.clear();
+  stateEpoch++;
 }
+
+/// Goes up every time the state caches are cleared (anything may have
+/// changed since): what is worked out once per epoch knows when to look
+/// again.
+int stateEpoch = 0;
 
 // computes everything EXCEPT this layer's own pendulum swing - anchor
 // (incl. path-follow/wiggle), rotation, scale, and the full parent-

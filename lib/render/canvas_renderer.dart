@@ -586,7 +586,10 @@ class CanvasRenderer implements Renderer {
     // frame-scoped memoization: cleared at the top of every render call,
     // so it never persists across edits or even across frames - purely
     // a within-this-one-render speedup (see core/state_cache.dart).
-    clearStateCaches();
+    // A placed project's own render keeps them: its states are kept by
+    // its own project, and clearing threw away the host's half way
+    // through its frame (worked out again for every placed project).
+    if (refChain.length <= 1) clearStateCaches();
 
     // clipToFrame=false (AppState.showOffCanvasContent's toggle) is
     // ONLY ever used for the LIVE on-screen view - export/captureFrame
@@ -2921,7 +2924,9 @@ class CanvasRenderer implements Renderer {
     } finally {
       fps = hostFps;
       setStageSize(hostW, hostH);
-      clearStateCaches();
+      // (the caches are kept by project: the host's own states stay good -
+      // clearing them here made every placed project's frame work the
+      // whole host out again.)
     }
   }
 
