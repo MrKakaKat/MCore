@@ -1180,11 +1180,38 @@ class AppState extends ChangeNotifier {
     // own doc comment on this) - once it's ready, re-render so it
     // actually appears instead of staying blank until some unrelated
     // later edit happens to trigger a render.
-    renderer.onImageDecoded = () {
+    renderer.onImageDecoded = _decodedRender;
+    _render();
+  }
+
+  bool _decodeRenderQueued = false;
+  final List<DateTime> _decodeRenders = [];
+  DateTime? _decodeStormUntil;
+
+  /// A picture came in: one new frame for all that came in together (each
+  /// asked for its own, and each frame could start more), and never
+  /// without end - past so many in a short while they stop for a moment
+  /// (the app kept working on its own and froze).
+  void _decodedRender() {
+    if (_decodeRenderQueued) return;
+    final now = DateTime.now();
+    final until = _decodeStormUntil;
+    if (until != null && now.isBefore(until)) return;
+    _decodeRenderQueued = true;
+    scheduleMicrotask(() {
+      _decodeRenderQueued = false;
+      if (_disposed) return;
+      final t = DateTime.now();
+      _decodeRenders.add(t);
+      _decodeRenders.removeWhere((d) => t.difference(d) > const Duration(seconds: 2));
+      if (_decodeRenders.length > 60) {
+        _decodeRenders.clear();
+        _decodeStormUntil = t.add(const Duration(seconds: 2));
+        CrashLog.instance?.error('render storm: pictures kept asking for new frames (paused 2 s)');
+      }
       _render();
       notifyListeners();
-    };
-    _render();
+    });
   }
 
   /// Renders the frame again (the stage's handle cuts changed size).
@@ -6273,8 +6300,11 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  bool _disposed = false;
+
   @override
   void dispose() {
+    _disposed = true;
     _playTicker?.dispose();
     if (playing) PerfMonitor.instance.playbackStopped();
     _playback?.dispose();

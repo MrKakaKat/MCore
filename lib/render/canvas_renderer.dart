@@ -2876,6 +2876,10 @@ class CanvasRenderer implements Renderer {
   List<String> refChain = const [];
 
   final Map<String, CanvasRenderer> _refRenderers = {};
+
+  /// How many times a placed project's drawing changed by itself (its
+  /// pictures coming in): part of its frames' names.
+  final Map<String, int> _refEpoch = {};
   final LinkedHashMap<String, ui.Image> _refFrames = LinkedHashMap();
   static const _refFrameBudget = 32;
 
@@ -2926,6 +2930,9 @@ class CanvasRenderer implements Renderer {
   CanvasRenderer _refRenderer(RefSource s) {
     final r = _refRenderers[s.id] ??= CanvasRenderer()
       ..onImageDecoded = () {
+        // what it draws changed (a picture came in): its frames are new
+        // ones - keyed anew too (the empty first one stayed keyed).
+        _refEpoch[s.id] = (_refEpoch[s.id] ?? 0) + 1;
         // the source drew something new (an image decoded, physics
         // baked on): its frames are re-rendered.
         _dropRefFrames(s.id);
@@ -2976,7 +2983,7 @@ class CanvasRenderer implements Renderer {
     final w = math.max(1, (s.width * k).round()), h = math.max(1, (s.height * k).round());
     // a live source (Show in context: the open project, unsaved) has
     // no revision to key by - always rendered.
-    final key = 'ref:${s.id}:${s.revision}:$sf:${w}x$h';
+    final key = 'ref:${s.id}:${s.revision}:e${_refEpoch[s.id] ?? 0}:$sf:${w}x$h';
     if (s.revision >= 0) {
       final hit = _refFrames.remove(key);
       if (hit != null) {
@@ -3085,6 +3092,11 @@ class CanvasRenderer implements Renderer {
   static const _keyedRecentKept = 6;
   final Map<String, Future<void>> _keyingInFlight = {};
 
+  /// Keyings that failed (their picture couldn't be read): not tried again
+  /// right away - each failure asked for a new frame, which tried again,
+  /// failed again... and the phone kept working without end.
+  final Map<String, DateTime> _keyFailed = {};
+
   /// Keyed pictures whose pixels are kept (the newest).
   static const _keyedPixelsKept = 6;
 
@@ -3112,7 +3124,9 @@ class CanvasRenderer implements Renderer {
     if (have != null && have.sig == sig) return have.image;
     final recent = _keyedRecent[sig];
     if (recent != null) return recent;
-    if (!_keyingInFlight.containsKey(layer.id)) {
+    final failed = _keyFailed[sig];
+    final retry = failed == null || DateTime.now().difference(failed) > const Duration(seconds: 5);
+    if (retry && !_keyingInFlight.containsKey(layer.id)) {
       _keyingInFlight[layer.id] = _keyLayerAsync(layer.id, src.key, src.image, ck.copy(), sig,
           matte: matte, edge: _edgeMatteOn(layer) ? (parseRgbHex(layer.edgeMatteColor) ?? const [0, 0, 0], layer.edgeMatteStrength) : null);
     }
@@ -3185,6 +3199,7 @@ class CanvasRenderer implements Renderer {
 
   Future<void> _keyLayerAsync(String layerId, String key, ui.Image decoded, ChromaKey ck, String sig,
       {bool matte = false, (List<int>, double)? edge}) async {
+    var done = false;
     try {
       final px = await _pixelsOf(key, decoded);
       if (px == null) return;
@@ -3206,11 +3221,19 @@ class CanvasRenderer implements Renderer {
         if (old != null && !_keyed.values.any((k) => identical(k.image, old))) _disposeLater(old);
       }
       if (before != null && !_keyedRecent.values.any((i) => identical(i, before))) _disposeLater(before);
+      done = true;
     } catch (_) {
       // keying failed - the plain image keeps being drawn.
     } finally {
       _keyingInFlight.remove(layerId);
-      onImageDecoded?.call();
+      if (done) {
+        _keyFailed.remove(sig);
+        onImageDecoded?.call();
+      } else {
+        // nothing new to show: no new frame (it would only try again).
+        _keyFailed[sig] = DateTime.now();
+        if (_keyFailed.length > 64) _keyFailed.remove(_keyFailed.keys.first);
+      }
     }
   }
 
@@ -3225,7 +3248,11 @@ class CanvasRenderer implements Renderer {
     if (src == null) return null;
     final px = _sourcePixels[src.key];
     if (px == null) {
-      _pixelsOf(src.key, src.image).then((_) => onImageDecoded?.call());
+      if (!_pixelsLoading.containsKey(src.key)) {
+        _pixelsOf(src.key, src.image).then((px) {
+          if (px != null) onImageDecoded?.call();
+        });
+      }
       return null;
     }
     return sampleRgb(px.rgba, px.width, px.height, u, v);

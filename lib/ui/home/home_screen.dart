@@ -106,7 +106,21 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// A project is being opened: further taps wait (a second tap opened
+  /// it twice, on top of itself, and the app went down).
+  bool _opening = false;
+
   Future<void> _open(ProjectMeta meta, {bool player = false}) async {
+    if (_opening) return;
+    _opening = true;
+    try {
+      await _openOnce(meta, player: player);
+    } finally {
+      _opening = false;
+    }
+  }
+
+  Future<void> _openOnce(ProjectMeta meta, {bool player = false}) async {
     final app = AppState()
       ..presetStore = PresetStore(widget.store.root)
       ..fontStore = FontStore(widget.store.root)
@@ -147,9 +161,13 @@ class _HomeScreenState extends State<HomeScreen> {
           'layers': app.project.layers.length,
           'refs': app.project.layers.where((l) => l.content.shape == 'projectRef').length,
         };
-    await Navigator.of(context).push(
+    final route = Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => player ? PlayerScreen(app: app) : EditorScreen(appState: app)),
     );
+    // open now (its route covers the list): a reference's "Open source"
+    // may open another one on top.
+    _opening = false;
+    await route;
     CrashLog.instance?.status = null;
     // closed: drop videos no project uses any more (after the final save,
     // so a video imported in this session is still referenced).
