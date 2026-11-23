@@ -169,6 +169,7 @@ class _ExportViewState extends State<ExportView> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final kinds = [
       _ExportKind.image,
       _ExportKind.gif,

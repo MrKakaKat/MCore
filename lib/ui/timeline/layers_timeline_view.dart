@@ -1173,6 +1173,7 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: widget.app,
       builder: (context, _) {
@@ -2180,6 +2181,7 @@ class _AnimatedRulerState extends State<_AnimatedRuler> with SingleTickerProvide
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final outer = _fading.keys.fold(_lastSec, math.max);
     return CustomPaint(
         painter: _RulerPainter(
@@ -2427,6 +2429,7 @@ class _LayerLaneState extends State<_LayerLane>
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final startX = _frameToX(widget.layer.startFrame);
     final endX =
         _frameToX(widget.layer.startFrame + widget.layer.durationFrames);
@@ -3119,6 +3122,7 @@ class _PlayheadState extends State<_Playhead>
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     // the playhead follows the frame on its own (AppState.frameNotifier):
     // playback and scrubbing move this line, nothing else in the timeline
     // rebuilds, and its own RepaintBoundary keeps the repaint to the line.
@@ -3250,6 +3254,7 @@ class _FrameQuantized extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: Listenable.merge([controller, app.frameNotifier]),
       child: child,
@@ -3340,6 +3345,7 @@ class _ReorderColumnState extends State<_ReorderColumn> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final id = widget.focusedLayerId;
     final own = id == null ? -1 : widget.rows.indexWhere((r) => r.any((l) => l.id == id));
     if (own < 0) return const SizedBox.shrink();
@@ -3444,6 +3450,7 @@ class _LayerActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final f = app.currentFrame;
     final start = layer.startFrame,
         end = layer.startFrame + layer.durationFrames;

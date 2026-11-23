@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import '../../io/freeze_watch.dart';
 
 /// A tour of a tool field: the screen darkens, a round hole shows one
 /// icon at a time with what it does above it; a tap goes to the next.
@@ -110,6 +111,7 @@ class _GuideState extends State<_Guide> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final hole = _hole;
     final size = MediaQuery.sizeOf(context);
     final r = hole == null ? 0.0 : math.max(hole.width, hole.height) / 2 + 8;

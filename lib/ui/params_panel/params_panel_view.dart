@@ -12,6 +12,7 @@ import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 /// Ported from the "movement" section of movement-core/src/ui/
 /// paramsPanel/{index,shared,movementSection}.js - anchor/scale/
@@ -55,6 +56,7 @@ class ParamsPanelView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {

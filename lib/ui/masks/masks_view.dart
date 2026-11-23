@@ -10,6 +10,7 @@ import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 /// Ported from movement-core/src/ui/paramsPanel/masksSection.js - a
 /// mask is always sourced from another layer (no separate "circle vs
@@ -39,6 +40,7 @@ class MasksView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {
@@ -1296,6 +1298,7 @@ class _Fold extends StatefulWidget {
 class _FoldState extends State<_Fold> {
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final open = _Fold._open[widget.id] ?? false;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

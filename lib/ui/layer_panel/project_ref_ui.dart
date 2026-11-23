@@ -3,6 +3,7 @@ import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 import '../../io/project_store.dart';
+import '../../io/freeze_watch.dart';
 
 /// Project references (model/project_ref.dart): picking a project to place
 /// or relink, the reference's own actions, "Used in..." and "Show in
@@ -123,6 +124,7 @@ class RefUpdatedBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     if (!app.refUpdatedLayer(layer)) return const SizedBox.shrink();
     return GestureDetector(
       key: ValueKey('ref-updated-${layer.id}'),
@@ -215,6 +217,7 @@ class ProjectThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     const box = 36.0;
     final scale = box / (width > height ? width : height);
     return SizedBox(

@@ -3,6 +3,7 @@ import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 import '../common/num_field.dart';
+import '../../io/freeze_watch.dart';
 
 /// Layers tab, "Order on stage": keys that put a layer above or below
 /// others from a frame on (a jump). Lists only the layers that change
@@ -44,6 +45,7 @@ class _StackOrderFolderState extends State<StackOrderFolder> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final app = widget.app;
     final layer = findLayer(app.project, app.selection.selectedLayer);
     final keyed = [

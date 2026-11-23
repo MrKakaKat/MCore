@@ -4,6 +4,7 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 /// Reverse: a video played backwards, and the selected layer's keys
 /// mirrored in time per params tab (each a single undo step).
@@ -13,6 +14,7 @@ class ReverseView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {

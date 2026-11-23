@@ -9,6 +9,7 @@ import 'package:flutter/material.dart' hide Easing;
 import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
+import '../../io/freeze_watch.dart';
 
 /// What the ease editor is open on.
 typedef EaseTarget = ({AppState app, Track track, int componentCount, bool wholePath, int? segment, bool shared});
@@ -219,6 +220,7 @@ class _GraphEditorViewState extends State<GraphEditorView> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     // the keys gone meanwhile (fewer than two, no whole-path ease): nothing to edit.
     if ((_state.wholePath && _state.track.globalEasing == null) || (!_state.wholePath && _state.track.keyframes.length < 2)) {
       return const SizedBox.shrink();
@@ -566,6 +568,7 @@ class _CoordFieldState extends State<_CoordField> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     // the name as the field's own label: four fit side by side.
     return Row(
       children: [
@@ -639,6 +642,7 @@ class _EasingSquareState extends State<_EasingSquare> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = Size(constraints.maxWidth, constraints.maxHeight);
@@ -778,6 +782,7 @@ class _SpeedGraphState extends State<_SpeedGraph> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final a = _startHandle(widget.easing), b = _endHandle(widget.easing);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

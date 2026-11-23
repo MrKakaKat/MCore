@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../stage/stage_settings_dialog.dart' show parseHexColor;
+import '../../io/freeze_watch.dart';
 
 // white, black and the colours new shapes get.
 const _swatches = ['#00000000', '#ffffff', '#000000', '#e0a06a', '#7fc4a8', '#e07f9a', '#8ab4d8', '#c9a8e0', '#e0d47f', '#d8d8d8'];
@@ -52,6 +53,7 @@ class _ColorRowState extends State<ColorRow> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final hex = widget.hex;
     Widget swatch(String h, {Widget? child, VoidCallback? onTap}) => InkWell(
           onTap: onTap ?? () => widget.onPick(h),

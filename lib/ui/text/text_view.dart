@@ -13,6 +13,7 @@ import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../../io/file_pick.dart';
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 /// Text tab: the selected text layer's words, font (the bundled Roboto
 /// plus any loaded .ttf/.otf), size, letter and line spacing, alignment,
@@ -24,6 +25,7 @@ class TextView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {
@@ -503,6 +505,7 @@ class _TextEditorState extends State<_TextEditor> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final t = widget.t;
     final fonts = registeredFonts();
     final fontValue = fonts.containsKey(t.fontId) ? t.fontId : (fonts.isEmpty ? null : fonts.keys.first);

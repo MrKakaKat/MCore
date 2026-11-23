@@ -6,6 +6,7 @@ import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../stage/stage_settings_dialog.dart' show parseHexColor;
+import '../../io/freeze_watch.dart';
 
 /// Chroma tab: chroma key for image layers - the key colour (eyedropper on
 /// the stage, or typed), strength and edge softness, and whether it keys
@@ -32,6 +33,7 @@ class _ChromaViewState extends State<ChromaView> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {

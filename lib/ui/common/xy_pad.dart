@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import '../../io/freeze_watch.dart';
 
 /// A parameter with a point on the plane (two values, x and y), opened in
 /// the XY pad: a square where dragging moves the point - the third way to
@@ -82,6 +83,7 @@ class _XyPadPanelState extends State<XyPadPanel> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final t = widget.target;
     return ValueListenableBuilder<double>(
       valueListenable: xyPadSensitivity,

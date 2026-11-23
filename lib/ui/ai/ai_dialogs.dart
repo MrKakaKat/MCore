@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
+import '../../io/freeze_watch.dart';
 
 /// "Prompt for AI": what you want, copied together with the MCJ guide
 /// (and, for an open project, the project itself) - for any chatbot. No
@@ -47,6 +48,7 @@ class _PromptDialogState extends State<_PromptDialog> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AlertDialog(
       title: Text(widget.app == null ? 'Prompt for AI' : 'Edit this project with AI'),
       content: SingleChildScrollView(
@@ -136,6 +138,7 @@ class _ImportDialogState extends State<_ImportDialog> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final r = _result;
     return AlertDialog(
       title: Text(widget.title),

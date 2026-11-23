@@ -13,6 +13,7 @@ import '../../io/image_import.dart';
 import '../../services/audio_service.dart' show AudioImportCancelled;
 import '../../services/video_service.dart' show CancelToken, VideoImportCancelled;
 import '../../io/file_pick.dart';
+import '../../io/freeze_watch.dart';
 
 /// Layers-tab reconstruction,
 /// - a single "Add layer" button opening a picker with vector shapes and
@@ -554,6 +555,7 @@ class _VideoImportProgressDialogState extends State<VideoImportProgressDialog> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final value = _total > 0 ? (_done / _total).clamp(0.0, 1.0) : null;
     return AlertDialog(
       title: const Text('Importing video'),
@@ -669,6 +671,7 @@ class _AudioImportProgressDialogState extends State<AudioImportProgressDialog> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AlertDialog(
       title: const Text('Importing audio'),
       content: Column(

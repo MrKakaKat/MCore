@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app_state.dart';
+import '../../io/freeze_watch.dart';
 
 /// Movement tab: the object's centre - the point its position stands for
 /// and it turns and scales round. A point of its box, or tapped on the
@@ -11,6 +12,7 @@ class PivotField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     Widget dot(double fx, double fy) => SizedBox(
           width: 22,
           height: 22,

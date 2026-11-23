@@ -9,6 +9,7 @@ import '../common/num_field.dart';
 import '../common/no_layer.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
+import '../../io/freeze_watch.dart';
 
 /// Timeline tab: the selected layer's place on the timeline - which row
 /// it's in (several layers can share a row when they don't overlap in
@@ -274,6 +275,7 @@ class _TimelineRowsViewState extends State<TimelineRowsView> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {

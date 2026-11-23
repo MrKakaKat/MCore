@@ -115,6 +115,7 @@ class _StageViewState extends State<StageView> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _checkCutScale();
     });

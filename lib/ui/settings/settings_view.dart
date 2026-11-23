@@ -13,6 +13,7 @@ import '../ai/ai_dialogs.dart';
 import '../common/hint.dart';
 import '../../perf/perf_monitor.dart';
 import '../perf/perf_hud.dart';
+import '../../io/freeze_watch.dart';
 
 /// Settings tab: app-wide view options.
 class SettingsView extends StatelessWidget {
@@ -21,6 +22,7 @@ class SettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) => ListView(
@@ -362,6 +364,7 @@ class _StorageSectionState extends State<_StorageSection> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return FutureBuilder<StorageOverview>(
       future: _overview,
       builder: (context, snap) {

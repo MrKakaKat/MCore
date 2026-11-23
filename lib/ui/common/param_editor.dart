@@ -8,6 +8,7 @@ import 'package:movement_core/movement_core.dart' show snapToStops;
 import 'reset_button.dart';
 
 import 'num_field.dart';
+import '../../io/freeze_watch.dart';
 
 /// How a parameter value is dragged: an ordinary slider over a fixed
 /// range, or an endless ruler for values with no natural limit (angles
@@ -208,6 +209,7 @@ class _ParamEditorState extends State<ParamEditor> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final header = Row(
       children: [
         Expanded(
@@ -694,6 +696,7 @@ class _EndlessRulerState extends State<EndlessRuler> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final color = Theme.of(context).colorScheme.onSurface;
     final accent = Theme.of(context).colorScheme.primary;
     return GestureDetector(

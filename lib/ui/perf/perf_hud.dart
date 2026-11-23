@@ -7,6 +7,7 @@ import 'package:movement_core/movement_core.dart' show physicsWorldOf;
 import '../../app_state.dart';
 import '../../io/app_settings.dart';
 import '../../perf/perf_monitor.dart';
+import '../../io/freeze_watch.dart';
 
 /// Shows / hides the performance HUD (Settings tab) - an app setting,
 /// kept across projects and restarts, never saved in a project.
@@ -27,6 +28,7 @@ class PerfHud extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return ValueListenableBuilder<bool>(
       valueListenable: PerfMonitor.instance.visible,
       builder: (context, visible, _) => visible ? RepaintBoundary(child: _PerfPanel(app: app)) : const SizedBox.shrink(),
@@ -78,6 +80,7 @@ class _PerfPanelState extends State<_PerfPanel> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final s = _snap;
     if (s == null) return const SizedBox.shrink();
     // no backing panel: a thin shadow keeps the text readable over the stage.

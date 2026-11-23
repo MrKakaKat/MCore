@@ -21,6 +21,7 @@ import '../../io/preset_store.dart';
 import '../../io/project_store.dart';
 import '../layer_panel/project_ref_ui.dart' show showUsedInDialog;
 import '../../main.dart' show EditorScreen;
+import '../../io/freeze_watch.dart';
 
 /// The app's start screen: "New project" plus the list of saved projects
 /// (newest first). Opening one gives it its own AppState/EditorScreen,
@@ -555,6 +556,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return Scaffold(
       appBar: _picked.isNotEmpty
           ? AppBar(
@@ -715,6 +717,7 @@ class _TrashScreenState extends State<TrashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return Scaffold(
       appBar: AppBar(title: Text(tr('Trash')), actions: [
         FutureBuilder<List<ProjectMeta>>(
@@ -796,6 +799,7 @@ class _AspectThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     const box = 36.0;
     final scale = box / (width > height ? width : height);
     return SizedBox(
@@ -906,6 +910,7 @@ class _NewProjectDialogState extends State<_NewProjectDialog> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final size = _size;
     return AlertDialog(
       title: Text(tr('New project')),

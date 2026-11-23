@@ -4,6 +4,7 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/reset_button.dart';
+import '../../io/freeze_watch.dart';
 
 /// (Snapping shouldn't be tied to the grid feature - separate them) - this is
 /// the new, standalone home for the grid OVERLAY's own visibility + density
@@ -42,6 +43,7 @@ class GridSettingsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {

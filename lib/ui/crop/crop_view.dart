@@ -6,6 +6,7 @@ import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 /// Crop & Mirror tab: trims the object's sides (on the canvas with its
 /// own handles, or with the sliders here), optionally locked to an
@@ -27,6 +28,7 @@ class CropView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {
@@ -201,6 +203,7 @@ class _DetachSectionState extends State<_DetachSection> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final app = widget.app, layer = widget.layer;
     final others = [for (final l in app.project.layers) if (l.id != layer.id && l.id != 'L_parent') l];
     final ref = others.where((l) => l.id == _referenceId).firstOrNull ?? others.firstOrNull;
@@ -330,6 +333,7 @@ class _CutLinesSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final line = app.cropLine;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -362,6 +366,7 @@ class CropLineControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final line = app.cropLine ?? const [];
     final ready = line.length >= (app.cropLineClosed ? 3 : 2);
     final undo = IconButton(

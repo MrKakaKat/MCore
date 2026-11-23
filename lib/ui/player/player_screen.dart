@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
+import '../../io/freeze_watch.dart';
 
 /// Full-screen player: the project alone on black, playing in a loop -
 /// no handles, panels or timeline. Tap pauses / plays, a horizontal drag
@@ -52,6 +53,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(

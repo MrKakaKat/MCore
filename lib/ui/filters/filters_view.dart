@@ -10,6 +10,7 @@ import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 /// Filters: what they act on (the layer, the whole scene, or what is under
 /// the layer as glass), negative, blur, fractal warp, colour wheels with
@@ -23,6 +24,7 @@ class FiltersView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return ListenableBuilder(
       listenable: app,
       builder: (context, _) {
@@ -239,6 +241,7 @@ class _TrackRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final lf = layerLocalFrame(layer, app.currentFrame);
     final frame = lf.round();
     final v = (evaluateTrack(app.project, track, lf, layer) as num).toDouble();
@@ -301,6 +304,7 @@ class _Wheel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final w = rgbToWheel(values);
     final dot = Offset(w[0] / span, -w[1] / span);
     void setFrom(double x, double y, double m) {

@@ -4,6 +4,7 @@ import '../../app_state.dart';
 import '../common/tool_guide.dart';
 import '../player/player_screen.dart';
 import '../common/num_field.dart';
+import '../../io/freeze_watch.dart';
 
 /// The transport/action controls that used to live directly under the old
 /// scrub-bar widget (timeline_view.dart, since removed as redundant with
@@ -60,6 +61,7 @@ class TimelineToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {
@@ -175,6 +177,7 @@ class _BackToPlayheadButtonState extends State<BackToPlayheadButton> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return ValueListenableBuilder<int>(
       valueListenable: widget.app.playheadSide,
       builder: (context, side, _) {
@@ -207,6 +210,7 @@ class StageTransportRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     // no background: a shadow keeps them readable on any picture.
     Widget button(String key, IconData icon, String tip, VoidCallback? onPressed) => IconButton(
           key: ValueKey(key),

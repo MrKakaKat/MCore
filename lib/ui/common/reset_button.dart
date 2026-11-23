@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../io/freeze_watch.dart';
 
 /// Small "reset to default" icon placed next to a parameter's control every
 /// parameter gets one). For animated parameters the caller resets the value at
@@ -10,6 +11,7 @@ class ResetIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return IconButton(
       icon: const Icon(Icons.restart_alt, size: 16),
       tooltip: 'reset to default',

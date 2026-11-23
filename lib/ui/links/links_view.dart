@@ -6,6 +6,7 @@ import '../common/hint.dart';
 import '../common/num_field.dart';
 import '../stage/stage_painter.dart' show showPropLinks;
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 const _propNames = {
   'x': 'X', 'y': 'Y', 'rotation': 'Rotation', 'scaleX': 'Scale X', 'scaleY': 'Scale Y', 'opacity': 'Opacity',
@@ -33,6 +34,7 @@ class LinksView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {
@@ -415,6 +417,7 @@ class _LinkCard extends StatefulWidget {
 class _LinkCardState extends State<_LinkCard> {
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final open = _LinkCard.open[widget.link] ?? widget.link.sourceId == null;
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 3),

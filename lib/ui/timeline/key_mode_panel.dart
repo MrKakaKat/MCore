@@ -3,6 +3,7 @@ import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 import '../common/hint.dart';
+import '../../io/freeze_watch.dart';
 
 /// Keyframes tab: where keys go.
 /// - Base keys: the parameters' own keys.
@@ -25,6 +26,7 @@ class KeyModePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final n = layer.transform.anchor.animLayers.length;
     final open = openOrderLayer(layer);
     return Column(

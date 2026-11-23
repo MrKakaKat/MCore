@@ -5,6 +5,7 @@ import '../../app_state.dart';
 import '../common/no_layer.dart';
 import '../graph_editor/graph_editor_view.dart';
 import 'key_mode_panel.dart';
+import '../../io/freeze_watch.dart';
 
 /// A dedicated "Keyframes" tab - asked for a separate place to edit keyframe
 /// animation directly, beyond the compact merged scrub+strip
@@ -38,6 +39,7 @@ class KeyframesEditorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {

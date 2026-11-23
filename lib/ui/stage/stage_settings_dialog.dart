@@ -6,6 +6,7 @@ import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/reset_button.dart';
 import 'stage_painter.dart' show showAllVisuals;
+import '../../io/freeze_watch.dart';
 
 /// aspect-ratio presets (a custom size) for the frame, plus the
 /// off-canvas-content visibility toggle. The frame's own boundary always stays
@@ -173,6 +174,7 @@ class _StageSettingsViewState extends State<StageSettingsView> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: widget.app,
       builder: (context, _) {
@@ -391,6 +393,7 @@ class BackgroundPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final current = app.background;
     return Wrap(
       spacing: 8,
@@ -469,6 +472,7 @@ class _Swatch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return Tooltip(
       message: tooltip,
       child: InkWell(

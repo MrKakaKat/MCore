@@ -6,6 +6,7 @@ import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 /// Line tab: the selected vector line's points (model/line_path.dart).
 /// While it is open every point is a handle on the stage; the segment
@@ -26,6 +27,7 @@ class _LineViewState extends State<LineView> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {

@@ -4,6 +4,7 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import '../common/color_row.dart';
 import '../common/hint.dart';
+import '../../io/freeze_watch.dart';
 
 /// Drawing: tools that paint new layers on the stage. Fill: a tap fills
 /// the region it lands in, bounded by the edges of the other layers.
@@ -13,6 +14,7 @@ class DrawingView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return ListenableBuilder(
       listenable: app,
       builder: (context, _) {

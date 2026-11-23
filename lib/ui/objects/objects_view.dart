@@ -4,6 +4,7 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 /// Objects: the layer as a thing with two sides - turn it over, put
 /// another picture on its back (within its bounds), give it a contour.
@@ -13,6 +14,7 @@ class ObjectsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return ListenableBuilder(
       listenable: app,
       builder: (context, _) {

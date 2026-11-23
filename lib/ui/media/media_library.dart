@@ -8,6 +8,7 @@ import 'package:photo_manager/photo_manager.dart';
 import '../../app_state.dart';
 import '../layer_panel/add_layer_dialog.dart';
 import '../../services/audio_playback.dart';
+import '../../io/freeze_watch.dart';
 
 /// The media library: the phone's own videos, pictures, GIFs and music,
 /// by album, with what each file is (MP4, PNG, GIF, MP3...) - one place to
@@ -270,6 +271,7 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final recent = [
       for (final r in widget.app.recentMedia)
         if ((r.kind == 'audio') == widget.audio && (_query.isEmpty || r.name.toLowerCase().contains(_query.toLowerCase()))) r
@@ -494,6 +496,7 @@ class _Tile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     Widget badge(String text) => Container(
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
           decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(3)),

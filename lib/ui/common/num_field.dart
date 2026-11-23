@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../io/freeze_watch.dart';
 
 /// A numeric text field bound to a mutable external value, sharing this
 /// app's persistent-controller pattern across every params-style panel
@@ -82,6 +83,7 @@ class _NumFieldState extends State<NumField> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return SizedBox(
       width: widget.width,
       child: TextField(

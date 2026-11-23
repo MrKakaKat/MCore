@@ -3,6 +3,7 @@ import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 import '../../io/preset_store.dart';
+import '../../io/freeze_watch.dart';
 
 /// Presets tab, two lists:
 /// - object presets: the selected object's parameters (movement,
@@ -17,6 +18,7 @@ class PresetsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final store = app.presetStore;
     final animStore = app.animationPresetStore;
     if (store == null || animStore == null) {
@@ -107,6 +109,7 @@ class _PresetSectionState extends State<_PresetSection> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: widget.app,
       builder: (context, _) {

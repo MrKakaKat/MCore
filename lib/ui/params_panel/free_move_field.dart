@@ -6,6 +6,7 @@ import '../common/num_field.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
+import '../../io/freeze_watch.dart';
 
 /// Movement tab: free move - see AppState.startFreeMove.
 class FreeMoveField extends StatelessWidget {
@@ -16,6 +17,7 @@ class FreeMoveField extends StatelessWidget {
   /// becomes a key layer of two keys (the curve in their handles).
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final rec = app.freeMoveRecording;
     return Container(
       key: const ValueKey('free-move-field'),

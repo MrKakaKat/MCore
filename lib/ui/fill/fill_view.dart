@@ -11,6 +11,7 @@ import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 /// Fill tab: a shape's colour - plain, or a gradient made of glows (points
 /// and lines that light the shape in their own colour over the base
@@ -50,6 +51,7 @@ class _FillViewState extends State<FillView> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {

@@ -10,6 +10,7 @@ import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
 import '../common/no_layer.dart';
+import '../../io/freeze_watch.dart';
 
 /// Ported from movement-core/src/ui/paramsPanel/effectsSection.js - the
 /// layer's effect stack (enable/reorder/delete, generic per-param
@@ -53,6 +54,7 @@ class EffectsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {
@@ -2284,6 +2286,7 @@ class _AddEffectRowState extends State<_AddEffectRow> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     // geometry effects (any number of each) plus the motion add-ons not on
     // the layer yet (one each).
     final present = effectPanelEntries(widget.layer).toSet();

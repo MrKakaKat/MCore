@@ -5,6 +5,7 @@ import '../../app_state.dart';
 import '../common/color_row.dart';
 import '../common/hint.dart';
 import '../stage/stage_settings_dialog.dart' show parseHexColor;
+import '../../io/freeze_watch.dart';
 
 /// Palettes: named colour lists. Copy one and paste it into any colour
 /// field (its palette menu); a field's palette copied back pastes here as
@@ -15,6 +16,7 @@ class PalettesView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: Listenable.merge([app, copiedPalette]),
       builder: (context, _) {

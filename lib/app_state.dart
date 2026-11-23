@@ -625,7 +625,7 @@ class AppState extends ChangeNotifier {
   /// After sound-related edits, the preview mix is made and loaded ahead
   /// of time (debounced), so pressing play doesn't wait for it.
   void _prepareAudioSoon() {
-    if (audioStore == null || playing || !hasAudio) return;
+    if (audioStore == null || playing || _mixBuilding > 0 || !hasAudio) return;
     _audioPrepTimer?.cancel();
     // (a while after the last edit: dragging sound around stays light.)
     _audioPrepTimer = Timer(const Duration(milliseconds: 500), () {
@@ -651,7 +651,30 @@ class AppState extends ChangeNotifier {
   /// being mixed again (after an edit), or the sound starting.
   bool get playLoading => preparing || _mixBuilding > 0 || (playing && _audioPending);
 
-  Future<bool> _loadMix(int session) async {
+  Future<bool>? _mixJob;
+  String? _mixJobKey;
+
+  /// One mix at a time: a mix for the same sound already being made is
+  /// waited for (each one started another - the loading play button told
+  /// the app it changed, which asked for the mix again).
+  Future<bool> _loadMix(int session) {
+    final key = _audioMixKey();
+    final job = _mixJob;
+    if (job != null && _mixJobKey == key) return job;
+    final next = (job ?? Future<bool>.value(true)).catchError((Object _) => false).then((_) => _loadMixOnce(session));
+    _mixJob = next;
+    _mixJobKey = key;
+    next.whenComplete(() {
+      if (identical(_mixJob, next)) {
+        _mixJob = null;
+        _mixJobKey = null;
+      }
+    }).ignore();
+    return next;
+  }
+
+  Future<bool> _loadMixOnce(int session) async {
+    FreezeWatch.at('sound: mixing');
     final key = _audioMixKey();
     final p = _playback ??= audioPlaybackFactory();
     if (_loadedMixKey == key) return true;
@@ -5519,7 +5542,9 @@ class AppState extends ChangeNotifier {
       final src = l.content.shape == 'projectRef' ? refSourceOf(l.content, refSources) : null;
       if (src != null && l.content.refEmbedded == null) l.content.refLastSeenRevision = src.revision;
     }
+    FreezeWatch.at('saving: comparing');
     final content = _contentSignature();
+    FreezeWatch.at('saving: compared');
     final same = content == _savedContent;
     DateTime? keepDate;
     if (same) {
@@ -5530,7 +5555,9 @@ class AppState extends ChangeNotifier {
       projectRevision++;
     }
     _savedContent = content;
+    FreezeWatch.at('saving: writing');
     await _saveFile(file);
+    FreezeWatch.at('saving: written');
     if (keepDate != null) {
       try {
         await file.setLastModified(keepDate);
@@ -6417,8 +6444,10 @@ class AppState extends ChangeNotifier {
         ..countNotify()
         ..markActive();
     }
+    FreezeWatch.at('app changed: the frame told');
     frameNotifier.value = currentFrame;
     _frameUnannounced = false;
+    FreezeWatch.at('app changed: keys tidied');
     // the selected layer's "Edit the whole object".
     editAllKeys = findLayer(project, selection.selectedLayer)?.editAll ?? false;
     // free moves' own points go with their end keys.
@@ -6429,12 +6458,17 @@ class AppState extends ChangeNotifier {
       if (tidyAnimLayers(l, selected: l.id == selection.selectedLayer)) bound = true;
     }
     // children taking their parent's corner rounding.
+    FreezeWatch.at('app changed: rounding');
     if (syncInheritedRounding(project)) bound = true;
     if (bound) clearStateCaches();
+    FreezeWatch.at('app changed: key selection');
     _revalidateKeySelection();
     _persistAppUi();
+    FreezeWatch.at('app changed: telling the screen');
     super.notifyListeners();
+    FreezeWatch.at('app changed: mask regions');
     _scheduleRegionBake();
+    FreezeWatch.at('app changed: done');
   }
 
   Timer? _regionBakeTimer;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app_state.dart';
 import '../common/tool_guide.dart';
+import '../../io/freeze_watch.dart';
 
 /// Secondary row of timeline toggles, tucked behind TimelineToolbar's own new
 /// caret button (see TimelineToolbar's own doc comment) - "a duplicate of the
@@ -36,6 +37,7 @@ class TimelineDrawerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {

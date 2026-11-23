@@ -5,6 +5,7 @@ import '../../app_state.dart';
 import '../common/hint.dart';
 import '../common/reset_button.dart';
 import 'grid_settings_dialog.dart' show gridKindChips;
+import '../../io/freeze_watch.dart';
 
 /// movement-mobile-snapping-spec.md's own settings panel: a master
 /// toggle + a separate guide-visibility toggle at the top, then one
@@ -60,6 +61,7 @@ class _SnappingSettingsViewState extends State<SnappingSettingsView> {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: widget.app,
       builder: (context, _) {

@@ -5,6 +5,7 @@ import 'package:movement_core/movement_core.dart';
 
 import 'layers_timeline_view.dart' show timelineLayerHeld;
 import '../../app_state.dart';
+import '../../io/freeze_watch.dart';
 
 /// Height of one detail row under the focused layer.
 const double detailRowHeight = 12;
@@ -74,6 +75,7 @@ class RegionEpisodeRows extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final rows = regionEpisodeRows(app.project, layer);
     final last = layer.startFrame + layer.durationFrames;
     return Stack(clipBehavior: Clip.none, children: [
@@ -209,6 +211,7 @@ class EffectSpanRows extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final spans = effectSpans(layer);
     final editing = app.editingEffectId;
     double x(int local) => (layer.startFrame + local) * pixelsPerFrame;
@@ -266,6 +269,7 @@ class MaskSpanRows extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final spans = maskSpans(layer);
     final editing = app.editingMaskIndex;
     double x(int local) => (layer.startFrame + local) * pixelsPerFrame;
@@ -323,6 +327,7 @@ class _KeyDetailRowsState extends State<KeyDetailRows> {
   int _moved = 0;
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     final app = widget.app;
     final layer = widget.layer;
     final rows = keyDetailRows(layer);

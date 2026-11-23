@@ -7,6 +7,7 @@ import 'add_layer_dialog.dart';
 import '../../io/gallery_find.dart';
 import '../../io/image_import.dart';
 import 'project_ref_ui.dart';
+import '../../io/freeze_watch.dart';
 
 /// Ported from movement-core/src/ui/layerPanel.js - the layer list
 /// (select/hide/add/delete). Group/ungroup (a multiselect + "Group (N)"
@@ -30,6 +31,7 @@ class LayerPanelView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: Listenable.merge([app, _collapsed]),
       builder: (context, _) {

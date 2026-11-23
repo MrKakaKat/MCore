@@ -8,6 +8,7 @@ import '../common/hint.dart';
 import '../common/param_editor.dart';
 import '../common/reset_button.dart';
 import '../graph_editor/graph_editor_view.dart';
+import '../../io/freeze_watch.dart';
 
 /// Audio tab: the selected sound layer's volume (animatable) and mute, and
 /// importing sound. Where the sound starts in its file and how long it
@@ -24,6 +25,7 @@ class AudioView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    FreezeWatch.at('building $runtimeType');
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {
