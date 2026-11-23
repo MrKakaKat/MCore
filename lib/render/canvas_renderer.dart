@@ -151,13 +151,28 @@ class CanvasRenderer implements Renderer {
     return {for (final e in m.entries) if (e.value > 0) e.key: e.key.startsWith('in placed') ? e.value >> 20 : e.value >> 20};
   }
 
+  /// Memory ran short: placed projects drawn at half size, their
+  /// pictures decoded smaller (set by trimMemory, kept from then on).
+  bool lowMemory = false;
+
   /// Pictures are decoded at most this big (longest side, px).
   int maxImageSide = 3072;
 
   /// Lets go of everything that can be made again (frames of placed
   /// projects, read-back pixels, keyed pictures not shown, video frames
   /// not shown, placed projects no longer used) - memory ran short.
-  void trimMemory({Set<String>? usedSources}) {
+  void trimMemory({Set<String>? usedSources, bool low = false}) {
+    if (low && !lowMemory) {
+      lowMemory = true;
+      maxImageSide = math.max(512, maxImageSide ~/ 2);
+      // decoded again, smaller (the stage's own pictures stay).
+      if (refChain.length > 1) {
+        for (final i in _imageCache.values) {
+          _disposeLater(i);
+        }
+        _imageCache.clear();
+      }
+    }
     for (final i in _refFrames.values) {
       _disposeLater(i);
     }
@@ -175,7 +190,7 @@ class CanvasRenderer implements Renderer {
       }
     }
     for (final r in _refRenderers.values) {
-      r.trimMemory();
+      r.trimMemory(low: low);
     }
   }
 
@@ -2846,7 +2861,7 @@ class CanvasRenderer implements Renderer {
   /// Decoded frames of video layers around the playhead (see
   /// video_frame_cache.dart). AppState points `framesRoot` at the frame
   /// cache; tests swap the decoder.
-  late final VideoFrameCache videoFrames = VideoFrameCache()
+  late final VideoFrameCache videoFrames = VideoFrameCache(budgetBytes: 48 << 20)
     ..onDecoded = (() => _notify('video'))
     ..onEvict = _sourcePixels.remove;
 
@@ -3000,7 +3015,8 @@ class CanvasRenderer implements Renderer {
 
   /// Kept frames of all references together stay under this many bytes
   /// (several references at full size ran the phone out of memory).
-  static const _refFrameBytes = 96 << 20;
+  /// (Bytes; a placed project's own placed projects keep less.)
+  int refFrameBytes = 48 << 20;
   int _refBytes() {
     var n = 0;
     for (final i in _refFrames.values) {
@@ -3078,9 +3094,11 @@ class CanvasRenderer implements Renderer {
     final r = _refRenderers[s.id] ??= CanvasRenderer()
       // each placed project keeps less in memory than the stage (its
       // frames are drawn at most at its own canvas size).
-      ..videoFrames.budgetBytes = 40 << 20
-      ..sourcePixelBytes = 24 << 20
-      ..maxImageSide = math.min(maxImageSide, math.max(1024, (math.max(s.width, s.height) * 1.5).round()))
+      ..videoFrames.budgetBytes = 24 << 20
+      ..sourcePixelBytes = 16 << 20
+      ..refFrameBytes = 16 << 20
+      ..keyedRecentKept = 2
+      ..maxImageSide = math.min(maxImageSide, math.max(720, math.max(s.width, s.height).round()))
       ..onImageDecoded = () {
         // what it draws changed (a picture came in): its frames are new
         // ones - keyed anew too (the empty first one stayed keyed).
@@ -3091,6 +3109,7 @@ class CanvasRenderer implements Renderer {
         _notify('placed project');
       };
     r
+      ..lowMemory = lowMemory
       ..refSources = refSources
       ..maxBlurSamples = maxBlurSamples
       ..refsLoading = refsLoading
@@ -3131,7 +3150,8 @@ class CanvasRenderer implements Renderer {
     // the size the layer's box needs, never above the source's own canvas
     // (in quarter steps, so small changes share frames).
     final need = math.max(c.size[0] / s.width, c.size[1] / s.height);
-    final k = ((need * 4).ceil() / 4).clamp(0.25, 1.0);
+    // (memory short: half as big at most.)
+    final k = math.min(((need * 4).ceil() / 4).clamp(0.25, 1.0), lowMemory ? 0.5 : 1.0);
     final w = math.max(1, (s.width * k).round()), h = math.max(1, (s.height * k).round());
     // a live source (Show in context: the open project, unsaved) has
     // no revision to key by - always rendered.
@@ -3164,7 +3184,7 @@ class CanvasRenderer implements Renderer {
     final image = rec.endRecording().toImageSync(w, h);
     if (s.revision >= 0) {
       _refFrames[key] = image;
-      while (_refFrames.length > 1 && (_refFrames.length > _refFrameBudget || _refBytes() > _refFrameBytes)) {
+      while (_refFrames.length > 1 && (_refFrames.length > _refFrameBudget || _refBytes() > refFrameBytes)) {
         final old = _refFrames.remove(_refFrames.keys.first);
         if (old != null) _disposeLater(old);
       }
@@ -3246,7 +3266,7 @@ class CanvasRenderer implements Renderer {
   /// several moments at once (a project placed twice) keys each once,
   /// instead of keying them in turn over and over.
   final LinkedHashMap<String, ui.Image> _keyedRecent = LinkedHashMap();
-  static const _keyedRecentKept = 6;
+  int keyedRecentKept = 6;
   final Map<String, Future<void>> _keyingInFlight = {};
 
   /// Keyings that failed (their picture couldn't be read): not tried again
@@ -3377,7 +3397,7 @@ class CanvasRenderer implements Renderer {
       _keyed[layerId] = (sig: sig, image: image);
       _keyedRecent.remove(sig);
       _keyedRecent[sig] = image;
-      while (_keyedRecent.length > _keyedRecentKept) {
+      while (_keyedRecent.length > keyedRecentKept) {
         final old = _keyedRecent.remove(_keyedRecent.keys.first);
         if (old != null && !_keyed.values.any((k) => identical(k.image, old))) _disposeLater(old);
       }

@@ -1260,9 +1260,9 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       return;
     }
-    if (mb < 900) return;
+    if (mb < 700) return;
     final last = _lastTrim;
-    if (last != null && DateTime.now().difference(last) < const Duration(seconds: 20)) return;
+    if (last != null && DateTime.now().difference(last) < const Duration(seconds: 10)) return;
     trimMemory('$mb MB taken');
   }
 
@@ -1270,7 +1270,8 @@ class AppState extends ChangeNotifier {
   void trimMemory(String why) {
     _lastTrim = DateTime.now();
     final held = renderer.memoryReport().entries.map((e) => '${e.key} ${e.value}').join(', ');
-    renderer.trimMemory(usedSources: directRefs(project));
+    // from then on it keeps less (placed projects at half size).
+    renderer.trimMemory(usedSources: directRefs(project), low: true);
     _contextRenderer.trimMemory();
     clearStateCaches();
     CrashLog.instance?.error('memory: caches let go ($why; held MB: $held)');
