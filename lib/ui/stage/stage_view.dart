@@ -207,6 +207,12 @@ class _StageViewState extends State<StageView> {
                 const SizedBox(height: 12),
                 Text('Loading ${widget.app.preparingWhat}...',
                     style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                const SizedBox(height: 8),
+                TextButton(
+                  key: const ValueKey('stage-preparing-skip'),
+                  onPressed: widget.app.skipPreparing,
+                  child: const Text('Skip', style: TextStyle(color: Colors.white)),
+                ),
               ]),
             ),
           ),

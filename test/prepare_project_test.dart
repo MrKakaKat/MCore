@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -35,5 +36,31 @@ void main() {
     app.dispose();
     await tester.pump(const Duration(seconds: 3));
     dir.deleteSync(recursive: true);
+  });
+
+  test('skip: getting ready stops at once, play works', () {
+    final app = AppState()
+      ..project.layers.add(createImageLayer(imageSourceType: 'file', imagePath: '/nope.png', naturalWidth: 8, naturalHeight: 8)
+        ..id = 'img');
+    unawaited(app.prepareProject());
+    expect(app.preparing, isTrue);
+    app.skipPreparing();
+    expect(app.preparing, isFalse);
+    app.togglePlay();
+    expect(app.playing, isTrue);
+    app.togglePlay();
+  });
+
+  test('a cut layer joined again from the app: one layer, one undo step', () {
+    final app = AppState();
+    final id = app.selection.selectedLayer!;
+    final n = app.project.layers.length;
+    app.setFrame(findLayer(app.project, id)!.startFrame + 10);
+    app.splitLayerAtPlayhead(id);
+    expect(app.project.layers.length, n + 1);
+    app.joinWithNext(id);
+    expect(app.project.layers.length, n);
+    app.performUndo();
+    expect(app.project.layers.length, n + 1);
   });
 }

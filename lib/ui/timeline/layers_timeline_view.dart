@@ -3486,6 +3486,8 @@ class _LayerActionRow extends StatelessWidget {
           button(Icons.delete_outline, 'delete layer', () => app.deleteLayerById(layer.id), 'a-delete'),
           button(Icons.content_cut, 'split at playhead',
               inside ? () => app.splitLayerAtPlayhead(layer.id) : null, 'a-split'),
+          button(Icons.call_merge, 'join with the next piece',
+              nextJoinable(app.project, layer) != null ? () => app.joinWithNext(layer.id) : null, 'a-join'),
           button(Icons.first_page, 'move start to playhead',
               f != start ? () => app.moveLayerStartToPlayhead(layer.id) : null, 'a-start'),
           button(

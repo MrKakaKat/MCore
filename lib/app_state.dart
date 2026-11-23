@@ -2661,6 +2661,22 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Joins the layer with the piece after it on its row (see
+  /// movement_core's joinLayers): one layer again. One undo step.
+  void joinWithNext(String id) {
+    final layer = findLayer(project, id);
+    if (layer == null) return;
+    final next = nextJoinable(project, layer);
+    if (next == null) return;
+    pushUndo();
+    joinLayers(project, layer, next);
+    selectLayer(layer.id);
+    clearStateCaches();
+    _fitTimeline();
+    _render();
+    notifyListeners();
+  }
+
   /// Moves the layer so it starts at the playhead.
   void moveLayerStartToPlayhead(String id) {
     final layer = findLayer(project, id);
@@ -6086,47 +6102,65 @@ class AppState extends ChangeNotifier {
     preparingWhat = 'pictures';
     notifyListeners();
     final started = DateTime.now();
-    bool late() => DateTime.now().difference(started) > const Duration(seconds: 45);
+    bool stop() =>
+        _disposed || run != _prepareRun || DateTime.now().difference(started) > const Duration(seconds: 15);
     try {
-      // where pictures first show: each one's start; a placed project at
-      // a few places along it (its own pictures come in on its way).
+      // where pictures first show: each one's start (a placed project's
+      // middle too - its own pictures come in on its way). Few frames:
+      // each placed project's frame is the whole project drawn, and many
+      // of them in a row froze the app.
       final frames = <int>{};
       for (final l in media) {
         frames.add(l.startFrame.clamp(0, maxFrame));
         if (l.content.shape == 'projectRef') {
           preparingWhat = 'placed projects';
-          const steps = 8;
-          for (var i = 1; i < steps; i++) {
-            frames.add((l.startFrame + l.durationFrames * i ~/ steps).clamp(0, maxFrame));
-          }
+          frames.add((l.startFrame + l.durationFrames ~/ 2).clamp(0, maxFrame));
         }
       }
       final list = frames.toList()..sort();
       notifyListeners();
-      for (final f in list.take(48)) {
-        if (_disposed || run != _prepareRun || late()) break;
+      for (final f in list.take(12)) {
+        if (stop()) break;
+        final sw = Stopwatch()..start();
         renderer.renderFrame(project, f, clipToFrame: !(showOffCanvasContent || cameraView));
+        final slow = sw.elapsedMilliseconds > 400 || renderer.lastOverBudget != null;
+        // the picture shown, the spinner turning: a breath for the app.
+        await Future<void>.delayed(const Duration(milliseconds: 16));
         final waitFrom = DateTime.now();
-        while (renderer.busy && !_disposed && DateTime.now().difference(waitFrom) < const Duration(seconds: 8)) {
-          await Future<void>.delayed(const Duration(milliseconds: 30));
+        while (renderer.busy && !stop() && DateTime.now().difference(waitFrom) < const Duration(seconds: 5)) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
         }
-        await Future<void>.delayed(Duration.zero);
+        // drawing a frame takes long by itself: drawing more of them
+        // ahead only freezes - the rest comes in while playing.
+        if (slow) {
+          CrashLog.instance?.error('prepare: frame $f took ${sw.elapsedMilliseconds} ms - stopped getting ready early');
+          break;
+        }
       }
-      if (sound && !_disposed && run == _prepareRun && !late()) {
+      if (sound && !stop()) {
         preparingWhat = 'sound';
         notifyListeners();
         try {
-          await _loadMix(_playSession).timeout(const Duration(seconds: 30));
+          await _loadMix(_playSession).timeout(const Duration(seconds: 20));
         } catch (_) {}
       }
     } finally {
-      if (run == _prepareRun && !_disposed) {
-        preparing = false;
-        preparingWhat = '';
-        _render();
-        notifyListeners();
-      }
+      if (run == _prepareRun && !_disposed) _endPreparing();
     }
+  }
+
+  void _endPreparing() {
+    preparing = false;
+    preparingWhat = '';
+    _render();
+    notifyListeners();
+  }
+
+  /// The stage's "Skip": stops getting ready (what's left loads on the way).
+  void skipPreparing() {
+    if (!preparing) return;
+    _prepareRun++;
+    _endPreparing();
   }
 
   /// Add -> Project...: a reference to saved project `sourceId`, centred

@@ -69,6 +69,116 @@ Layer? splitLayer(Project project, Layer layer, int globalFrame, String newId) {
   return right;
 }
 
+/// The piece that comes right after `layer` in time, on its timeline
+/// row, that it can be joined with (see joinLayers) - null when none.
+Layer? nextJoinable(Project project, Layer layer) {
+  final end = layer.startFrame + layer.durationFrames;
+  Layer? best;
+  for (final l in project.layers) {
+    if (identical(l, layer) || l.startFrame < end) continue;
+    if ((l.rowId ?? l.id) != (layer.rowId ?? layer.id)) continue;
+    if (best == null || l.startFrame < best.startFrame) best = l;
+  }
+  if (best == null || joinBlocker(layer, best) != null) return null;
+  return best;
+}
+
+/// Why `a` and the later `b` can't be joined into one layer, or null.
+/// They must show the same thing (pieces of one layer, a video going on
+/// where it stopped) and be built alike.
+String? joinBlocker(Layer a, Layer b) {
+  if (b.startFrame < a.startFrame + a.durationFrames) return 'They overlap in time';
+  final ca = contentToJson(a.content), cb = contentToJson(b.content);
+  if (isTimedMedia(a.content.shape)) {
+    final gap = (b.startFrame - a.startFrame) / fps * a.content.mediaSpeed;
+    if ((b.content.sourceIn - (a.content.sourceIn + gap)).abs() > 0.5 / fps) return 'The clip does not go on there';
+    ca.remove('sourceIn');
+    cb.remove('sourceIn');
+  }
+  if (jsonEncode(ca) != jsonEncode(cb)) return 'They show different things';
+  var na = 0, nb = 0;
+  var loops = false;
+  visitLayerTracks(a, (t) {
+    na++;
+    loops |= t.loop;
+  });
+  visitLayerTracks(b, (t) {
+    nb++;
+    loops |= t.loop;
+  });
+  if (na != nb) return 'They are built differently';
+  if (loops) return 'A looping track can\'t be joined';
+  return null;
+}
+
+/// Joins `b` (later on the timeline) onto `a`: one layer from a's start
+/// to b's end, moving as the two did - a's keys, then b's, the value
+/// jumping where b began (a border). Layers tied to b are tied to a.
+/// Returns false (nothing changed) when they can't be joined.
+bool joinLayers(Project project, Layer a, Layer b) {
+  if (joinBlocker(a, b) != null) return false;
+  final j = b.startFrame - a.startFrame;
+  final ta = <Track>[], tb = <Track>[];
+  visitLayerTracks(a, ta.add);
+  visitLayerTracks(b, tb.add);
+  const jump = Easing(0, 0, 1, 1, hold: true);
+  final values = [
+    for (var i = 0; i < ta.length; i++)
+      (
+        _copy(evaluateTrackOwn(project, ta[i], (j - 1).toDouble(), a)),
+        _copy(evaluateTrackOwn(project, tb[i], 0, b)),
+      )
+  ];
+  for (var i = 0; i < ta.length; i++) {
+    final x = ta[i], y = tb[i];
+    if (x.keyframes.isEmpty && y.keyframes.isEmpty && jsonEncode(values[i].$1) == jsonEncode(values[i].$2)) continue;
+    final (va, vb) = values[i];
+    final keep = [for (final k in x.keyframes) if (k.frame < j - 1) k];
+    final next = x.keyframes.where((k) => k.frame >= j - 1).firstOrNull;
+    final way = next == null ? easingPresets['linear']! : (next.frame == j - 1 ? next.temporal : (keep.isEmpty ? next.temporal : keep.last.temporal).withHold(false));
+    x.keyframes = [
+      ...keep,
+      if (keep.isEmpty && j - 1 > 0) Keyframe(frame: 0, value: _copy(va)),
+      Keyframe(frame: j - 1, value: va, temporal: way),
+      Keyframe(frame: j, value: vb, temporal: jump),
+      for (final k in y.keyframes)
+        if (k.frame > 0) k..frame += j,
+    ];
+    if (x.spatial) autoComputeTangents(x);
+  }
+  a.durationFrames = j + b.durationFrames;
+  a.loopEnabled = b.loopEnabled;
+  // what was tied to b goes with a now.
+  for (final l in project.layers) {
+    if (identical(l, b)) continue;
+    _swapRefs(l, b.id, a.id);
+  }
+  project.layers.remove(b);
+  return true;
+}
+
+void _swapRefs(Layer l, String from, String to) {
+  String? swap(String? id) => id == from ? to : id;
+  l.parentId = swap(l.parentId);
+  l.mirrorSourceId = swap(l.mirrorSourceId);
+  l.backSourceId = swap(l.backSourceId);
+  l.follow.targetId = swap(l.follow.targetId);
+  final pf = l.transform.pathFollow;
+  pf.sourceLayerId = swap(pf.sourceLayerId);
+  for (final m in l.masks) {
+    m.sourceLayerId = swap(m.sourceLayerId);
+    for (var i = 0; i < m.moreSources.length; i++) {
+      if (m.moreSources[i] == from) m.moreSources[i] = to;
+    }
+  }
+  for (final c in l.cuts) {
+    c.cutterId = swap(c.cutterId);
+  }
+  for (final k in l.links) {
+    k.sourceId = swap(k.sourceId);
+  }
+}
+
 /// Layers tied to the cut layer (its children, masks and cuts by it,
 /// followers, links, mirrors...) that live in the part after the cut are
 /// tied to that part now: they stayed on the first one, which had ended
@@ -83,27 +193,9 @@ void _retargetToPiece(Project project, Layer left, Layer right) {
     return past > 0 && past >= before;
   }
 
-  String? swap(String? id) => id == from ? to : id;
   for (final l in project.layers) {
     if (identical(l, left) || identical(l, right) || !after(l)) continue;
-    l.parentId = swap(l.parentId);
-    l.mirrorSourceId = swap(l.mirrorSourceId);
-    l.backSourceId = swap(l.backSourceId);
-    l.follow.targetId = swap(l.follow.targetId);
-    final pf = l.transform.pathFollow;
-    pf.sourceLayerId = swap(pf.sourceLayerId);
-    for (final m in l.masks) {
-      m.sourceLayerId = swap(m.sourceLayerId);
-      for (var i = 0; i < m.moreSources.length; i++) {
-        if (m.moreSources[i] == from) m.moreSources[i] = to;
-      }
-    }
-    for (final c in l.cuts) {
-      c.cutterId = swap(c.cutterId);
-    }
-    for (final k in l.links) {
-      k.sourceId = swap(k.sourceId);
-    }
+    _swapRefs(l, from, to);
   }
 }
 
@@ -125,9 +217,13 @@ void _splitLeft(Track trk, int s, dynamic value, {bool layered = false}) {
     if (!layered) trk.defaultValue = value;
     return;
   }
-  final before = ks.where((k) => k.frame < s).toList();
+  // the way into the cut is the way into the key after it (a border
+  // there: the value stays as it is up to the cut).
+  final next = ks.firstWhere((k) => k.frame >= s);
+  final last = ks.lastWhere((k) => k.frame < s);
+  final way = next.frame == s && next.temporal.hold ? next.temporal : last.temporal.withHold(false);
   trk.keyframes.removeWhere((k) => k.frame >= s);
-  trk.keyframes.add(Keyframe(frame: s, value: value, temporal: before.last.temporal));
+  trk.keyframes.add(Keyframe(frame: s, value: value, temporal: way));
   if (trk.spatial) autoComputeTangents(trk);
 }
 
@@ -166,7 +262,8 @@ void _splitRight(Track trk, int s, dynamic value) {
   for (final k in trk.keyframes) {
     k.frame -= s;
   }
-  trk.keyframes.insert(0, Keyframe(frame: 0, value: value, temporal: before.last.temporal));
+  // (nothing comes into it: never a border - that is the key's own way in.)
+  trk.keyframes.insert(0, Keyframe(frame: 0, value: value, temporal: before.last.temporal.withHold(false)));
   if (trk.spatial) autoComputeTangents(trk);
 }
 

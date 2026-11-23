@@ -328,6 +328,16 @@ class _TimelineRowsViewState extends State<TimelineRowsView> {
               spacing: 8,
               runSpacing: 4,
               children: [
+                // the piece after it on its row: one layer again.
+                Builder(builder: (_) {
+                  final next = nextJoinable(app.project, layer);
+                  return OutlinedButton.icon(
+                    key: const ValueKey('join-next-piece'),
+                    onPressed: next == null ? null : () => app.joinWithNext(layer.id),
+                    icon: const Icon(Icons.call_merge, size: 18),
+                    label: Text(next == null ? 'Join with the next piece' : 'Join with ${next.name}'),
+                  );
+                }),
                 OutlinedButton.icon(
                   onPressed: fits(own - 1) ? () => app.joinNeighbourRow(layer.id, up: true) : null,
                   icon: const Icon(Icons.vertical_align_top, size: 18),
