@@ -8,6 +8,7 @@ import 'package:movement_core/movement_core.dart';
 import 'package:movement_mobile/app_state.dart';
 import 'package:movement_mobile/io/project_store.dart';
 import 'package:movement_mobile/io/video_asset_store.dart' show directorySize;
+import 'package:movement_mobile/services/audio_playback.dart';
 import 'package:movement_mobile/services/audio_service.dart';
 import 'package:movement_mobile/services/video_service.dart';
 import 'package:movement_mobile/ui/settings/settings_view.dart';
@@ -42,7 +43,9 @@ void main() {
       ..audioStore = store.audios
       ..projectStore = store
       ..videoService = encoders
-      ..audioService = encoders;
+      ..audioService = encoders
+      // (the sound made ready a while after an edit: never the real player)
+      ..audioPlaybackFactory = (() => _SilentPlayback());
     await app.openProject(file);
     app.project.layers.clear();
     app.renderer.videoFrames.decoder = (path) async => solid(int.parse(await File(path).readAsString()));
@@ -324,4 +327,19 @@ class _FakeEncoders extends VideoService implements AudioService {
           VideoProgress? onProgress,
           String? audioPath}) =>
       throw UnimplementedError();
+}
+
+class _SilentPlayback implements AudioPlayback {
+  @override
+  Duration position = Duration.zero;
+  @override
+  Future<void> prime(Duration at) async {}
+  @override
+  Future<void> load(String path) async {}
+  @override
+  Future<void> start(Duration from, {double speed = 1}) async {}
+  @override
+  Future<void> pause() async {}
+  @override
+  Future<void> dispose() async {}
 }
