@@ -85,6 +85,15 @@ class CrashLog with WidgetsBindingObserver {
     _write();
   }
 
+  /// The system says memory is short: what can be made again goes.
+  void Function()? onMemoryPressure;
+
+  @override
+  void didHaveMemoryPressure() {
+    error('the system said memory is short');
+    onMemoryPressure?.call();
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // put away by the user (or the system): not a crash if it ends there.

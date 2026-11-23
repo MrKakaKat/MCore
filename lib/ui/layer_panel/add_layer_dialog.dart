@@ -628,6 +628,8 @@ Future<void> importAudioFlow(BuildContext context, AppState app, {String? picked
     barrierDismissible: false,
     builder: (_) => AudioImportProgressDialog(app: app, file: File(path!)),
   );
+  // the new sound layer: straight to the sound tab.
+  if (error == null) app.showTab('Audio');
   if (error == null || error is AudioImportCancelled || !context.mounted) return;
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not import audio: $error')));
 }

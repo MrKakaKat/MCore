@@ -350,6 +350,14 @@ class VideoFrameCache {
     }
   }
 
+  /// Lets go of every frame not shown now (nor pinned for an export).
+  void trim() {
+    final shown = {for (final e in _lastIndex.entries) keyOf(e.key.substring(0, e.key.lastIndexOf('|')), e.value)};
+    for (final k in _frames.keys.toList()) {
+      if (!shown.contains(k) && !pinned.contains(k)) _drop(k);
+    }
+  }
+
   void dispose() {
     for (final t in _settleTimers.values) {
       t.cancel();

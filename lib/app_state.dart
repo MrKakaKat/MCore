@@ -1246,6 +1246,35 @@ class AppState extends ChangeNotifier {
     });
   }
 
+  int _rendersSinceMemoryCheck = 0;
+  DateTime? _lastTrim;
+
+  /// Memory the app takes, looked at now and then: past so much, what can
+  /// be made again goes (it froze at 1.4 GB and was closed).
+  void _watchMemory() {
+    if (++_rendersSinceMemoryCheck < 15) return;
+    _rendersSinceMemoryCheck = 0;
+    int mb;
+    try {
+      mb = ProcessInfo.currentRss >> 20;
+    } catch (_) {
+      return;
+    }
+    if (mb < 900) return;
+    final last = _lastTrim;
+    if (last != null && DateTime.now().difference(last) < const Duration(seconds: 20)) return;
+    trimMemory('$mb MB taken');
+  }
+
+  /// Lets go of the renderer's caches (they fill again as needed).
+  void trimMemory(String why) {
+    _lastTrim = DateTime.now();
+    renderer.trimMemory(usedSources: directRefs(project));
+    _contextRenderer.trimMemory();
+    clearStateCaches();
+    CrashLog.instance?.error('memory: caches let go ($why)');
+  }
+
   /// Renders the frame again (the stage's handle cuts changed size).
   void rerender() {
     _render();
@@ -1261,6 +1290,7 @@ class AppState extends ChangeNotifier {
         clipToFrame: !(showOffCanvasContent || cameraView), underlay: contextUnderlay);
     FreezeWatch.at('stage frame $currentFrame ready, the screen updating');
     _freshRender = true;
+    _watchMemory();
     _checkOverBudget();
   }
 

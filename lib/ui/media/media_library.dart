@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -6,6 +7,7 @@ import 'package:photo_manager/photo_manager.dart';
 
 import '../../app_state.dart';
 import '../layer_panel/add_layer_dialog.dart';
+import '../../services/audio_playback.dart';
 
 /// The media library: the phone's own videos, pictures, GIFs and music,
 /// by album, with what each file is (MP4, PNG, GIF, MP3...) - one place to
@@ -88,6 +90,61 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
   void initState() {
     super.initState();
     _askAccess();
+  }
+
+  // ---- listening before picking ----
+  AudioPlayback? _preview;
+
+  /// The sound playing now (its path), or being loaded.
+  String? _previewing;
+  bool _previewLoading = false;
+
+  Future<void> _togglePreview(String id, Future<String?> Function() pathOf) async {
+    final p = _preview;
+    if (_previewing == id) {
+      setState(() => _previewing = null);
+      await p?.pause();
+      return;
+    }
+    setState(() {
+      _previewing = id;
+      _previewLoading = true;
+    });
+    try {
+      await p?.pause();
+      final path = await pathOf();
+      if (path == null) throw StateError('no file');
+      final player = _preview ??= widget.app.audioPlaybackFactory();
+      await player.load(path);
+      if (!mounted || _previewing != id) return;
+      await player.start(Duration.zero);
+    } catch (e) {
+      if (mounted && _previewing == id) {
+        setState(() => _previewing = null);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Can\'t play it: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _previewLoading = false);
+    }
+  }
+
+  Widget _previewButton(String id, Future<String?> Function() pathOf) {
+    final on = _previewing == id;
+    return IconButton(
+      key: ValueKey('media-preview-$id'),
+      tooltip: on ? 'Stop' : 'Listen',
+      icon: on && _previewLoading
+          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+          : Icon(on ? Icons.stop_circle_outlined : Icons.play_circle_outline),
+      onPressed: () => _togglePreview(id, pathOf),
+    );
+  }
+
+  @override
+  void dispose() {
+    final p = _preview;
+    if (p != null) unawaited(p.pause().then((_) => p.dispose()));
+    super.dispose();
   }
 
   Future<void> _askAccess() async {
@@ -182,6 +239,7 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
 
   /// Brings the file in (by its kind), remembered as recently used.
   Future<void> _use(String path, String kind, String name) async {
+    await _preview?.pause();
     widget.app.addRecentMedia(path, kind, name);
     final host = widget.hostContext;
     Navigator.of(context).pop();
@@ -289,6 +347,24 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
     if (recent.isEmpty) {
       return const Center(child: Text('Nothing used yet', style: TextStyle(color: Colors.grey)));
     }
+    // sounds: a list, each one to listen to first.
+    if (widget.audio) {
+      return ListView.builder(
+        itemCount: recent.length,
+        itemBuilder: (_, i) {
+          final r = recent[i];
+          final exists = File(r.path).existsSync();
+          return ListTile(
+            key: ValueKey('media-recent-$i'),
+            dense: true,
+            leading: Icon(exists ? Icons.music_note : Icons.music_off_outlined),
+            title: Text(r.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: exists ? _previewButton('recent:${r.path}', () async => r.path) : null,
+            onTap: exists ? () => _use(r.path, r.kind, r.name) : null,
+          );
+        },
+      );
+    }
     return GridView.builder(
       padding: const EdgeInsets.all(4),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 130, mainAxisSpacing: 4, crossAxisSpacing: 4),
@@ -363,6 +439,7 @@ class _MediaLibraryScreenState extends State<MediaLibraryScreen> {
                       leading: const Icon(Icons.music_note),
                       title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
                       subtitle: Text('${mediaExtension(name, mime: e.mimeType)} · ${_duration(e.duration)}'),
+                      trailing: _previewButton(e.id, () async => (await e.originFile)?.path),
                       onTap: () => _useAsset(e),
                     );
                   },

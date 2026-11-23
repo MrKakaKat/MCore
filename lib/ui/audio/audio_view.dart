@@ -95,30 +95,44 @@ class AudioView extends StatelessWidget {
       key: const ValueKey('media-speed'),
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          const Text('Speed', style: TextStyle(fontSize: 13)),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 64,
-            child: NumField(
-              key: const ValueKey('media-speed-field'),
+        // one line: the exact number, then the quick picks scrolling.
+        SizedBox(
+          height: 40,
+          child: Row(children: [
+            const Text('Speed', style: TextStyle(fontSize: 13)),
+            const SizedBox(width: 8),
+            SizedBox(
               width: 64,
-              value: s,
-              onCommit: (v) => app.setMediaSpeedOf(layer.id, v),
+              child: NumField(
+                key: const ValueKey('media-speed-field'),
+                width: 64,
+                value: s,
+                onCommit: (v) => app.setMediaSpeedOf(layer.id, v),
+              ),
             ),
-          ),
-          const Text(' ×', style: TextStyle(fontSize: 13)),
-        ]),
-        Wrap(spacing: 6, children: [
-          for (final v in const [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 4.0])
-            ChoiceChip(
-              key: ValueKey('media-speed-$v'),
-              label: Text('$v×'),
-              selected: (s - v).abs() < 1e-9,
-              visualDensity: VisualDensity.compact,
-              onSelected: (_) => app.setMediaSpeedOf(layer.id, v),
+            const Text(' ×', style: TextStyle(fontSize: 13)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: ListView(
+                key: const ValueKey('media-speed-strip'),
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final v in const [0.1, 0.25, 0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0, 3.0, 4.0, 8.0])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: ChoiceChip(
+                        key: ValueKey('media-speed-$v'),
+                        label: Text('$v×'),
+                        selected: (s - v).abs() < 1e-9,
+                        visualDensity: VisualDensity.compact,
+                        onSelected: (_) => app.setMediaSpeedOf(layer.id, v),
+                      ),
+                    ),
+                ],
+              ),
             ),
-        ]),
+          ]),
+        ),
         const Text('Its length follows (twice as fast: half as long); a sound goes higher or lower with it.',
             style: TextStyle(fontSize: 11, color: Colors.grey)),
       ]),

@@ -154,6 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (!mounted) return;
     // a crash in it is told where it was.
+    CrashLog.instance?.onMemoryPressure = () => app.trimMemory('the system asked');
     CrashLog.instance?.status = () => {
           'project': app.projectName,
           'frame': app.currentFrame,
@@ -169,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _opening = false;
     await route;
     CrashLog.instance?.status = null;
+    CrashLog.instance?.onMemoryPressure = null;
     // closed: drop videos no project uses any more (after the final save,
     // so a video imported in this session is still referenced).
     await app.saveNow();

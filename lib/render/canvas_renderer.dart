@@ -134,6 +134,34 @@ class CanvasRenderer implements Renderer {
     return all;
   }
 
+  /// Pictures are decoded at most this big (longest side, px).
+  int maxImageSide = 3072;
+
+  /// Lets go of everything that can be made again (frames of placed
+  /// projects, read-back pixels, keyed pictures not shown, video frames
+  /// not shown, placed projects no longer used) - memory ran short.
+  void trimMemory({Set<String>? usedSources}) {
+    for (final i in _refFrames.values) {
+      _disposeLater(i);
+    }
+    _refFrames.clear();
+    _sourcePixels.clear();
+    final shown = {for (final k in _keyed.values) k.image};
+    for (final i in _keyedRecent.values) {
+      if (!shown.contains(i)) _disposeLater(i);
+    }
+    _keyedRecent.clear();
+    videoFrames.trim();
+    if (usedSources != null) {
+      for (final id in _refRenderers.keys.toList()) {
+        if (!usedSources.contains(id)) _refRenderers.remove(id)?.dispose();
+      }
+    }
+    for (final r in _refRenderers.values) {
+      r.trimMemory();
+    }
+  }
+
   /// Which placed copy this renderer draws now (a placed project's
   /// renderer draws all of its copies): its videos keep a playhead each.
   String videoConsumer = '';
@@ -917,6 +945,17 @@ class CanvasRenderer implements Renderer {
     _keyed.clear();
     _keyedRecent.clear();
     videoFrames.dispose();
+    // the placed projects' renderers and frames too (they stayed in
+    // memory after the project was closed).
+    for (final i in _refFrames.values) {
+      i.dispose();
+    }
+    _refFrames.clear();
+    _sourcePixels.clear();
+    for (final r in _refRenderers.values) {
+      r.dispose();
+    }
+    _refRenderers.clear();
   }
 
   // ============================================================
@@ -2982,8 +3021,11 @@ class CanvasRenderer implements Renderer {
 
   CanvasRenderer _refRenderer(RefSource s) {
     final r = _refRenderers[s.id] ??= CanvasRenderer()
-      // each placed project keeps less video in memory than the stage.
-      ..videoFrames.budgetBytes = 48 << 20
+      // each placed project keeps less in memory than the stage (its
+      // frames are drawn at most at its own canvas size).
+      ..videoFrames.budgetBytes = 40 << 20
+      ..sourcePixelBytes = 24 << 20
+      ..maxImageSide = math.min(maxImageSide, math.max(1024, (math.max(s.width, s.height) * 1.5).round()))
       ..onImageDecoded = () {
         // what it draws changed (a picture came in): its frames are new
         // ones - keyed anew too (the empty first one stayed keyed).
@@ -3161,7 +3203,9 @@ class CanvasRenderer implements Renderer {
   static const _keyedPixelsKept = 6;
 
   /// Kept pictures' pixels in all, at most (bytes).
-  static const _sourcePixelBytes = 160 << 20;
+  /// Read-back pictures' pixels kept in all, at most (bytes) - a placed
+  /// project's renderer keeps less.
+  int sourcePixelBytes = 96 << 20;
 
   String _keySig(String sourceKey, ChromaKey ck, {bool matte = false}) =>
       '$sourceKey|${jsonEncode(chromaKeyToJson(ck))}${matte ? '|matte' : ''}';
@@ -3240,7 +3284,7 @@ class CanvasRenderer implements Renderer {
           bytes += v.rgba.lengthInBytes;
         }
         final keys = _sourcePixels.keys.toList();
-        for (var i = 0; bytes > _sourcePixelBytes && i < keys.length - 1; i++) {
+        for (var i = 0; bytes > sourcePixelBytes && i < keys.length - 1; i++) {
           if (keys[i] == key) continue;
           bytes -= _sourcePixels.remove(keys[i])?.rgba.lengthInBytes ?? 0;
         }
@@ -3350,8 +3394,18 @@ class CanvasRenderer implements Renderer {
       } else {
         bytes = await File(content.imagePath!).readAsBytes();
       }
-      final codec = await ui.instantiateImageCodec(bytes);
+      // never bigger than drawing needs: a phone photo (4000 x 3000) took
+      // 48 MB as it was - in every placed project again.
+      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      final desc = await ui.ImageDescriptor.encoded(buffer);
+      final big = math.max(desc.width, desc.height);
+      final k = big > maxImageSide ? maxImageSide / big : 1.0;
+      final codec = await desc.instantiateCodec(
+          targetWidth: k < 1 ? math.max(1, (desc.width * k).round()) : null,
+          targetHeight: k < 1 ? math.max(1, (desc.height * k).round()) : null);
       final frame = await codec.getNextFrame();
+      desc.dispose();
+      buffer.dispose();
       _imageCache[key] = frame.image;
     } catch (_) {
       _failedKeys.add(key);
