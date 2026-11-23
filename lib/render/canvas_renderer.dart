@@ -162,6 +162,7 @@ class CanvasRenderer implements Renderer {
   /// projects, read-back pixels, keyed pictures not shown, video frames
   /// not shown, placed projects no longer used) - memory ran short.
   void trimMemory({Set<String>? usedSources, bool low = false}) {
+    _refPictures.clear();
     if (low && !lowMemory) {
       lowMemory = true;
       maxImageSide = math.max(512, maxImageSide ~/ 2);
@@ -993,6 +994,7 @@ class CanvasRenderer implements Renderer {
     }
     _refRenderers.clear();
     _reading.clear();
+    _refPictures.clear();
     _disposeNow();
   }
 
@@ -1519,21 +1521,41 @@ class CanvasRenderer implements Renderer {
       // image (there's no vector boundary to stroke instead of fill),
       // so it's left unaffected by globalOutlineMode/renderMode here,
       // same as a precompose group's rendered content already is.
-      FreezeWatch.at('  its picture');
-      final decoded = _layerImage(layer, globalFrame);
-      FreezeWatch.at('  its picture placed');
-      final placeholder = refPlaceholder(layer);
-      if (placeholder != null) _paintRefPlaceholder(contentCanvas, layer, placeholder);
-      if (decoded != null) {
-        final offset = layer.content.offset, size = layer.content.size;
-        final dst = ui.Rect.fromCenter(
-            center: ui.Offset(offset[0], offset[1]),
-            width: size[0],
-            height: size[1]);
-        final src = ui.Rect.fromLTWH(
-            0, 0, decoded.width.toDouble(), decoded.height.toDouble());
-        contentCanvas.drawImageRect(decoded, src, dst,
-            ui.Paint()..filterQuality = ui.FilterQuality.medium);
+      // a placed project with nothing keyed: its drawing itself, placed
+      // in the box - no picture made of it (each frame of each placed
+      // project was a 1080 x 1080 picture on the graphics chip, and the
+      // chip ran out).
+      if (layer.content.shape == 'projectRef' &&
+          !layer.chromaKey.active &&
+          !_edgeMatteOn(layer) &&
+          chromaMatteLayerId != layer.id) {
+        FreezeWatch.at('  its drawing');
+        final placeholder = refPlaceholder(layer);
+        if (placeholder != null) _paintRefPlaceholder(contentCanvas, layer, placeholder);
+        final rp = _projectRefPicture(layer, globalFrame);
+        if (rp != null) {
+          final offset = layer.content.offset, size = layer.content.size;
+          contentCanvas
+            ..save()
+            ..clipRect(ui.Rect.fromCenter(center: ui.Offset(offset[0], offset[1]), width: size[0], height: size[1]))
+            ..translate(offset[0] - size[0] / 2, offset[1] - size[1] / 2)
+            ..scale(size[0] / rp.width, size[1] / rp.height)
+            ..drawPicture(rp.picture)
+            ..restore();
+        }
+        FreezeWatch.at('  its drawing placed');
+      } else {
+        FreezeWatch.at('  its picture');
+        final decoded = _layerImage(layer, globalFrame);
+        FreezeWatch.at('  its picture placed');
+        final placeholder = refPlaceholder(layer);
+        if (placeholder != null) _paintRefPlaceholder(contentCanvas, layer, placeholder);
+        if (decoded != null) {
+          final offset = layer.content.offset, size = layer.content.size;
+          final dst = ui.Rect.fromCenter(center: ui.Offset(offset[0], offset[1]), width: size[0], height: size[1]);
+          final src = ui.Rect.fromLTWH(0, 0, decoded.width.toDouble(), decoded.height.toDouble());
+          contentCanvas.drawImageRect(decoded, src, dst, ui.Paint()..filterQuality = ui.FilterQuality.medium);
+        }
       }
     } else {
       // a plain polygon (triangle, star, ...) with its corner rounding;
@@ -3042,17 +3064,21 @@ class CanvasRenderer implements Renderer {
     for (final i in _refFrames.values) {
       _disposeLater(i);
     }
+    _refPictures.clear();
     _refFrames.clear();
     for (final r in _refRenderers.values) {
       r.clearRefFrames();
     }
   }
 
-  void _dropRefFrames(String id) => _refFrames.removeWhere((k, v) {
-        final drop = k.startsWith('ref:$id:');
-        if (drop) _disposeLater(v);
-        return drop;
-      });
+  void _dropRefFrames(String id) {
+    _refFrames.removeWhere((k, v) {
+      final drop = k.startsWith('ref:$id:');
+      if (drop) _disposeLater(v);
+      return drop;
+    });
+    _refPictures.removeWhere((k, _) => k.startsWith('ref:$id:'));
+  }
 
   /// An image let go after this frame is drawn (it may still be in the
   /// picture being recorded).
@@ -3141,6 +3167,44 @@ class CanvasRenderer implements Renderer {
   /// A reference's picture at `globalFrame`: the source rendered at its
   /// frame for that time (cached per source, revision, frame and size).
   /// Null while hidden (past the end) or a placeholder is drawn.
+  /// A placed project's drawing at `globalFrame` (its own canvas size),
+  /// kept per source, revision and frame - drawn as it is, never made
+  /// into a picture on the graphics chip.
+  final LinkedHashMap<String, ui.Picture> _refPictures = LinkedHashMap();
+
+  ({ui.Picture picture, double width, double height})? _projectRefPicture(Layer layer, int globalFrame) {
+    final c = layer.content;
+    if (refStatus(c, refSources, refChain) != RefStatus.ok) return null;
+    final s = refSourceOf(c, refSources)!;
+    final sf = _refFrame(layer, globalFrame, s);
+    if (sf == null) return null;
+    final key = 'ref:${s.id}:${s.revision}:e${_refEpoch[s.id] ?? 0}:$sf';
+    if (s.revision >= 0) {
+      final hit = _refPictures.remove(key);
+      if (hit != null) {
+        FreezeWatch.at('placed project "${s.name}": drawing of frame $sf kept from before');
+        _refPictures[key] = hit;
+        return (picture: hit, width: s.width.toDouble(), height: s.height.toDouble());
+      }
+    }
+    final child = _refRenderer(s);
+    child.videoConsumer = '$videoConsumer/${layer.id}';
+    FreezeWatch.at('placed project "${s.name}" as "${layer.name}", its frame $sf (drawing)');
+    final pic = _inSource(s, () {
+      child.setSize(s.width, s.height);
+      child.renderFrame(s.project, sf);
+      return child.currentPicture;
+    });
+    if (pic == null) return null;
+    if (s.revision >= 0) {
+      _refPictures[key] = pic;
+      while (_refPictures.length > 24) {
+        _refPictures.remove(_refPictures.keys.first);
+      }
+    }
+    return (picture: pic, width: s.width.toDouble(), height: s.height.toDouble());
+  }
+
   ({String key, ui.Image image})? _projectRefImage(Layer layer, int globalFrame) {
     final c = layer.content;
     if (refStatus(c, refSources, refChain) != RefStatus.ok) return null;
