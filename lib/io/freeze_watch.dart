@@ -23,7 +23,15 @@ class FreezeWatch {
     await Isolate.spawn(_watch, [ready.sendPort, file.path, limit.inMilliseconds]);
     _port = await ready.first as SendPort;
     // answering while nothing in particular is done.
-    Timer.periodic(const Duration(milliseconds: 500), (_) => _port?.send(const ['ping']));
+    // (with the memory the app takes: running out of it slows it to a
+    // stop, then it is closed.)
+    Timer.periodic(const Duration(milliseconds: 500), (_) {
+      var mb = 0;
+      try {
+        mb = ProcessInfo.currentRss >> 20;
+      } catch (_) {}
+      _port?.send(['ping', mb]);
+    });
   }
 
   /// What the app is doing now (cheap: sent only when it changes).
@@ -60,7 +68,7 @@ class FreezeWatch {
             try {
               final j = jsonDecode(l) as Map<String, dynamic>;
               final dur = j['ms'] == null ? 'and did not come back' : 'for ${((j['ms'] as num) / 1000).toStringAsFixed(1)} s';
-              return 'FROZE ${j['at']} $dur\n  doing: ${j['doing']}\n  before: ${(j['before'] as List?)?.join(' | ')}\n  ${j['ctx'] ?? ''}';
+              return 'FROZE ${j['at']} $dur\n  doing: ${j['doing']}\n  before: ${(j['before'] as List?)?.join(' | ')}\n  ${j['ctx'] ?? ''}\n  memory: ${j['mb'] ?? '?'} MB';
             } catch (_) {
               return l;
             }
@@ -82,6 +90,7 @@ void _watch(List<Object?> args) {
   var doing = '';
   final before = <String>[];
   var ctx = '';
+  var memory = 0;
   DateTime? frozeAt;
   inbox.listen((m) {
     final msg = m as List;
@@ -89,7 +98,7 @@ void _watch(List<Object?> args) {
     if (frozeAt != null) {
       // back: how long it was gone.
       final ms = now.difference(frozeAt!).inMilliseconds + limitMs;
-      _append(file, {'at': frozeAt!.toIso8601String(), 'ms': ms, 'doing': doing, 'before': before, 'ctx': ctx});
+      _append(file, {'at': frozeAt!.toIso8601String(), 'ms': ms, 'doing': doing, 'before': before, 'ctx': ctx, 'mb': memory});
       frozeAt = null;
     }
     lastHeard = now;
@@ -102,6 +111,8 @@ void _watch(List<Object?> args) {
         doing = msg[1] as String;
       case 'ctx':
         ctx = msg[1] as String;
+      case 'ping':
+        memory = msg[1] as int;
     }
   });
   Timer.periodic(const Duration(milliseconds: 500), (_) {
@@ -109,7 +120,7 @@ void _watch(List<Object?> args) {
     if (DateTime.now().difference(lastHeard).inMilliseconds > limitMs) {
       frozeAt = DateTime.now();
       // written at once: the app may never come back.
-      _append(file, {'at': frozeAt!.toIso8601String(), 'doing': doing, 'before': before, 'ctx': ctx});
+      _append(file, {'at': frozeAt!.toIso8601String(), 'doing': doing, 'before': before, 'ctx': ctx, 'mb': memory});
     }
   });
 }

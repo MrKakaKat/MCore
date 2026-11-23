@@ -9,6 +9,7 @@ import 'stage_camera.dart';
 import 'stage_gesture_controller.dart';
 import 'stage_painter.dart';
 import '../crop/crop_view.dart' show CropLineControls;
+import '../../io/freeze_watch.dart';
 
 /// The stage widget: renders the current frame + the interactive
 /// handle/visual overlay defined by movement-mobile-gesture-spec.md
@@ -779,6 +780,7 @@ class _FreeMovePathPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    FreezeWatch.at('the stage painted on the screen');
     if (ghost.length >= 3) {
       final g = Path()..addPolygon(ghost, true);
       canvas.drawPath(g, Paint()..color = const Color(0x33FFB74D));

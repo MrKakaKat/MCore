@@ -738,8 +738,10 @@ class CanvasRenderer implements Renderer {
     if (digs) canvas.restore();
     _picture = recorder.endRecording();
     if (project.layers.any((l) => l.filters.scope == 'scene' && l.filters.any)) {
+      FreezeWatch.at('${where}scene filters frame $frame');
       _picture = _sceneFilters(project, _picture!, frame, cull);
     }
+    FreezeWatch.at('${where}frame $frame drawn');
     if (perf) {
       PerfMonitor.instance.recordRender(totalMs: perfWatch!.elapsedMicroseconds / 1000, layers: layerCosts!);
     }
@@ -1003,8 +1005,10 @@ class CanvasRenderer implements Renderer {
       return;
     }
 
+    FreezeWatch.at('  its place and motion');
     final state = getLayerStateAt(project, layerId, globalFrame);
     if (!state.inRange) return;
+    FreezeWatch.at('  drawing it');
     // no blur of its own, but a parent's: blurred by the parent's motion
     // only - the parent's time runs across the shutter, the child's own
     // transform stays at this frame.
@@ -1438,7 +1442,9 @@ class CanvasRenderer implements Renderer {
       // image (there's no vector boundary to stroke instead of fill),
       // so it's left unaffected by globalOutlineMode/renderMode here,
       // same as a precompose group's rendered content already is.
+      FreezeWatch.at('  its picture');
       final decoded = _layerImage(layer, globalFrame);
+      FreezeWatch.at('  its picture placed');
       final placeholder = refPlaceholder(layer);
       if (placeholder != null) _paintRefPlaceholder(contentCanvas, layer, placeholder);
       if (decoded != null) {
@@ -2976,6 +2982,8 @@ class CanvasRenderer implements Renderer {
 
   CanvasRenderer _refRenderer(RefSource s) {
     final r = _refRenderers[s.id] ??= CanvasRenderer()
+      // each placed project keeps less video in memory than the stage.
+      ..videoFrames.budgetBytes = 48 << 20
       ..onImageDecoded = () {
         // what it draws changed (a picture came in): its frames are new
         // ones - keyed anew too (the empty first one stayed keyed).
@@ -3034,6 +3042,7 @@ class CanvasRenderer implements Renderer {
     if (s.revision >= 0) {
       final hit = _refFrames.remove(key);
       if (hit != null) {
+        FreezeWatch.at('placed project "${s.name}": frame $sf kept from before');
         _refFrames[key] = hit;
         _refHitTimes.add(DateTime.now().millisecondsSinceEpoch);
         return (key: key, image: hit);

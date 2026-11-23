@@ -13,6 +13,7 @@ import 'package:movement_core/movement_core.dart';
 import 'package:movement_core/movement_core.dart' as core show bakeFollowToKeys;
 
 import 'io/crash_log.dart';
+import 'io/freeze_watch.dart';
 import 'io/app_settings.dart';
 import 'io/audio_asset_store.dart';
 import 'io/font_store.dart';
@@ -1258,6 +1259,7 @@ class AppState extends ChangeNotifier {
     if (!_inDecodeRender) _decodeStormHeld = false;
     renderer.renderFrame(project, currentFrame,
         clipToFrame: !(showOffCanvasContent || cameraView), underlay: contextUnderlay);
+    FreezeWatch.at('stage frame $currentFrame ready, the screen updating');
     _freshRender = true;
     _checkOverBudget();
   }

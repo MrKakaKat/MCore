@@ -14,6 +14,7 @@ import '../../app_state.dart';
 
 import '../common/tool_guide.dart';
 import 'layer_detail_rows.dart';
+import '../../io/freeze_watch.dart';
 
 /// A layer's edge (or the layer itself) is being held on the timeline:
 /// a hold there is never a ruler mark - the layer first, then the mark.
@@ -2730,6 +2731,7 @@ class _MarkerLinePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    FreezeWatch.at('the timeline painted ($runtimeType)');
     paintMarkerLine(canvas, size, x, color);
   }
 
@@ -2831,6 +2833,7 @@ class _LaneLinePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    FreezeWatch.at('the timeline painted ($runtimeType)');
     final alpha = dimmed ? 0.35 : 1.0;
     final midY = size.height / 2;
     final wave = peaks;
@@ -3201,6 +3204,7 @@ class RulerMarkerPainter extends CustomPainter {
   const RulerMarkerPainter();
   @override
   void paint(Canvas canvas, Size size) {
+    FreezeWatch.at('the timeline painted ($runtimeType)');
     final x = size.width / 2;
     canvas.drawPath(
         Path()
@@ -3218,6 +3222,7 @@ class RulerMarkerPainter extends CustomPainter {
 class _PlayheadPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
+    FreezeWatch.at('the timeline painted ($runtimeType)');
     // was a red (0xFFE05A5A) line + handle triangle.
     paintMarkerLine(canvas, size, size.width / 2, Colors.white);
   }
@@ -3763,6 +3768,7 @@ class _InertiaPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    FreezeWatch.at('the timeline painted ($runtimeType)');
     final cy = size.height / 2, end = size.width - 4;
     final p = Paint()
       ..color = color
@@ -3792,6 +3798,7 @@ class TimelineVolumePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    FreezeWatch.at('the timeline painted ($runtimeType)');
     if (pixelsPerFrame <= 0 || sounds.isEmpty) return;
     final clip = canvas.getLocalClipBounds();
     final x0 = math.max(0.0, clip.left), x1 = math.min(size.width, clip.right);
