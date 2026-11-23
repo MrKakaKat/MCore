@@ -65,7 +65,46 @@ Layer? splitLayer(Project project, Layer layer, int globalFrame, String newId) {
   // a loop belongs to the end of the clip: the right part keeps it.
   layer.loopEnabled = false;
   project.layers.insert(project.layers.indexOf(layer) + 1, right);
+  _retargetToPiece(project, layer, right);
   return right;
+}
+
+/// Layers tied to the cut layer (its children, masks and cuts by it,
+/// followers, links, mirrors...) that live in the part after the cut are
+/// tied to that part now: they stayed on the first one, which had ended
+/// where they are - the tie came off.
+void _retargetToPiece(Project project, Layer left, Layer right) {
+  final from = left.id, to = right.id;
+  final cut = right.startFrame;
+  bool after(Layer l) {
+    final s = l.startFrame, e = l.startFrame + l.durationFrames;
+    final before = (cut < e ? cut : e) - s;
+    final past = e - (cut > s ? cut : s);
+    return past > 0 && past >= before;
+  }
+
+  String? swap(String? id) => id == from ? to : id;
+  for (final l in project.layers) {
+    if (identical(l, left) || identical(l, right) || !after(l)) continue;
+    l.parentId = swap(l.parentId);
+    l.mirrorSourceId = swap(l.mirrorSourceId);
+    l.backSourceId = swap(l.backSourceId);
+    l.follow.targetId = swap(l.follow.targetId);
+    final pf = l.transform.pathFollow;
+    pf.sourceLayerId = swap(pf.sourceLayerId);
+    for (final m in l.masks) {
+      m.sourceLayerId = swap(m.sourceLayerId);
+      for (var i = 0; i < m.moreSources.length; i++) {
+        if (m.moreSources[i] == from) m.moreSources[i] = to;
+      }
+    }
+    for (final c in l.cuts) {
+      c.cutterId = swap(c.cutterId);
+    }
+    for (final k in l.links) {
+      k.sourceId = swap(k.sourceId);
+    }
+  }
 }
 
 dynamic _copy(dynamic v) => v is List ? List<double>.from(v) : v;

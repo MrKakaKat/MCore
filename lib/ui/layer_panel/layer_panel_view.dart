@@ -86,6 +86,18 @@ class LayerPanelView extends StatelessWidget {
                       onPressed: () => showAddLayerDialog(context, app),
                     ),
                   ),
+                  // down (or up) the list to the selected layer.
+                  if (app.selection.selectedLayer != null) ...[
+                    const SizedBox(width: 8),
+                    IconButton.outlined(
+                      key: const ValueKey('layers-to-selected'),
+                      icon: const Icon(Icons.my_location),
+                      iconSize: 18,
+                      visualDensity: VisualDensity.compact,
+                      tooltip: 'Go to the selected layer',
+                      onPressed: () => _goToSelected(context),
+                    ),
+                  ],
                   // picking several: tap layers; done ends it.
                   if (app.layerListPicking) ...[
                     const SizedBox(width: 8),
@@ -244,10 +256,37 @@ class LayerPanelView extends StatelessWidget {
   /// Folders the user folded (while the app runs).
   static final ValueNotifier<Set<String>> _collapsed = ValueNotifier({});
 
+  /// Scrolls the list to the selected layer (its folder opened): a long
+  /// list's far rows aren't built yet, so it first jumps near where the
+  /// row should be, then brings the row itself into view.
+  Future<void> _goToSelected(BuildContext context) async {
+    final id = app.selection.selectedLayer;
+    final layer = id == null ? null : findLayer(app.project, id);
+    if (layer == null) return;
+    final f = layer.folder;
+    if (f != null && _collapsed.value.contains(f)) _collapsed.value = {..._collapsed.value}..remove(f);
+    final pos = Scrollable.maybeOf(context)?.position;
+    final key = GlobalObjectKey(('layer-tile', layer.id));
+    final shown = app.project.layers.reversed.toList();
+    final i = shown.indexOf(layer);
+    for (var tries = 0; tries < 4 && key.currentContext == null && pos != null; tries++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (key.currentContext != null) break;
+      final max = pos.maxScrollExtent;
+      pos.jumpTo((max * (i + 0.5) / shown.length).clamp(0.0, max));
+    }
+    await WidgetsBinding.instance.endOfFrame;
+    final c = key.currentContext;
+    if (c != null && c.mounted) {
+      await Scrollable.ensureVisible(c, alignment: 0.3, duration: const Duration(milliseconds: 250));
+    }
+  }
+
   /// A layer row in its folder: the folder's first (top) layer carries the
   /// folder's header; rows of a folded folder take no room. Every row
   /// stays in the list, so reordering is unchanged.
   Widget _inFolder(BuildContext context, Layer layer, Widget tile) {
+    tile = KeyedSubtree(key: GlobalObjectKey(('layer-tile', layer.id)), child: tile);
     final f = layer.folder;
     if (f == null) return KeyedSubtree(key: ValueKey(layer.id), child: tile);
     final shown = app.project.layers.reversed.toList();

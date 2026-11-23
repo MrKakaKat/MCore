@@ -2871,6 +2871,15 @@ class CanvasRenderer implements Renderer {
   /// "Project not found".
   bool refsLoading = false;
 
+  /// Still working on its own: pictures decoding or being keyed, placed
+  /// projects loading (in it or in the projects placed in it).
+  bool get busy =>
+      refsLoading ||
+      _decodingKeys.isNotEmpty ||
+      _keyingInFlight.isNotEmpty ||
+      _pixelsLoading.isNotEmpty ||
+      _refRenderers.values.any((r) => r.busy);
+
   /// This renderer's project and the ones around it, outermost first: a
   /// reference back into it is a cycle (drawn as a placeholder).
   List<String> refChain = const [];

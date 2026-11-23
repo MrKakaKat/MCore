@@ -195,6 +195,22 @@ class _StageViewState extends State<StageView> {
           ),
         ),
       ),
+      // getting the project ready: the stage dimmed, what it's loading.
+      if (widget.app.preparing)
+        Positioned.fill(
+          child: ColoredBox(
+            key: const ValueKey('stage-preparing'),
+            color: Colors.black.withValues(alpha: 0.72),
+            child: Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const CircularProgressIndicator(color: Colors.white),
+                const SizedBox(height: 12),
+                Text('Loading ${widget.app.preparingWhat}...',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              ]),
+            ),
+          ),
+        ),
       // picking a parent's children: how many, done / cancel.
       if (widget.app.parentPickFor != null)
         Positioned(

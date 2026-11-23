@@ -112,4 +112,19 @@ void main() {
     await menu(other, 'Paste parameters');
     expect(findLayer(app.project, other.id)!.transform.rotation.defaultValue, 77.0);
   });
+
+  testWidgets('go to the selected layer: a far one in a long list comes into view', (tester) async {
+    for (var i = 0; i < 60; i++) {
+      app.addLayer('rect');
+    }
+    final far = app.project.layers.first; // the bottom of the list
+    app.selectLayer(far.id);
+    await tester.binding.setSurfaceSize(const Size(400, 600));
+    await pump(tester);
+    expect(find.byKey(ValueKey('tile-${far.id}')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('layers-to-selected')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('tile-${far.id}')), findsOneWidget);
+    await tester.binding.setSurfaceSize(null);
+  });
 }

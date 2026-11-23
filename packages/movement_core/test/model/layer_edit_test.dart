@@ -21,6 +21,21 @@ void main() {
   });
 
   group('splitLayer', () {
+    test('layers tied to the cut layer go with the part they live in', () {
+      final a = _layer();
+      final early = _layer(id: 'L_e', start: 10, duration: 30)..parentId = 'L_a';
+      final late = _layer(id: 'L_l', start: 60, duration: 50)
+        ..parentId = 'L_a'
+        ..mirrorSourceId = 'L_a';
+      late.follow.targetId = 'L_a';
+      late.links.add(PropLink(sourceId: 'L_a'));
+      final project = Project(layers: [a, early, late]);
+      splitLayer(project, a, 50, 'L_b');
+      expect(early.parentId, 'L_a');
+      expect([late.parentId, late.mirrorSourceId, late.follow.targetId, late.links.first.sourceId],
+          ['L_b', 'L_b', 'L_b', 'L_b']);
+    });
+
     test('cuts the layer in two at the frame, keeps the animation continuous', () {
       final a = _layer();
       a.transform.rotation.keyframes

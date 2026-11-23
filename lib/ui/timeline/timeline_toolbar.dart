@@ -73,7 +73,15 @@ class TimelineToolbar extends StatelessWidget {
           children: [
             IconButton(
               key: guideKey('play'),
-              icon: Icon(app.playing ? Icons.pause : Icons.play_arrow),
+              // loading (the project getting ready, the sound mixed
+              // again): a spinner in its place until play can start.
+              icon: app.playLoading
+                  ? const SizedBox(
+                      key: ValueKey('play-loading'),
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2.5))
+                  : Icon(app.playing ? Icons.pause : Icons.play_arrow),
               // an empty project has nothing to play.
               onPressed: app.canPlay || app.playing ? app.togglePlay : null,
               tooltip: app.canPlay ? null : 'nothing to play yet',
@@ -202,7 +210,10 @@ class StageTransportRow extends StatelessWidget {
     // no background: a shadow keeps them readable on any picture.
     Widget button(String key, IconData icon, String tip, VoidCallback? onPressed) => IconButton(
           key: ValueKey(key),
-          icon: Icon(icon, color: Colors.white, shadows: const [Shadow(color: Colors.black87, blurRadius: 6)]),
+          icon: key == 'stage-play' && app.playLoading
+              ? const SizedBox(
+                  width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+              : Icon(icon, color: Colors.white, shadows: const [Shadow(color: Colors.black87, blurRadius: 6)]),
           tooltip: tip,
           onPressed: onPressed,
         );

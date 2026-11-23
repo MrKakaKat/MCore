@@ -14,6 +14,9 @@ import '../common/no_layer.dart';
 /// Filters: what they act on (the layer, the whole scene, or what is under
 /// the layer as glass), negative, blur, fractal warp, colour wheels with
 /// Match Color, light wrap.
+/// Each glitch tap: other bursts.
+int _glitchSeed = 0;
+
 class FiltersView extends StatelessWidget {
   final AppState app;
   const FiltersView({super.key, required this.app});
@@ -73,6 +76,23 @@ class FiltersView extends StatelessWidget {
                   'glass (a negative glass over another one cancels out).',
               _ => 'Only this layer goes through the filters.',
             }),
+            section('Glitch'),
+            Wrap(spacing: 6, runSpacing: 4, children: [
+              for (final (k, name) in glitchPresets)
+                ActionChip(
+                  key: ValueKey('glitch-$k'),
+                  label: Text(name),
+                  onPressed: () => edit(() => applyGlitchPreset(layer, k, seed: ++_glitchSeed)),
+                ),
+              ActionChip(
+                key: const ValueKey('glitch-clear'),
+                avatar: const Icon(Icons.close, size: 16),
+                label: const Text('Clear'),
+                onPressed: () => edit(() => clearGlitch(layer)),
+              ),
+            ]),
+            const Hint('A look over the whole layer, made of the filters below, wiggle and time steps (all '
+                'editable after). Tap again for other bursts.'),
             section('Negative'),
             _TrackRow(app: app, layer: layer, track: f.negative, keyName: 'filter-negative', label: 'Negative',
                 min: 0, max: 100, factor: 100, suffix: '%'),

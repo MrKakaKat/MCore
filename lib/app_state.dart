@@ -612,6 +612,7 @@ class AppState extends ChangeNotifier {
 
   void _releaseAudioWait() {
     _audioPending = false;
+    if (!_disposed) notifyListeners();
   }
 
   /// While the preview plays with sound, the frames follow the player's
@@ -642,10 +643,28 @@ class AppState extends ChangeNotifier {
   /// Makes the preview mix for the current timeline and loads it into the
   /// player, unless it is already loaded. False when there is nothing to
   /// hear or a newer play/stop overtook it.
+  /// The sound being mixed / loaded: play shows it is loading.
+  int _mixBuilding = 0;
+
+  /// Play waits for something: the project getting ready, the sound
+  /// being mixed again (after an edit), or the sound starting.
+  bool get playLoading => preparing || _mixBuilding > 0 || (playing && _audioPending);
+
   Future<bool> _loadMix(int session) async {
     final key = _audioMixKey();
     final p = _playback ??= audioPlaybackFactory();
     if (_loadedMixKey == key) return true;
+    _mixBuilding++;
+    if (_mixBuilding == 1) notifyListeners();
+    try {
+      return await _loadMixNow(session, key, p);
+    } finally {
+      _mixBuilding--;
+      if (_mixBuilding == 0 && !_disposed) notifyListeners();
+    }
+  }
+
+  Future<bool> _loadMixNow(int session, String key, AudioPlayback p) async {
     final mix = await buildAudioMix();
     if (mix == null || session != _playSession) return false;
     await p.load(mix.path);
@@ -681,6 +700,7 @@ class AppState extends ChangeNotifier {
       _audioClock = true;
       _audioPending = false;
       audioError = null;
+      notifyListeners(); // play stops showing it is loading
     } catch (e) {
       if (session == _playSession) _releaseAudioWait();
       audioError = '$e';
@@ -706,6 +726,7 @@ class AppState extends ChangeNotifier {
       // few seconds the frames go on, the sound joins where they are.)
       if (_pendingWaited < const Duration(seconds: 3)) return;
       _audioPending = false;
+      notifyListeners();
     }
     final int raw;
     if (_audioClock) {
@@ -1221,6 +1242,8 @@ class AppState extends ChangeNotifier {
   }
 
   void _render() {
+    // getting ready: the stage is covered, its frames come once it's done.
+    if (preparing) return;
     renderer.renderFrame(project, currentFrame,
         clipToFrame: !(showOffCanvasContent || cameraView), underlay: contextUnderlay);
     _freshRender = true;
@@ -2011,6 +2034,7 @@ class AppState extends ChangeNotifier {
 
   void togglePlay() {
     if (!playing && !canPlay) return;
+    if (!playing && preparing) return; // play waits for the project
     playing = !playing;
     // playing: motion blur in fewer passes, so frames keep up.
     renderer.maxBlurSamples = playing ? 4 : null;
@@ -5377,6 +5401,7 @@ class AppState extends ChangeNotifier {
         unawaited(keepReferencedImages());
         unawaited(restoreAudio());
         await loadReferences();
+        unawaited(prepareProject());
       } catch (e) {
         // not read: NEVER saved over (an empty project written into its
         // file lost the project) - the file stays as it is.
@@ -6038,6 +6063,72 @@ class AppState extends ChangeNotifier {
     return loaded[id];
   }
 
+  /// Getting the project ready before it plays: its pictures decoded and
+  /// keyed, its placed projects' pictures too (their frames drawn ahead at
+  /// a few places), its sound mixed - all of it used to load on the way,
+  /// in the middle of playing or dragging, and froze it. Meanwhile the
+  /// stage is covered and play waits; the rest of the project can be
+  /// used.
+  bool preparing = false;
+
+  /// What it is getting ready (shown under the spinner).
+  String preparingWhat = '';
+
+  int _prepareRun = 0;
+
+  Future<void> prepareProject() async {
+    final media = [for (final l in project.layers) if (isMediaShape(l.content.shape) && !l.hidden) l];
+    final sound = hasAudio && audioStore != null;
+    if (media.isEmpty && !sound) return;
+    final run = ++_prepareRun;
+    if (playing) togglePlay();
+    preparing = true;
+    preparingWhat = 'pictures';
+    notifyListeners();
+    final started = DateTime.now();
+    bool late() => DateTime.now().difference(started) > const Duration(seconds: 45);
+    try {
+      // where pictures first show: each one's start; a placed project at
+      // a few places along it (its own pictures come in on its way).
+      final frames = <int>{};
+      for (final l in media) {
+        frames.add(l.startFrame.clamp(0, maxFrame));
+        if (l.content.shape == 'projectRef') {
+          preparingWhat = 'placed projects';
+          const steps = 8;
+          for (var i = 1; i < steps; i++) {
+            frames.add((l.startFrame + l.durationFrames * i ~/ steps).clamp(0, maxFrame));
+          }
+        }
+      }
+      final list = frames.toList()..sort();
+      notifyListeners();
+      for (final f in list.take(48)) {
+        if (_disposed || run != _prepareRun || late()) break;
+        renderer.renderFrame(project, f, clipToFrame: !(showOffCanvasContent || cameraView));
+        final waitFrom = DateTime.now();
+        while (renderer.busy && !_disposed && DateTime.now().difference(waitFrom) < const Duration(seconds: 8)) {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+        }
+        await Future<void>.delayed(Duration.zero);
+      }
+      if (sound && !_disposed && run == _prepareRun && !late()) {
+        preparingWhat = 'sound';
+        notifyListeners();
+        try {
+          await _loadMix(_playSession).timeout(const Duration(seconds: 30));
+        } catch (_) {}
+      }
+    } finally {
+      if (run == _prepareRun && !_disposed) {
+        preparing = false;
+        preparingWhat = '';
+        _render();
+        notifyListeners();
+      }
+    }
+  }
+
   /// Add -> Project...: a reference to saved project `sourceId`, centred
   /// and fit into the frame, as long as the source. One undo step.
   /// Returns an error to show, or null.
@@ -6053,6 +6144,8 @@ class AppState extends ChangeNotifier {
     _fitTimeline();
     _render();
     notifyListeners();
+    // its pictures ready before it plays.
+    unawaited(prepareProject());
     return null;
   }
 
