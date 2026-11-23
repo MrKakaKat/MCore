@@ -241,6 +241,8 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
               _kfDragStartX = d.position.dx;
               _kfDragStarted = false;
               _setScrubDragActive(true);
+              // an indicator held (a key, an edge...): no ruler mark.
+              timelineLayerHeld = true;
             },
             onPointerMove: (d) {
               final origin = _kfDragOriginFrame, startX = _kfDragStartX;
@@ -280,6 +282,7 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
     _kfDragStartX = null;
     _kfDragStarted = false;
     _setScrubDragActive(false);
+    timelineLayerHeld = false;
   }
 
   double? _trimStartGlobalX;
@@ -351,6 +354,8 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
             widget.app.pushUndo();
             _effectDrag = (x: d.position.dx, frame: start ? span.start : span.end, start: start);
             _setScrubDragActive(true);
+            // an indicator held (a key, an edge...): no ruler mark.
+            timelineLayerHeld = true;
           },
           onPointerMove: (d) {
             final g = _effectDrag;
@@ -363,10 +368,12 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
           onPointerUp: (_) {
             _effectDrag = null;
             _setScrubDragActive(false);
+            timelineLayerHeld = false;
           },
           onPointerCancel: (_) {
             _effectDrag = null;
             _setScrubDragActive(false);
+            timelineLayerHeld = false;
           },
           child: CustomPaint(painter: _MarkerLinePainter(color: color, x: _trimHitRadius)),
         ),
@@ -405,6 +412,8 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
             if (!_scrubDragActive) {
               widget.app.pushUndo();
               _setScrubDragActive(true);
+              // an indicator held (a key, an edge...): no ruler mark.
+              timelineLayerHeld = true;
             }
             final step = total - _keySpanMoved;
             _keySpanMoved = total;
@@ -415,10 +424,12 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
             if (_effectDrag != null && !_scrubDragActive) widget.app.selectKeyDetailSpan(null);
             _effectDrag = null;
             _setScrubDragActive(false);
+            timelineLayerHeld = false;
           },
           onPointerCancel: (_) {
             _effectDrag = null;
             _setScrubDragActive(false);
+            timelineLayerHeld = false;
           },
           child: CustomPaint(painter: _MarkerLinePainter(color: color, x: _trimHitRadius)),
         ),
@@ -450,6 +461,8 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
             widget.app.pushUndo();
             _effectDrag = (x: d.position.dx, frame: start ? span.start : span.end, start: start);
             _setScrubDragActive(true);
+            // an indicator held (a key, an edge...): no ruler mark.
+            timelineLayerHeld = true;
           },
           onPointerMove: (d) {
             final g = _effectDrag;
@@ -462,10 +475,12 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
           onPointerUp: (_) {
             _effectDrag = null;
             _setScrubDragActive(false);
+            timelineLayerHeld = false;
           },
           onPointerCancel: (_) {
             _effectDrag = null;
             _setScrubDragActive(false);
+            timelineLayerHeld = false;
           },
           child: CustomPaint(painter: _MarkerLinePainter(color: maskSpanColor.withOpacity(1), x: _trimHitRadius)),
         ),
@@ -497,6 +512,8 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
             _rangeDrag = (x: d.position.dx, frame: start ? widget.app.timeRange!.a : widget.app.timeRange!.b, start: start);
             widget.app.beginRangeEdgeDrag();
             _setScrubDragActive(true);
+            // an indicator held (a key, an edge...): no ruler mark.
+            timelineLayerHeld = true;
           },
           onPointerMove: (d) {
             final g = _rangeDrag;
@@ -506,10 +523,12 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
           onPointerUp: (_) {
             _rangeDrag = null;
             _setScrubDragActive(false);
+            timelineLayerHeld = false;
           },
           onPointerCancel: (_) {
             _rangeDrag = null;
             _setScrubDragActive(false);
+            timelineLayerHeld = false;
           },
           child: CustomPaint(painter: _MarkerLinePainter(color: color, x: _trimHitRadius)),
         ),
@@ -530,16 +549,20 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
           _rangeMoveX = d.globalPosition.dx;
           widget.app.beginRangeMove();
           _setScrubDragActive(true);
+          // an indicator held (a key, an edge...): no ruler mark.
+          timelineLayerHeld = true;
         },
         onLongPressMoveUpdate: (d) =>
             widget.app.updateRangeMove(((d.globalPosition.dx - _rangeMoveX) / ppf).round()),
         onLongPressEnd: (_) {
           widget.app.endRangeMove();
           _setScrubDragActive(false);
+          timelineLayerHeld = false;
         },
         onLongPressCancel: () {
           widget.app.endRangeMove();
           _setScrubDragActive(false);
+          timelineLayerHeld = false;
         },
       ),
     );
@@ -566,6 +589,7 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
         _trimStartGlobalX = null;
         widget.app.endLayerDrag();
         _setScrubDragActive(false);
+        timelineLayerHeld = false;
       }
 
       // after a split the layer is short, its edge columns cover it, and
@@ -593,6 +617,8 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
             timelineLayerHeld = true;
             widget.app.beginLayerDrag(layer.id, mode);
             _setScrubDragActive(true);
+            // an indicator held (a key, an edge...): no ruler mark.
+            timelineLayerHeld = true;
             // held still: the layer moves instead.
             _trimHold?.cancel();
             _trimHold = Timer(kLongPressTimeout, () {
@@ -621,6 +647,7 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
               _trimStartGlobalX = null;
               widget.app.cancelLayerDrag(); // nothing changed, no undo step
               _setScrubDragActive(false);
+              timelineLayerHeld = false;
               _tapLaneAt(at);
               return;
             }
@@ -900,6 +927,7 @@ class _LayersTimelineViewState extends State<LayersTimelineView> {
     _rangeDrag = null;
     _kfDragOriginFrame = null;
     _setScrubDragActive(false);
+    timelineLayerHeld = false;
   }
 
   void _onPointerDown(PointerDownEvent e) {
@@ -2471,6 +2499,10 @@ class _LayerLaneState extends State<_LayerLane>
                   f < widget.layer.startFrame || f > widget.layer.startFrame + widget.layer.durationFrames
               ],
               // text keys (only text keyed there): orange.
+              // borders (the values jump there): drawn as a bar.
+              keyframeBorder: [
+                for (final f in keyframeFrames) _borderKeyAt(widget.layer, f)
+              ],
               keyframeText: [
                 for (final f in keyframeFrames) _onlyTextKeyedAt(widget.layer, f)
               ],
@@ -2751,6 +2783,7 @@ class _LaneLinePainter extends CustomPainter {
 
   /// Keys of the text alone (drawn birch-coloured).
   final List<bool> keyframeText;
+  final List<bool> keyframeBorder;
 
   /// How many parameters have a key at each of keyframeXs.
   final List<int> keyframeCounts;
@@ -2785,6 +2818,7 @@ class _LaneLinePainter extends CustomPainter {
     this.keyframeOutside = const [],
     this.keyframeHeld = const [],
     this.keyframeText = const [],
+    this.keyframeBorder = const [],
     this.keyframeCounts = const [],
     this.frameCounts,
     this.peaks,
@@ -2885,6 +2919,11 @@ class _LaneLinePainter extends CustomPainter {
               ..color = paint.color
               ..style = PaintingStyle.stroke
               ..strokeWidth = 1);
+      }
+      // a border: a bar across the line (the values jump there).
+      if (i < keyframeBorder.length && keyframeBorder[i]) {
+        canvas.drawRect(Rect.fromCenter(center: Offset(x, y), width: 3.5, height: 2 * r + 6), paint);
+        continue;
       }
       final path = Path()
         ..moveTo(x, y - r)
@@ -3692,6 +3731,19 @@ const textKeyColor = Color(0xFFFF9800);
 
 /// Whether only the text (its keys, its animators) has a key at global
 /// frame `f` on `layer`.
+/// Every key on global frame `f` a border (Keys folder: the values jump).
+bool _borderKeyAt(Layer layer, int f) {
+  var any = false, all = true;
+  visitLayerTracks(layer, (t) {
+    for (final k in t.keyframes) {
+      if (k.frame + layer.startFrame != f) continue;
+      any = true;
+      if (!k.temporal.hold) all = false;
+    }
+  });
+  return any && all;
+}
+
 bool _onlyTextKeyedAt(Layer layer, int f) {
   if (layer.content.text == null) return false;
   var text = false, other = false;

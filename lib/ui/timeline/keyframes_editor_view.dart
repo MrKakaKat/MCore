@@ -280,10 +280,12 @@ class KeyframesEditorView extends StatelessWidget {
   Widget _keyframeActionsRow(BuildContext context, Layer layer) {
     final localFrame = localFrameOf(layer, app.currentFrame);
     final allKeyed = allTracksKeyedAt(layer, localFrame);
-    return Row(
+    // (the tools wrap onto a second line on a narrow screen)
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Text('Keyframes', style: Theme.of(context).textTheme.titleMedium),
-        const Spacer(),
+        const SizedBox(width: 8),
         // a "master key" that records every parameter of the object at the
         // current frame at once; pressing it again on a fully keyed frame
         // removes those keys.
@@ -329,6 +331,16 @@ class KeyframesEditorView extends StatelessWidget {
               ? 'make the selected keys multi-keys (all parameters)'
               : 'make all its keys multi-keys (all parameters)',
           onPressed: app.makeSelectedMultiKeys,
+          visualDensity: VisualDensity.compact,
+        ),
+        // a border: the values jump at the key (no animation into it).
+        IconButton(
+          key: const ValueKey('border-keys'),
+          icon: const Icon(Icons.vertical_split_outlined, size: 18),
+          tooltip: kfSelectedFrames.isNotEmpty
+              ? 'border: the selected keys jump, no animation into them (again: animated)'
+              : 'border at the playhead: every parameter jumps here (again: animated)',
+          onPressed: app.toggleBorderKeys,
           visualDensity: VisualDensity.compact,
         ),
         IconButton(

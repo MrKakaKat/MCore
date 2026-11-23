@@ -881,10 +881,12 @@ class CanvasRenderer implements Renderer {
       img.dispose();
     }
     _imageCache.clear();
-    for (final k in _keyed.values) {
-      k.image.dispose();
+    final keyedImages = <ui.Image>{for (final k in _keyed.values) k.image, ..._keyedRecent.values};
+    for (final i in keyedImages) {
+      i.dispose();
     }
     _keyed.clear();
+    _keyedRecent.clear();
     videoFrames.dispose();
   }
 
@@ -3067,14 +3069,27 @@ class CanvasRenderer implements Renderer {
   /// Straight RGBA of each decoded image source (for keying and the
   /// eyedropper), read back once per source.
   final Map<String, ({Uint8List rgba, int width, int height})> _sourcePixels = {};
+
+  /// How many pictures' pixels are kept (for tests).
+  @visibleForTesting
+  int get sourcePixelEntries => _sourcePixels.length;
   final Map<String, Future<({Uint8List rgba, int width, int height})?>> _pixelsLoading = {};
 
   /// The last keyed image per layer, with the settings it was made with.
   final Map<String, ({String sig, ui.Image image})> _keyed = {};
+
+  /// The last few keyed pictures by their signature: a picture shown at
+  /// several moments at once (a project placed twice) keys each once,
+  /// instead of keying them in turn over and over.
+  final LinkedHashMap<String, ui.Image> _keyedRecent = LinkedHashMap();
+  static const _keyedRecentKept = 6;
   final Map<String, Future<void>> _keyingInFlight = {};
 
   /// Keyed pictures whose pixels are kept (the newest).
   static const _keyedPixelsKept = 6;
+
+  /// Kept pictures' pixels in all, at most (bytes).
+  static const _sourcePixelBytes = 160 << 20;
 
   String _keySig(String sourceKey, ChromaKey ck, {bool matte = false}) =>
       '$sourceKey|${jsonEncode(chromaKeyToJson(ck))}${matte ? '|matte' : ''}';
@@ -3095,6 +3110,8 @@ class CanvasRenderer implements Renderer {
     final sig = '${_keySig(src.key, ck, matte: matte)}|${_edgeMatteSig(layer)}';
     final have = _keyed[layer.id];
     if (have != null && have.sig == sig) return have.image;
+    final recent = _keyedRecent[sig];
+    if (recent != null) return recent;
     if (!_keyingInFlight.containsKey(layer.id)) {
       _keyingInFlight[layer.id] = _keyLayerAsync(layer.id, src.key, src.image, ck.copy(), sig,
           matte: matte, edge: _edgeMatteOn(layer) ? (parseRgbHex(layer.edgeMatteColor) ?? const [0, 0, 0], layer.edgeMatteStrength) : null);
@@ -3109,7 +3126,7 @@ class CanvasRenderer implements Renderer {
     // contrast view).
     final sig = '${_keySig(sourceKey, layer.chromaKey)}|${_edgeMatteSig(layer)}';
     await _keyingInFlight[layer.id];
-    if (_keyed[layer.id]?.sig == sig) return;
+    if (_keyed[layer.id]?.sig == sig || _keyedRecent.containsKey(sig)) return;
     final job = _keyLayerAsync(layer.id, sourceKey, image, layer.chromaKey.copy(), sig,
         edge: _edgeMatteOn(layer) ? (parseRgbHex(layer.edgeMatteColor) ?? const [0, 0, 0], layer.edgeMatteStrength) : null);
     _keyingInFlight[layer.id] = job;
@@ -3133,6 +3150,25 @@ class CanvasRenderer implements Renderer {
           for (var i = 0; i < keyed.length - _keyedPixelsKept; i++) {
             _sourcePixels.remove(keyed[i]);
           }
+        }
+        // a placed project's frames (keyed while it plays): a new one each
+        // frame, none ever let go - the phone ran out of memory a while
+        // into playback. Only the latest few are kept.
+        if (key.startsWith('ref:')) {
+          final refs = [for (final k in _sourcePixels.keys) if (k.startsWith('ref:')) k];
+          for (var i = 0; i < refs.length - 3; i++) {
+            _sourcePixels.remove(refs[i]);
+          }
+        }
+        // and never more than so much in all (the oldest go first).
+        var bytes = 0;
+        for (final v in _sourcePixels.values) {
+          bytes += v.rgba.lengthInBytes;
+        }
+        final keys = _sourcePixels.keys.toList();
+        for (var i = 0; bytes > _sourcePixelBytes && i < keys.length - 1; i++) {
+          if (keys[i] == key) continue;
+          bytes -= _sourcePixels.remove(keys[i])?.rgba.lengthInBytes ?? 0;
         }
         return px;
       } catch (_) {
@@ -3161,8 +3197,15 @@ class CanvasRenderer implements Renderer {
         return out;
       });
       final image = await imageFromStraightRgba(keyed, px.width, px.height);
-      _keyed[layerId]?.image.dispose();
+      final before = _keyed[layerId]?.image;
       _keyed[layerId] = (sig: sig, image: image);
+      _keyedRecent.remove(sig);
+      _keyedRecent[sig] = image;
+      while (_keyedRecent.length > _keyedRecentKept) {
+        final old = _keyedRecent.remove(_keyedRecent.keys.first);
+        if (old != null && !_keyed.values.any((k) => identical(k.image, old))) _disposeLater(old);
+      }
+      if (before != null && !_keyedRecent.values.any((i) => identical(i, before))) _disposeLater(before);
     } catch (_) {
       // keying failed - the plain image keeps being drawn.
     } finally {

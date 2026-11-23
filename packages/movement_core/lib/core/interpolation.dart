@@ -59,6 +59,8 @@ double overshootCurve(double amount, int bounces, double x, {double damping = 1}
 /// together: the swing back takes the first half (half the way), the
 /// overshoot the rest.
 double easeProgress(Easing e, double x) {
+  // a border: still until the key, then its value at once.
+  if (e.hold) return x >= 1 ? 1 : 0;
   double over(double u, {double scale = 1}) =>
       overshootCurve((e.amount * scale).clamp(0.001, 1.0), e.bounces, u, damping: e.damping);
   double ant(double u, {double scale = 1}) =>

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:movement_core/movement_core.dart';
 
+import 'layers_timeline_view.dart' show timelineLayerHeld;
 import '../../app_state.dart';
 
 /// Height of one detail row under the focused layer.
@@ -352,7 +353,15 @@ class _KeyDetailRowsState extends State<KeyDetailRows> {
             top: r * detailRowHeight,
             width: width,
             height: detailRowHeight,
-            child: GestureDetector(
+            // a held selected line is moved, never marked on the ruler.
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (_) {
+                if (sel?.tab == tabs[r]) timelineLayerHeld = true;
+              },
+              onPointerUp: (_) => timelineLayerHeld = false,
+              onPointerCancel: (_) => timelineLayerHeld = false,
+              child: GestureDetector(
               behavior: HitTestBehavior.translucent,
               onTapUp: (d) =>
                   _tapRow(tabs[r], spans[tabs[r]] ?? const [], d.localPosition.dx / widget.pixelsPerFrame - layer.startFrame),
@@ -400,6 +409,7 @@ class _KeyDetailRowsState extends State<KeyDetailRows> {
                   trailTo: _openTrail(tabs[r], rows[tabs[r]]!) ? x(app.currentFrame - layer.startFrame) : null,
                 ),
               ),
+            ),
             ),
           ),
       ],

@@ -26,6 +26,7 @@ Map<String, dynamic> easingToJson(Easing e) => {
       'y1': e.y1,
       'x2': e.x2,
       'y2': e.y2,
+      if (e.hold) 'hold': true,
       if (e.isOvershoot)
         'overshoot': {
           'kind': e.kind,
@@ -47,7 +48,8 @@ Easing easingFromJson(Map<String, dynamic> j) {
       damping: (o?['damping'] as num?)?.toDouble() ?? 1,
       antAmount: (o?['antAmount'] as num?)?.toDouble(),
       antBounces: (o?['antBounces'] as num?)?.toInt(),
-      antDamping: (o?['antDamping'] as num?)?.toDouble() ?? 1);
+      antDamping: (o?['antDamping'] as num?)?.toDouble() ?? 1,
+      hold: j['hold'] == true);
 }
 
 Map<String, dynamic> spatialTangentToJson(SpatialTangent t) =>

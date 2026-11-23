@@ -235,6 +235,10 @@ class Easing {
   final int antBounces;
   final double antDamping;
 
+  /// A border: no way into this key - the value stays as it was and
+  /// jumps to the key's on its frame (the curve kept for when it is off).
+  final bool hold;
+
   /// `kind` ('bezier', 'overshoot', 'anticipate') reads the older
   /// single choice.
   const Easing(this.x1, this.y1, this.x2, this.y2,
@@ -246,7 +250,8 @@ class Easing {
       double? antAmount,
       int? antBounces,
       this.damping = 1,
-      this.antDamping = 1})
+      this.antDamping = 1,
+      this.hold = false})
       : over = over ?? kind == 'overshoot',
         ant = ant ?? kind == 'anticipate',
         antAmount = antAmount ?? amount,
@@ -275,8 +280,10 @@ class Easing {
           bool? ant,
           double? antAmount,
           int? antBounces,
-          double? antDamping}) =>
+          double? antDamping,
+          bool? hold}) =>
       Easing(x1 ?? this.x1, y1 ?? this.y1, x2 ?? this.x2, y2 ?? this.y2,
+          hold: hold ?? this.hold,
           over: over ?? this.over,
           amount: amount ?? this.amount,
           bounces: bounces ?? this.bounces,
@@ -298,6 +305,7 @@ class Easing {
       _with(ant: on, antAmount: amount, antBounces: bounces, antDamping: damping);
   Easing withOver({bool? on, double? amount, int? bounces, double? damping}) =>
       _with(over: on, amount: amount, bounces: bounces, damping: damping);
+  Easing withHold(bool on) => _with(hold: on);
 }
 
 const easingPresets = <String, Easing>{

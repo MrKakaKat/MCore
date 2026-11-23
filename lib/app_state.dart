@@ -3266,6 +3266,37 @@ class AppState extends ChangeNotifier {
     commitEdit();
   }
 
+  /// Keys folder, "Border": the selected keys (or the one at the
+  /// playhead) of every parameter made a border - the values jump there,
+  /// no animation into them; again: animated as before. One undo step.
+  void toggleBorderKeys() {
+    final l = findLayer(project, selection.selectedLayer);
+    if (l == null) return;
+    final frames = (kfSelectedFrames.isNotEmpty ? kfSelectedFrames : {currentFrame}).map((g) => g - l.startFrame).toList();
+    var any = false, allHold = true;
+    visitLayerTracks(l, (t) {
+      for (final k in t.keyframes) {
+        if (!frames.contains(k.frame)) continue;
+        any = true;
+        if (!k.temporal.hold) allHold = false;
+      }
+    });
+    pushUndo();
+    final on = !(any && allHold);
+    if (on) {
+      // every parameter keyed there (as it is): all of them jump together.
+      makeMultiKeys(project, l, frames);
+    }
+    visitLayerTracks(l, (t) {
+      for (final k in t.keyframes) {
+        if (frames.contains(k.frame)) k.temporal = k.temporal.withHold(on);
+      }
+    });
+    _notice(on ? 'Border: the values jump there' : 'Animated into the key again');
+    clearStateCaches();
+    commitEdit();
+  }
+
   // ===== media library: recently used =====
 
   /// The media files brought in lately, newest first: path, kind ('video'

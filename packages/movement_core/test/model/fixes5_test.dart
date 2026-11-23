@@ -190,4 +190,15 @@ void main() {
       expect(after[i][1], closeTo(before[i][1], 1e-3));
     }
   });
+
+  test('a border key: the value stays, then jumps on its frame; saved', () {
+    final t = Track(0.0)
+      ..keyframes = [Keyframe(frame: 0, value: 0.0), Keyframe(frame: 10, value: 100.0, temporal: const Easing(0, 0, 1, 1, hold: true))];
+    expect(evaluateTrack(null, t, 5.0), 0.0);
+    expect(evaluateTrack(null, t, 9.9), 0.0);
+    expect(evaluateTrack(null, t, 10.0), 100.0);
+    final back = easingFromJson(easingToJson(t.keyframes[1].temporal));
+    expect(back.hold, isTrue);
+    expect(back.withHold(false).hold, isFalse);
+  });
 }
