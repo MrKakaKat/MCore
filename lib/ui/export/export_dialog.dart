@@ -13,6 +13,7 @@ import '../../app_state.dart';
 import '../../services/native_media.dart' show NativeVideoService;
 import '../../io/export.dart';
 import '../../io/ogg_cover.dart';
+import '../../io/freeze_watch.dart';
 
 /// the export dialog covering all three: a still image of the CURRENT playhead
 /// position (PNG/JPG, JPEG quality), a GIF over a frame range (fps/delay, loop
@@ -939,6 +940,7 @@ class _ExportViewState extends State<ExportView> {
           if (_cancelRequested) throw const ExportCancelled();
           // nothing moves since the frame before: not drawn again.
           if (i > 0 && renderer.frameRepeats(app.project, frameNumbers[i - 1], frameNumbers[i])) return null;
+      FreezeWatch.at('export: getting frame ${frameNumbers[i]} ready');
           await prepareExportFrame(renderer, app.project, frameNumbers[i]);
           renderer.renderFrame(app.project, frameNumbers[i]);
           final image = await renderer.captureFrame();

@@ -87,6 +87,7 @@ import 'package:movement_core/movement_core.dart';
 
 import 'renderer.dart';
 import '../perf/perf_monitor.dart';
+import '../io/freeze_watch.dart';
 import 'contour_cache.dart';
 import 'video_frame_cache.dart';
 
@@ -144,6 +145,7 @@ class CanvasRenderer implements Renderer {
   /// there yet - another render is asked for.
   bool _bakePhysics(Project project, int frame, Duration? budget) {
     if (!project.layers.any((l) => l.physics.collide)) return false;
+    FreezeWatch.at('collide: working out up to frame $frame');
     enablePhysicsOffsets();
     final world = physicsWorldOf(project)..rings = _physicsRings;
     // export: fully baked.
@@ -616,6 +618,8 @@ class CanvasRenderer implements Renderer {
     // part of its host's).
     final topLevel = refChain.length <= 1;
     if (topLevel) RenderBudget.start(timeBudget);
+    final where = topLevel ? '' : '${refChain.skip(1).join(' > ')}: ';
+    FreezeWatch.at('${where}frame $frame');
 
     // clipToFrame=false (AppState.showOffCanvasContent's toggle) is
     // ONLY ever used for the LIVE on-screen view - export/captureFrame
@@ -679,6 +683,7 @@ class CanvasRenderer implements Renderer {
       // the frame's time ran out: the rest left out (the stage stops).
       if (RenderBudget.over) break;
       RenderBudget.at(l.name);
+      FreezeWatch.at('${where}layer "${l.name}" (${l.content.shape}) frame $frame');
       if (l.id == 'L_parent') {
         continue; // pure rig controller by convention, but any zero-content layer is fine to skip too
       }
@@ -2873,7 +2878,11 @@ class CanvasRenderer implements Renderer {
         }().catchError((Object _) {}));
       }
     }
-    videoFrames.pinned = needed;
+    // a placed project's renderer prepares each of its copies' frames:
+    // all of them stay (each copy used to unpin the others').
+    final top = refChain.length <= 1;
+    videoFrames.pinned = top ? needed : {...videoFrames.pinned, ...needed};
+    if (top) _unpinRefs();
     // referenced projects: their own videos, at their own frames.
     for (final layer in project.layers) {
       if (layer.content.shape != 'projectRef' || layer.hidden) continue;
@@ -2881,6 +2890,13 @@ class CanvasRenderer implements Renderer {
       if (job != null) jobs.add(job.catchError((Object _) {}));
     }
     await Future.wait(jobs);
+  }
+
+  void _unpinRefs() {
+    for (final r in _refRenderers.values) {
+      r.videoFrames.pinned = {};
+      r._unpinRefs();
+    }
   }
 
   // ===== project references (model/project_ref.dart) =====
@@ -3027,6 +3043,7 @@ class CanvasRenderer implements Renderer {
     final child = _refRenderer(s);
     // its videos keep one playhead per placed copy (see frameFor).
     child.videoConsumer = '$videoConsumer/${layer.id}';
+    FreezeWatch.at('placed project "${s.name}" as "${layer.name}", its frame $sf');
     final pic = _inSource(s, () {
       child.setSize(s.width, s.height);
       child.renderFrame(s.project, sf);
@@ -3037,6 +3054,7 @@ class CanvasRenderer implements Renderer {
     ui.Canvas(rec)
       ..scale(w / s.width, h / s.height)
       ..drawPicture(pic);
+    FreezeWatch.at('placed project "${s.name}": its picture ${w}x$h');
     final image = rec.endRecording().toImageSync(w, h);
     if (s.revision >= 0) {
       _refFrames[key] = image;

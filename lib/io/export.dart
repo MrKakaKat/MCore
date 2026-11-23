@@ -7,6 +7,7 @@ import 'package:movement_core/movement_core.dart';
 
 import '../render/canvas_renderer.dart';
 import '../render/renderer.dart';
+import 'freeze_watch.dart';
 
 /// Waits until everything frame `frame` draws is ready - the exact video
 /// frames (not the editor's nearest-frame stand-in) and their keying.
@@ -137,6 +138,7 @@ Future<Uint8List> exportGif({
     var sent = 0;
     for (final f in frames) {
       if (cancelled?.call() ?? false) throw const ExportCancelled();
+      FreezeWatch.at('export: getting frame $f ready');
       await prepareExportFrame(renderer, project, f);
       renderer.renderFrame(project, f);
       final image = await renderer.captureFrame();

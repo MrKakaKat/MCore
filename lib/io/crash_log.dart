@@ -4,7 +4,10 @@ import 'dart:io';
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
+
+import 'freeze_watch.dart';
 
 /// What the app was doing, kept in a small file every couple of seconds,
 /// and the last errors: when the app closes unexpectedly, the next start
@@ -42,6 +45,23 @@ class CrashLog with WidgetsBindingObserver {
         }
       }
     } catch (_) {}
+    // freezes the watch wrote down last time.
+    final freezes = FreezeWatch.takeRecorded(File('${dir.path}/mcore_freezes.jsonl'));
+    if (freezes.isNotEmpty) {
+      final c = log.lastCrash ?? <String, dynamic>{'state': 'froze', 'time': DateTime.now().toIso8601String()};
+      c['errors'] = [...freezes, ...((c['errors'] as List?) ?? const [])];
+      log.lastCrash = c;
+    }
+    try {
+      await FreezeWatch.start(File('${dir.path}/mcore_freezes.jsonl'));
+    } catch (_) {}
+    // the screen's drawing (on its own thread) taking long.
+    SchedulerBinding.instance.addTimingsCallback((timings) {
+      for (final t in timings) {
+        final ms = t.rasterDuration.inMilliseconds;
+        if (ms > 1500) log.error('drawing the screen took $ms ms (pictures too heavy for the phone)');
+      }
+    });
     final prevFlutter = FlutterError.onError;
     FlutterError.onError = (d) {
       log.error('${d.exceptionAsString()}\n${d.stack ?? ''}');
@@ -77,6 +97,7 @@ class CrashLog with WidgetsBindingObserver {
     try {
       s = status?.call() ?? const {};
     } catch (_) {}
+    if (s.isNotEmpty) FreezeWatch.context(s.entries.map((e) => '${e.key}: ${e.value}').join(', '));
     final data = {
       'state': _state,
       'time': DateTime.now().toIso8601String(),
@@ -91,7 +112,9 @@ class CrashLog with WidgetsBindingObserver {
   /// The last session's report, readable.
   String describe(Map<String, dynamic> c) {
     final b = StringBuffer();
-    b.writeln('MCore closed ${c['state'] == 'running' ? 'unexpectedly' : 'after errors'} at ${c['time']}');
+    b.writeln(c['state'] == 'froze'
+        ? 'MCore froze (${c['time']})'
+        : 'MCore closed ${c['state'] == 'running' ? 'unexpectedly' : 'after errors'} at ${c['time']}');
     if (c['project'] != null) b.writeln('project: ${c['project']}');
     for (final k in ['frame', 'playing', 'layers', 'refs', 'version']) {
       if (c[k] != null) b.writeln('$k: ${c[k]}');
