@@ -17,6 +17,7 @@ import 'dart:math' as math;
 
 import '../../core/interpolation.dart' show evaluateTrack;
 import '../../core/motion_sig.dart';
+import '../../core/render_budget.dart';
 import '../../core/stage_size.dart';
 import '../../core/state_cache.dart';
 import '../../model/project.dart';
@@ -196,7 +197,10 @@ List<double> applyFollow(Project project, Layer layer, num globalFrame, List<dou
     // every frame, made a long timeline slower and slower to play).
     final msig = projectMotionSig(project);
     final from = c.checkedSig == msig ? math.max(start, start + c.checkedUpTo + 1) : start;
+    var checked = from - 1;
     for (var g = from; g <= frame; g++) {
+      if (RenderBudget.over) break;
+      checked = g;
       final i = g - start;
       final p = _Pose.of(getLayerStateAt(project, target.id, g).matrix);
       if (i < c.targets.length) {
@@ -206,7 +210,7 @@ List<double> applyFollow(Project project, Layer layer, num globalFrame, List<dou
       }
       c.targets.add(p);
     }
-    c.checkedUpTo = math.max(c.checkedSig == msig ? c.checkedUpTo : -1, frame - start);
+    c.checkedUpTo = math.max(c.checkedSig == msig ? c.checkedUpTo : -1, checked - start);
     c.checkedSig = msig;
     // the point aimed at: the target's pose plus the offset in its space.
     List<double> aim(int i) {
@@ -232,7 +236,8 @@ List<double> applyFollow(Project project, Layer layer, num globalFrame, List<dou
     }
 
     final dt = 1 / (fps <= 0 ? 60 : fps);
-    while (c.states.length <= frame - start) {
+    while (c.states.length <= frame - start && c.states.length < c.targets.length) {
+      if (RenderBudget.over) break;
       final i = c.states.length;
       final t = aim(i);
       if (i == 0) {
@@ -262,6 +267,8 @@ List<double> applyFollow(Project project, Layer layer, num globalFrame, List<dou
       }
       c.states.add(next);
     }
+    // (the frame's time ran out before it got here: its own pose)
+    if (c.states.length <= frame - start) return own;
     final s = c.states[frame - start];
     final a = (evaluateTrack(project, f.amount, local.clamp(0, layer.durationFrames.toDouble()), layer) as num).toDouble().clamp(0.0, 1.0);
     if (a == 0) return own;

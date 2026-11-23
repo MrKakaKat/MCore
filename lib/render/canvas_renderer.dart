@@ -590,6 +590,10 @@ class CanvasRenderer implements Renderer {
     // its own project, and clearing threw away the host's half way
     // through its frame (worked out again for every placed project).
     if (refChain.length <= 1) clearStateCaches();
+    // the stage's time limit for this frame (a placed project's frame is
+    // part of its host's).
+    final topLevel = refChain.length <= 1;
+    if (topLevel) RenderBudget.start(timeBudget);
 
     // clipToFrame=false (AppState.showOffCanvasContent's toggle) is
     // ONLY ever used for the LIVE on-screen view - export/captureFrame
@@ -650,6 +654,9 @@ class CanvasRenderer implements Renderer {
       }
       if (l.mirrorProbe) continue; // a mirror's probe: never drawn
       if (_hiddenCutters.contains(l.id)) continue; // Cut by layer: hide cutter
+      // the frame's time ran out: the rest left out (the stage stops).
+      if (RenderBudget.over) break;
+      RenderBudget.at(l.name);
       if (l.id == 'L_parent') {
         continue; // pure rig controller by convention, but any zero-content layer is fine to skip too
       }
@@ -695,6 +702,10 @@ class CanvasRenderer implements Renderer {
       if (t != null) layerCosts!.add(LayerCost(l.name, t.elapsedMicroseconds / 1000));
     }
     _framePictures = null;
+    if (topLevel) {
+      lastOverBudget = RenderBudget.tripped ? (frame: frame, at: RenderBudget.trippedAt) : null;
+      RenderBudget.end();
+    }
 
     if (view != null) canvas.restore();
     if (digs) canvas.restore();
@@ -791,6 +802,13 @@ class CanvasRenderer implements Renderer {
   /// At most this many motion-blur passes (null: as each layer says) - set
   /// while the stage plays.
   int? maxBlurSamples;
+
+  /// The stage's limit for drawing one frame (null: none - export). Past
+  /// it the frame stops part way instead of freezing the app.
+  Duration? timeBudget;
+
+  /// The last frame that ran out of time, and on what (null: none).
+  ({int frame, String? at})? lastOverBudget;
 
   /// Draw through the stage camera (see model/stage_camera.dart). On for
   /// export and the player; on the stage only in "camera view" - its

@@ -12,6 +12,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:movement_core/movement_core.dart';
 import 'package:movement_core/movement_core.dart' as core show bakeFollowToKeys;
 
+import 'io/crash_log.dart';
 import 'io/app_settings.dart';
 import 'io/audio_asset_store.dart';
 import 'io/font_store.dart';
@@ -74,7 +75,11 @@ class AppState extends ChangeNotifier {
   final UndoHistory undo = UndoHistory();
   // the editor's stage shows the scene itself; export / the player go
   // through the stage camera (see setCameraView).
-  final CanvasRenderer renderer = CanvasRenderer()..useStageCamera = false;
+  final CanvasRenderer renderer = CanvasRenderer()
+    ..useStageCamera = false
+    // a frame taking longer stops part way (and playback stops): a freeze
+    // never runs on until the system closes the app.
+    ..timeBudget = const Duration(milliseconds: 1500);
   VideoService videoService = createVideoService();
 
   int currentFrame = 0;
@@ -1192,9 +1197,27 @@ class AppState extends ChangeNotifier {
     renderer.renderFrame(project, currentFrame,
         clipToFrame: !(showOffCanvasContent || cameraView), underlay: contextUnderlay);
     _freshRender = true;
+    _checkOverBudget();
   }
 
   bool _freshRender = false;
+
+  /// A frame ran out of its time on the stage: playback stops, and it is
+  /// said where (once a frame).
+  int? _overBudgetSaid;
+  String? overBudgetNotice;
+
+  void _checkOverBudget() {
+    final o = renderer.lastOverBudget;
+    if (o == null) return;
+    if (playing) togglePlay();
+    if (_overBudgetSaid == o.frame) return;
+    _overBudgetSaid = o.frame;
+    overBudgetNotice = 'Frame ${o.frame} took too long${o.at == null ? '' : ' (at "${o.at}")'} - '
+        'playback stopped so the app does not freeze. Part of the frame may be missing.';
+    CrashLog.instance?.error('over budget: ${overBudgetNotice!}');
+    _notice(overBudgetNotice!);
+  }
 
   /// Whether the renderer's picture is up to date with a change made
   /// since the stage last took it - then the stage doesn't render the
@@ -1964,6 +1987,9 @@ class AppState extends ChangeNotifier {
     playing = !playing;
     // playing: motion blur in fewer passes, so frames keep up.
     renderer.maxBlurSamples = playing ? 4 : null;
+    // before playing: the project on disk as it is now (should anything
+    // go wrong while it plays, nothing since the last edit is lost).
+    if (playing && _autosaveFile != null) unawaited(saveNow());
     _playSession++;
     _audioClock = false;
     _audioPending = false;
@@ -2247,10 +2273,11 @@ class AppState extends ChangeNotifier {
       l.hidden = true;
     }
     final bg = renderer.backgroundColor, cam = renderer.useStageCamera, scale = renderer.outputScale;
-    final cuts = renderer.stageCuts;
+    final cuts = renderer.stageCuts, budget = renderer.timeBudget;
     ui.Image image;
     try {
       renderer
+        ..timeBudget = null
         ..backgroundColor = null
         ..useStageCamera = false
         ..stageCuts = null
@@ -2265,6 +2292,7 @@ class AppState extends ChangeNotifier {
       }
       renderer
         ..backgroundColor = bg
+        ..timeBudget = budget
         ..useStageCamera = cam
         ..stageCuts = cuts
         ..outputScale = scale;

@@ -37,6 +37,7 @@ import '../../core/state_cache.dart';
 import '../../geometry/shapes.dart';
 import '../../model/project.dart';
 import '../../core/motion_sig.dart';
+import '../../core/render_budget.dart';
 
 /// The pendulum's weight (content-local): its own point, or the middle
 /// of the content.
@@ -111,6 +112,9 @@ double evaluatePendulumOffset(Project project, Layer layer, int globalFrame) {
     run.rate.add(0);
   }
   for (var lf = from; lf < endLocalFrame; lf++) {
+    // the frame's time ran out: as far as it got (kept - the next frame
+    // goes on from here).
+    if (RenderBudget.over) break;
     final next = matrixAt(lf + 1);
     final px = [prev[4] * w, prev[5] * h], qx = [cur[4] * w, cur[5] * h], nx = [next[4] * w, next[5] * h];
     final vx = (nx[0] - px[0]) / (2 * step) / norm, vy = (nx[1] - px[1]) / (2 * step) / norm;

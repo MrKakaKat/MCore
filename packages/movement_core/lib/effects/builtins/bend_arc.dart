@@ -26,6 +26,7 @@
 ///   (pull-model: every call is independent, nothing cached).
 library;
 
+import '../../core/render_budget.dart';
 import 'dart:math' as math;
 
 import '../../core/interpolation.dart';
@@ -311,6 +312,7 @@ double _bendPhysicsAngle(Project? project, Layer layer, EffectInstance inst, dou
   final frames = localFrame.floor();
   var prev = posAt(-1), cur = posAt(0);
   for (var f = 0; f < frames; f++) {
+    if (RenderBudget.over) break;
     final next = posAt(f + 1);
     final ax = (next[0] - 2 * cur[0] + prev[0]) * fps * fps;
     final ay = (next[1] - 2 * cur[1] + prev[1]) * fps * fps;

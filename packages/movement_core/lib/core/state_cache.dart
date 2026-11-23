@@ -28,6 +28,7 @@ import '../geometry/shapes.dart';
 import '../model/project.dart';
 import '../model/line_path.dart' show sampleLine;
 import '../model/prop_links.dart';
+import 'render_budget.dart';
 import 'interpolation.dart';
 import 'math.dart' as mm;
 import 'perf.dart';
@@ -501,6 +502,7 @@ double swingAngleAt(Project project, Layer layer, num localFrame) {
   var env = 0.0;
   var next = at(f0);
   for (var f = f0; f > 0 && f >= f0 - look; f--) {
+    if (RenderBudget.over) break;
     final prev = at(f - 1);
     final moving = (next[0] - prev[0]).abs() > 1e-7 || (next[1] - prev[1]).abs() > 1e-7;
     if (moving) {

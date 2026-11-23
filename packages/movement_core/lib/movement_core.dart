@@ -7,6 +7,7 @@ export 'core/interpolation.dart';
 export 'core/math.dart';
 export 'core/perf.dart';
 export 'core/stage_size.dart';
+export 'core/render_budget.dart';
 export 'core/state_cache.dart';
 export 'effects/builtins/builtins.dart';
 export 'effects/builtins/corner_pin.dart' show isPinEffect, pinEdges;
