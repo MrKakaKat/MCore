@@ -541,6 +541,18 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Higher / lower by `semitones` (-24..24), the length kept (one undo
+  /// step).
+  void setAudioPitch(String layerId, double semitones) {
+    final l = findLayer(project, layerId);
+    if (l == null || l.content.shape != 'audio') return;
+    final v = (semitones.clamp(-24.0, 24.0) * 10).roundToDouble() / 10;
+    if (l.content.audioPitch == v) return;
+    pushUndo();
+    l.content.audioPitch = v;
+    notifyListeners();
+  }
+
   /// Mutes / unmutes an audio layer (one undo step).
   void setAudioMuted(String layerId, bool muted) {
     final l = findLayer(project, layerId);

@@ -72,6 +72,7 @@ export 'model/pivot.dart';
 export 'model/time_range.dart';
 export 'model/stage_camera.dart';
 export 'model/glitch_presets.dart';
+export 'model/pitch_shift.dart';
 export 'model/layer_edit.dart';
 export 'model/layer_ops.dart';
 export 'model/project.dart';

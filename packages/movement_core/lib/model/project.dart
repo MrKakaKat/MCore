@@ -902,6 +902,10 @@ class Content {
 
   bool audioMuted;
 
+  /// Pitch, semitones (0: as recorded): higher or lower without getting
+  /// faster or slower (speed moves both, like a tape).
+  double audioPitch = 0;
+
   /// shape "compound": closed outlines filled together (non-zero), e.g.
   /// text turned into a shape - letters with holes. Content-local, inside
   /// the offset/size box.
@@ -2823,6 +2827,7 @@ Layer cloneLayer(Layer src) {
       audioMuted: src.content.audioMuted,
       contours: src.content.contours?.map((c) => c.map((p) => [...p]).toList()).toList(),
     )
+      ..audioPitch = src.content.audioPitch
       ..lineNodes = src.content.lineNodes?.map((n) => n.copy()).toList()
       ..lineWidth = src.content.lineWidth
       ..lineClosed = src.content.lineClosed

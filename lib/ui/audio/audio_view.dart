@@ -141,6 +141,57 @@ class AudioView extends StatelessWidget {
     );
   }
 
+  /// Higher or lower without getting faster or slower: semitones (a
+  /// tenth at a time), quick picks scrolling in one line.
+  Widget _pitchRow(Layer layer) {
+    final p = layer.content.audioPitch;
+    return Padding(
+      key: const ValueKey('audio-pitch'),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(
+          height: 40,
+          child: Row(children: [
+            const Text('Pitch', style: TextStyle(fontSize: 13)),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 64,
+              child: NumField(
+                key: const ValueKey('audio-pitch-field'),
+                width: 64,
+                value: p,
+                onCommit: (v) => app.setAudioPitch(layer.id, v),
+              ),
+            ),
+            const Text(' st', style: TextStyle(fontSize: 13)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: ListView(
+                key: const ValueKey('audio-pitch-strip'),
+                scrollDirection: Axis.horizontal,
+                children: [
+                  for (final v in const [-12.0, -7.0, -5.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 5.0, 7.0, 12.0])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: ChoiceChip(
+                        key: ValueKey('audio-pitch-$v'),
+                        label: Text(v == 0 ? '0' : '${v > 0 ? '+' : ''}${v.round()}'),
+                        selected: (p - v).abs() < 1e-9,
+                        visualDensity: VisualDensity.compact,
+                        onSelected: (_) => app.setAudioPitch(layer.id, v),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ]),
+        ),
+        const Text('Semitones (12: an octave). Its length stays; the speed above changes both.',
+            style: TextStyle(fontSize: 11, color: Colors.grey)),
+      ]),
+    );
+  }
+
   List<Widget> _layerControls(BuildContext context, Layer layer) {
     final c = layer.content;
     final rebuilding = c.audioAssetId != null && app.audioRebuilding.contains(c.audioAssetId);
@@ -163,6 +214,7 @@ class AudioView extends StatelessWidget {
         ],
       ),
       _speedRow(layer),
+      _pitchRow(layer),
       Text(
         'From ${_time(c.sourceIn)} of the file, plays ${_time(playing)}'
         '${c.audioDuration != null ? ' (file ${_time(c.audioDuration!)})' : ''}',

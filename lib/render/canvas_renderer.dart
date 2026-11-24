@@ -138,11 +138,11 @@ class CanvasRenderer implements Renderer {
   Map<String, int> memoryReport() {
     int img(Iterable<ui.Image> xs) => xs.fold(0, (a, i) => a + i.width * i.height * 4);
     final m = <String, int>{
-      'pictures': img(_imageCache.values),
+      'pictures': _shared ? 0 : img(_imageCache.values),
       'placed frames': img(_refFrames.values),
       'keyed': img({for (final k in _keyed.values) k.image, ..._keyedRecent.values}),
       'pixels': _sourcePixels.values.fold(0, (a, p) => a + p.rgba.lengthInBytes),
-      'video': videoFrames.bytes,
+      'video': _shared ? 0 : videoFrames.bytes,
       'waiting to go': img(_toDispose),
     };
     for (final r in _refRenderers.values) {
@@ -167,7 +167,7 @@ class CanvasRenderer implements Renderer {
       lowMemory = true;
       maxImageSide = math.max(512, maxImageSide ~/ 2);
       // decoded again, smaller (the stage's own pictures stay).
-      if (refChain.length > 1) {
+      if (!_shared) {
         for (final i in _imageCache.values) {
           _disposeLater(i);
         }
@@ -572,13 +572,25 @@ class CanvasRenderer implements Renderer {
     canvas.restore();
   }
 
-  final Map<String, ui.Image> _imageCache = {};
-  final Set<String> _decodingKeys = {};
+  final Map<String, ui.Image> _imageCacheOwn = {};
+  final Set<String> _decodingKeysOwn = {};
+
+  /// The renderer of the stage when this one draws a placed project: its
+  /// pictures and video frames are shared with it (each picture decoded
+  /// once, one memory budget for all - every placed project kept its own,
+  /// the same pictures again and again).
+  CanvasRenderer? _root;
+  CanvasRenderer get _top => _root ?? this;
+  bool get _shared => _root != null;
+
+  Map<String, ui.Image> get _imageCache => _top._imageCacheOwn;
+  Set<String> get _decodingKeys => _top._decodingKeysOwn;
+  Set<String> get _failedKeys => _top._failedKeysOwn;
 
   /// Sources that failed to decode. Not retried a broken image was decoded
   /// again on every render) until the source changes - the key IS the source -
   /// or retryImage is called.
-  final Set<String> _failedKeys = {};
+  final Set<String> _failedKeysOwn = {};
 
   /// How many decodes have been started - for tests.
   @visibleForTesting
@@ -667,7 +679,14 @@ class CanvasRenderer implements Renderer {
     final layerCosts = perf ? <LayerCost>[] : null;
     if (perf) perfCounters.reset();
     // frames of videos no layer uses any more are the first to go.
-    videoFrames.liveAssets = videoAssetIds(project);
+    // (the stage's renderer says which videos are used, placed projects'
+    // too: they share its frames.)
+    if (!_shared) {
+      videoFrames.liveAssets = {
+        ...videoAssetIds(project),
+        for (final src in refSources.values) ...videoAssetIds(src.project),
+      };
+    }
     // frame-scoped memoization: cleared at the top of every render call,
     // so it never persists across edits or even across frames - purely
     // a within-this-one-render speedup (see core/state_cache.dart).
@@ -999,17 +1018,19 @@ class CanvasRenderer implements Renderer {
   @override
   void dispose() {
     _picture = null;
-    for (final img in _imageCache.values) {
-      img.dispose();
+    if (!_shared) {
+      for (final img in _imageCache.values) {
+        img.dispose();
+      }
+      _imageCache.clear();
     }
-    _imageCache.clear();
     final keyedImages = <ui.Image>{for (final k in _keyed.values) k.image, ..._keyedRecent.values};
     for (final i in keyedImages) {
       i.dispose();
     }
     _keyed.clear();
     _keyedRecent.clear();
-    videoFrames.dispose();
+    if (!_shared) videoFrames.dispose();
     // the placed projects' renderers and frames too (they stayed in
     // memory after the project was closed).
     for (final i in _refFrames.values) {
@@ -2913,9 +2934,27 @@ class CanvasRenderer implements Renderer {
   /// Decoded frames of video layers around the playhead (see
   /// video_frame_cache.dart). AppState points `framesRoot` at the frame
   /// cache; tests swap the decoder.
-  late final VideoFrameCache videoFrames = VideoFrameCache(budgetBytes: 48 << 20)
-    ..onDecoded = (() => _notify('video'))
+  late final VideoFrameCache _videoOwn = VideoFrameCache(budgetBytes: 48 << 20)
+    ..onDecoded = (() {
+      // a placed project's video frame came in: its drawings are new.
+      _bumpAllRefs();
+      _notify('video');
+    })
     ..onEvict = _sourcePixels.remove;
+
+  VideoFrameCache get videoFrames => _root?.videoFrames ?? _videoOwn;
+
+  /// Every placed project's frames drawn anew (a picture or a video frame
+  /// they share came in).
+  void _bumpAllRefs() {
+    for (final id in _refRenderers.keys) {
+      _refEpoch[id] = (_refEpoch[id] ?? 0) + 1;
+      _dropRefFrames(id);
+    }
+    for (final r in _refRenderers.values) {
+      r._bumpAllRefs();
+    }
+  }
 
   /// The source frame a video layer shows at `globalFrame` (its own time,
   /// with time quantize, held at its ends).
@@ -3057,7 +3096,7 @@ class CanvasRenderer implements Renderer {
 
   void _unpinRefs() {
     for (final r in _refRenderers.values) {
-      r.videoFrames.pinned = {};
+      if (!r._shared) r.videoFrames.pinned = {};
       r._unpinRefs();
     }
   }
@@ -3179,7 +3218,7 @@ class CanvasRenderer implements Renderer {
     final r = _refRenderers[s.id] ??= CanvasRenderer()
       // each placed project keeps less in memory than the stage (its
       // frames are drawn at most at its own canvas size).
-      ..videoFrames.budgetBytes = 24 << 20
+      .._root = _top
       ..sourcePixelBytes = 16 << 20
       ..refFrameBytes = 16 << 20
       ..keyedRecentKept = 2
@@ -3614,6 +3653,8 @@ class CanvasRenderer implements Renderer {
       // yet" case in this renderer (e.g. a not-yet-decoded precompose).
     } finally {
       _decodingKeys.remove(key);
+      // (shared: placed projects may show it too - drawn anew.)
+      _top._bumpAllRefs();
       _notify('image');
     }
   }

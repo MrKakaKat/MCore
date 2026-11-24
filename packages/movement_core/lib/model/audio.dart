@@ -9,6 +9,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import '../core/interpolation.dart';
+import 'pitch_shift.dart';
 import 'project.dart';
 
 /// Decoded sound everywhere in the app: 16-bit PCM, stereo interleaved.
@@ -116,9 +117,15 @@ Int16List mixTimeline(Project project, Map<String, Int16List> pcmByAsset, {requi
   const ch = audioChannels;
   final total = math.max(0, (seconds * sampleRate).round());
   final acc = Float64List(total * ch);
+  // each sound at its own pitch, worked out once per mix.
+  final pitched = <String, Int16List>{};
   for (final layer in audibleLayers(project)) {
-    final pcm = pcmByAsset[layer.content.audioAssetId];
-    if (pcm == null || pcm.isEmpty) continue;
+    final raw = pcmByAsset[layer.content.audioAssetId];
+    if (raw == null || raw.isEmpty) continue;
+    final semis = layer.content.audioPitch;
+    final pcm = semis == 0
+        ? raw
+        : pitched.putIfAbsent('${layer.content.audioAssetId}@$semis', () => pitchShift(raw, semis, channels: ch));
     final srcFrames = pcm.length ~/ ch;
     final start = layer.startFrame;
     final visibleEnd = layerVisibleEnd(layer) ?? (seconds * fps).ceil();

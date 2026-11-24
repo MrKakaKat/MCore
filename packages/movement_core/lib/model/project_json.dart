@@ -251,6 +251,7 @@ Map<String, dynamic> contentToJson(Content c) => {
       if (c.audioDuration != null) 'audioDuration': c.audioDuration,
       if (c.volume != null) 'volume': trackToJson(c.volume!),
       if (c.audioMuted) 'audioMuted': true,
+      if (c.audioPitch != 0) 'audioPitch': c.audioPitch,
       if (c.mediaHash != null) 'mediaHash': c.mediaHash,
       if (c.gridCols != null && c.gridRows != null) 'grid': [c.gridCols, c.gridRows],
       if (c.gridKinds != 3) 'gridKinds': c.gridKinds,
@@ -291,7 +292,10 @@ Map<String, dynamic> contentToJson(Content c) => {
       if (c.placeholder) 'placeholder': true,
       if (c.shape == 'textGroup') ...{'textGroup': c.textGroup, 'textGroupPivot': c.textGroupPivot},
     };
-Content contentFromJson(Map<String, dynamic> j) => Content(
+Content contentFromJson(Map<String, dynamic> j) =>
+    _contentFromJson(j)..audioPitch = (j['audioPitch'] as num?)?.toDouble() ?? 0;
+
+Content _contentFromJson(Map<String, dynamic> j) => Content(
       shape: j['shape'] as String,
       offset: (j['offset'] as List).map((v) => (v as num).toDouble()).toList(),
       size: (j['size'] as List).map((v) => (v as num).toDouble()).toList(),
