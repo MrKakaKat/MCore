@@ -32,6 +32,7 @@ Uint8List errorDiffuse(
   double softness = 0,
   bool lightenOnly = false,
   double squeeze = 0,
+  double hold = 0,
 }) {
   final k = _kernels[kernel] ?? _kernels['floyd']!;
   final n = math.max(1, levels - 1);
@@ -177,8 +178,10 @@ Uint8List errorDiffuse(
         // (the colour the pixel had, inverted if asked - before errors)
         var o = rgba[i * 4 + c].toDouble();
         if (inv > 0) o += (255 - 2 * o) * inv;
-        final d = out[i * 4 + c] - o;
-        out[i * 4 + c] = (o + d.abs()).round().clamp(0, 255);
+        final d = (out[i * 4 + c] - o).abs();
+        // (hold: lightened by the share of the room left below white)
+        final room = 1 - hold.clamp(0.0, 1.0) * (o / 255);
+        out[i * 4 + c] = (o + d * room).round().clamp(0, 255);
       }
     }
   }

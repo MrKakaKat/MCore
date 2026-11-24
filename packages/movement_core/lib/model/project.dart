@@ -2206,6 +2206,11 @@ class LayerFilters {
   /// 0.4 is RetroDither's contrast 0.6) - for the dither only.
   double ditherSqueeze = 0;
 
+  /// Only lighter: how much the lightening keeps to the room left below
+  /// white (0: added - light parts may go flat white; 1: never reaches
+  /// it, the pattern stays to the brightest).
+  double ditherHold = 0;
+
   /// The pattern passes the error on (worked out on the processor), not
   /// an ordered one (drawn by the graphics chip).
   bool get ditherDiffuses => ditherDiffusion.contains(ditherPattern);
@@ -2280,7 +2285,8 @@ class LayerFilters {
         ..ditherStipple = ditherStipple
         ..ditherSoftness = ditherSoftness
         ..ditherLightenOnly = ditherLightenOnly
-        ..ditherSqueeze = ditherSqueeze;
+        ..ditherSqueeze = ditherSqueeze
+        ..ditherHold = ditherHold;
 
   Map<String, dynamic> toJson() => {
         'negative': trackToJson(negative),
@@ -2330,6 +2336,7 @@ class LayerFilters {
           'ditherSoftness': ditherSoftness,
           if (ditherLightenOnly) 'ditherLightenOnly': true,
           if (ditherSqueeze != 0) 'ditherSqueeze': ditherSqueeze,
+          if (ditherHold != 0) 'ditherHold': ditherHold,
         },
       };
 
@@ -2386,7 +2393,8 @@ class LayerFilters {
       ..ditherStipple = j['ditherStipple'] as bool? ?? false
       ..ditherSoftness = n(j['ditherSoftness'], 0)
       ..ditherLightenOnly = j['ditherLightenOnly'] as bool? ?? false
-      ..ditherSqueeze = n(j['ditherSqueeze'], 0);
+      ..ditherSqueeze = n(j['ditherSqueeze'], 0)
+      ..ditherHold = n(j['ditherHold'], 0);
   }
 }
 

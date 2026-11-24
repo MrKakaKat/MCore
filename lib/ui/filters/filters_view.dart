@@ -32,6 +32,7 @@ const _filterDefaults = <String, double>{
   'filter-dither-opacity': 100,
   'filter-dither-softness': 0,
   'filter-dither-squeeze': 0,
+  'filter-dither-hold': 0,
   'filter-dither-invert': 0,
   'filter-dither-scanlines': 0,
   'filter-dither-spread': 100,
@@ -437,6 +438,12 @@ class FiltersView extends StatelessWidget {
                 value: f.ditherLightenOnly,
                 onChanged: (v) => edit(() => f.ditherLightenOnly = v),
               ),
+              if (f.ditherLightenOnly)
+                number('filter-dither-hold', 'Pattern hold', f.ditherHold * 100, 0, 100, (v) => f.ditherHold = v / 100,
+                    suffix: '%'),
+              if (f.ditherLightenOnly)
+                const Hint('Pattern hold: light parts lightened only by the room left below white - they don\'t go '
+                    'flat white, the pattern stays.'),
               number('filter-dither-squeeze', 'Squeeze toward middle', f.ditherSqueeze * 100, 0, 100,
                   (v) => f.ditherSqueeze = v / 100,
                   suffix: '%'),

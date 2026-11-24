@@ -49,6 +49,10 @@ uniform float uSoft;
 uniform float uLighten;
 // brightness squeezed toward the middle before dithering (0..1)
 uniform float uSqueeze;
+// only lighter: how much the lightening keeps to the room left below white
+// (0: added, may reach white; 1: like screen - never does, the pattern
+// stays to the brightest)
+uniform float uHold;
 uniform sampler2D uImage;
 
 out vec4 fragColor;
@@ -216,7 +220,11 @@ vec3 dither(vec3 c0, vec2 pos) {
   } else {
     res = vec3(quant(c.r * n, n, th), quant(c.g * n, n, th), quant(c.b * n, n, th)) / n;
   }
-  if (uLighten > 0.5) res = clamp(c + abs(res - c), 0.0, 1.0);
+  if (uLighten > 0.5) {
+    vec3 d = abs(res - c);
+    float h = clamp(uHold, 0.0, 1.0);
+    res = clamp(c + d * mix(vec3(1.0), vec3(1.0) - c, h), 0.0, 1.0);
+  }
   // screen rows: every other row of dots darker
   res *= 1.0 - clamp(uScanlines, 0.0, 1.0) * 0.45 * mod(cell.y, 2.0);
   return res;

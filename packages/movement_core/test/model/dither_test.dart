@@ -98,4 +98,13 @@ void main() {
     expect(values.every((v) => v >= 64), isTrue);
     expect(values.any((v) => v > 64), isTrue, reason: 'some dots lighter');
   });
+
+  test('pattern hold: light parts lightened only within the room left - they never go flat white', () {
+    final plain = errorDiffuse(grey(16, 16, 220), 16, 16, kernel: 'floyd', lightenOnly: true, levels: 3);
+    final held = errorDiffuse(grey(16, 16, 220), 16, 16, kernel: 'floyd', lightenOnly: true, levels: 3, hold: 1);
+    expect([for (var i = 0; i < 256; i++) plain[i * 4]].where((v) => v == 255), isNotEmpty);
+    final hv = [for (var i = 0; i < 256; i++) held[i * 4]];
+    expect(hv.every((v) => v < 255 && v >= 220), isTrue);
+    expect(hv.toSet().length, greaterThan(1), reason: 'the pattern is still there');
+  });
 }
