@@ -298,4 +298,26 @@ void main() {
     final mid = {for (var x = 20; x < 180; x++) b2.getUint8((50 * 200 + x) * 4)};
     expect(mid.any((v) => v > 20 && v < 235), isTrue);
   });
+
+  test('two colours on the graphics chip: only those two; opacity as dots leaves a share as it was', () async {
+    final l = rect('a', '#808080', 100, 50, 200)
+      ..filters.dither = true
+      ..filters.ditherMode = 'duo'
+      ..filters.ditherLevels = 2
+      ..filters.ditherDark = '#800000'
+      ..filters.ditherLight = '#ffff00';
+    final r = CanvasRenderer();
+    await render(Project(layers: [l]), with_: r);
+    await ui.FragmentProgram.fromAsset('shaders/filter.frag');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final at = await render(Project(layers: [l]), with_: r);
+    final colours = {for (var x = 20; x < 180; x++) for (var y = 20; y < 80; y++) at(x, y) >> 8};
+    expect(colours.difference({0x800000, 0xffff00}), isEmpty);
+    l.filters
+      ..ditherOpacity = 0.5
+      ..ditherStipple = true;
+    final half = await render(Project(layers: [l]), with_: r);
+    final grey = [for (var x = 20; x < 180; x++) for (var y = 20; y < 80; y++) half(x, y) >> 8].where((c) => c == 0x808080).length;
+    expect(grey / (160 * 60), closeTo(0.5, 0.05));
+  });
 }

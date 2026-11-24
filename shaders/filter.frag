@@ -33,6 +33,15 @@ uniform vec3 uPal7;
 uniform float uOpacity;
 uniform float uAngle;
 uniform float uPerceptual;
+// two colours (mode 3): dark and light ends, how much of them over the
+// picture's own colours; brightness turned over; screen rows; opacity as
+// dots (0/1)
+uniform vec3 uDark;
+uniform vec3 uLight;
+uniform float uColorize;
+uniform float uInvert;
+uniform float uScanlines;
+uniform float uStipple;
 uniform sampler2D uImage;
 
 out vec4 fragColor;
@@ -79,7 +88,9 @@ float threshold(vec2 cell) {
   if (uPattern < 6.5) return fract((cell.y + 0.5) / 4.0);
   if (uPattern < 7.5) return fract((cell.x + cell.y + 0.5) / 4.0);
   // even noise without clumps (interleaved gradient noise)
-  return fract(52.9829189 * fract(0.06711056 * cell.x + 0.00583715 * cell.y));
+  if (uPattern < 8.5) return fract(52.9829189 * fract(0.06711056 * cell.x + 0.00583715 * cell.y));
+  // dashes: across, every other row shifted half
+  return fract(cell.x * 0.25 + mod(cell.y, 2.0) * 0.5 + 0.125);
 }
 
 float dist(vec3 a, vec3 b) {
@@ -104,24 +115,39 @@ vec3 palette(vec3 c) {
   return b;
 }
 
-vec3 dither(vec3 c, vec2 pos) {
+vec2 ditherCell(vec2 pos) {
   float cellPx = uMosaic > 1.0 ? uMosaic : max(uDot, 1.0);
-  // the pattern turned (about the frame's corner)
+  // the pattern turned (about the frame's corner); with a mosaic, the
+  // cell's own middle: one value per cell
   vec2 rp = vec2(cos(uAngle) * pos.x - sin(uAngle) * pos.y, sin(uAngle) * pos.x + cos(uAngle) * pos.y);
-  // (with a mosaic, the cell's own middle: one value per cell)
-  float t = threshold(floor((uMosaic > 1.0 ? (floor(pos / uMosaic) + 0.5) * uMosaic : rp) / cellPx)) - 0.5;
-  if (uMode > 1.5) {
+  return floor((uMosaic > 1.0 ? (floor(pos / uMosaic) + 0.5) * uMosaic : rp) / cellPx);
+}
+
+vec3 dither(vec3 c0, vec2 pos) {
+  vec2 cell = ditherCell(pos);
+  float t = threshold(cell) - 0.5;
+  vec3 c = mix(c0, vec3(1.0) - c0, clamp(uInvert, 0.0, 1.0));
+  vec3 res;
+  float n = max(uLevels - 1.0, 1.0);
+  if (uMode > 2.5) {
+    // two colours: the brightness in steps, laid from dark to light
+    float l = dot(c, vec3(0.299, 0.587, 0.114));
+    float q = floor(clamp(l * n + t * uSpread + 0.5, 0.0, n)) / n;
+    vec3 keep = c * (q / max(l, 0.001));
+    res = mix(keep, mix(uDark, uLight, q), clamp(uColorize, 0.0, 1.0));
+  } else if (uMode > 1.5) {
     // the step between palette colours: about one over their count.
     float step = 1.0 / max(uPalCount - 1.0, 1.0);
-    return palette(clamp(c + vec3(t * uSpread * step), 0.0, 1.0));
-  }
-  float n = max(uLevels - 1.0, 1.0);
-  if (uMode > 0.5) {
+    res = palette(clamp(c + vec3(t * uSpread * step), 0.0, 1.0));
+  } else if (uMode > 0.5) {
     float g = dot(c, vec3(0.299, 0.587, 0.114));
-    float q = floor(clamp(g * n + t * uSpread + 0.5, 0.0, n)) / n;
-    return vec3(q);
+    res = vec3(floor(clamp(g * n + t * uSpread + 0.5, 0.0, n)) / n);
+  } else {
+    res = floor(clamp(c * n + vec3(t * uSpread) + 0.5, 0.0, n)) / n;
   }
-  return floor(clamp(c * n + vec3(t * uSpread) + 0.5, 0.0, n)) / n;
+  // screen rows: every other row of dots darker
+  res *= 1.0 - clamp(uScanlines, 0.0, 1.0) * 0.45 * mod(cell.y, 2.0);
+  return res;
 }
 
 void main() {
@@ -134,7 +160,18 @@ void main() {
   vec4 c = texture(uImage, uv);
   if (c.a > 0.0) {
     vec3 rgb = pow(max(c.rgb / c.a, vec3(0.0)), uGamma);
-    if (uDither > 0.5) rgb = mix(rgb, dither(rgb, FlutterFragCoord().xy), clamp(uOpacity, 0.0, 1.0));
+    if (uDither > 0.5) {
+      vec2 p = FlutterFragCoord().xy;
+      vec3 d = dither(rgb, p);
+      float o = clamp(uOpacity, 0.0, 1.0);
+      // opacity as dots: a share of the cells dithered, the rest left
+      // as they were (no blend)
+      if (uStipple > 0.5) {
+        rgb = bayer8(ditherCell(p)) < o ? d : rgb;
+      } else {
+        rgb = mix(rgb, d, o);
+      }
+    }
     c = vec4(rgb * c.a, c.a);
   }
   fragColor = c;

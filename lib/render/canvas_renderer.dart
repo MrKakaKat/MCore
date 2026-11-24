@@ -990,6 +990,13 @@ class CanvasRenderer implements Renderer {
   /// An export is drawing (the stage waits with its own frames).
   static bool get exporting => _exporting;
 
+  void _forgetStillPictures() {
+    for (final p in _stillPictures.values) {
+      p.dispose();
+    }
+    _stillPictures.clear();
+  }
+
   void endExportReuse() {
     _exportMode(false);
     _stillIds = {};
@@ -2070,7 +2077,7 @@ class CanvasRenderer implements Renderer {
       // (error diffusion is done after, on the processor - while playing,
       // an ordered grid stands in for it)
       ..setFloat(9, f.dither && (!f.ditherDiffuses || _diffusePreview) ? 1 : 0)
-      ..setFloat(10, switch (f.ditherMode) { 'mono' => 1, 'palette' => 2, _ => 0 })
+      ..setFloat(10, switch (f.ditherMode) { 'mono' => 1, 'palette' => 2, 'duo' => 3, _ => 0 })
       ..setFloat(11, f.ditherLevels.clamp(2, 64).toDouble())
       ..setFloat(12, switch (f.ditherPattern) {
         'none' => 0,
@@ -2081,6 +2088,7 @@ class CanvasRenderer implements Renderer {
         'lines' => 6,
         'diagonal' => 7,
         'bluenoise' => 8,
+        'dash' => 9,
         _ => 2, // bayer4, and error diffusion's stand-in
       })
       ..setFloat(13, f.ditherSpread)
@@ -2090,6 +2098,18 @@ class CanvasRenderer implements Renderer {
       ..setFloat(40, f.ditherOpacity)
       ..setFloat(41, f.ditherAngle * math.pi / 180)
       ..setFloat(42, f.ditherPerceptual ? 1 : 0);
+    final dark = parseRgbHex(f.ditherDark) ?? const [0, 0, 0], light = parseRgbHex(f.ditherLight) ?? const [255, 255, 255];
+    shader
+      ..setFloat(43, dark[0] / 255)
+      ..setFloat(44, dark[1] / 255)
+      ..setFloat(45, dark[2] / 255)
+      ..setFloat(46, light[0] / 255)
+      ..setFloat(47, light[1] / 255)
+      ..setFloat(48, light[2] / 255)
+      ..setFloat(49, f.ditherColorize)
+      ..setFloat(50, f.ditherInvert)
+      ..setFloat(51, f.ditherScanlines)
+      ..setFloat(52, f.ditherStipple ? 1 : 0);
     for (var i = 0; i < 8; i++) {
       final hex = f.ditherPalette.isEmpty ? '#000000' : f.ditherPalette[math.min(i, f.ditherPalette.length - 1)];
       final c = parseRgbHex(hex) ?? const [0, 0, 0];
@@ -2124,9 +2144,22 @@ class CanvasRenderer implements Renderer {
   /// (Only these go to the other thread - a closure inside the renderer
   /// took the pictures around it along, which can't be sent.)
   static Future<Uint8List> _diffuseOffThread(Uint8List bytes, int w, int h, String kernel, String mode, int levels,
-          List<List<int>> palette, double bleed, bool serp, bool perc) =>
+          List<List<int>> palette, double bleed, bool serp, bool perc,
+          ({List<int> dark, List<int> light, double colorize, double invert, double scanlines, double? stipple}) x) =>
       Isolate.run(() => errorDiffuse(bytes, w, h,
-          kernel: kernel, mode: mode, levels: levels, palette: palette, bleed: bleed, serpentine: serp, perceptual: perc));
+          kernel: kernel,
+          mode: mode,
+          levels: levels,
+          palette: palette,
+          bleed: bleed,
+          serpentine: serp,
+          perceptual: perc,
+          dark: x.dark,
+          light: x.light,
+          colorize: x.colorize,
+          invert: x.invert,
+          scanlines: x.scanlines,
+          stippleOpacity: x.stipple));
 
   /// `p` with its colours error-diffused: worked out on the side on the
   /// dither's grid (one cell per dot), drawn from the last result - null
@@ -2137,7 +2170,8 @@ class CanvasRenderer implements Renderer {
     final gw = math.max(1, (_width / dot).ceil()), gh = math.max(1, (_height / dot).ceil());
     final sig = jsonEncode([
       f.ditherPattern, f.ditherMode, f.ditherLevels, f.ditherBleed, f.ditherSerpentine, f.ditherPerceptual, //
-      f.ditherPalette, gw, gh,
+      f.ditherPalette, gw, gh, f.ditherDark, f.ditherLight, f.ditherColorize, f.ditherInvert, f.ditherScanlines, //
+      f.ditherStipple ? f.ditherOpacity : null,
     ]);
     final id = layer.id;
     if (!_diffusing.contains(id)) {
@@ -2150,6 +2184,14 @@ class CanvasRenderer implements Renderer {
       final mode = f.ditherMode, levels = f.ditherLevels, kernel = f.ditherPattern, bleed = f.ditherBleed;
       final serp = f.ditherSerpentine, perc = f.ditherPerceptual;
       final palette = [for (final h in f.ditherPalette) parseRgbHex(h) ?? const [0, 0, 0]];
+      final extra = (
+        dark: parseRgbHex(f.ditherDark) ?? const [0, 0, 0],
+        light: parseRgbHex(f.ditherLight) ?? const [255, 255, 255],
+        colorize: f.ditherColorize,
+        invert: f.ditherInvert,
+        scanlines: f.ditherScanlines,
+        stipple: f.ditherStipple ? f.ditherOpacity : null,
+      );
       () async {
         try {
           final data = await small.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
@@ -2161,7 +2203,7 @@ class CanvasRenderer implements Renderer {
             hash = (hash * 31 + bytes[i]) & 0x3fffffff;
           }
           if (_diffused[id]?.hash == hash) return;
-          final out = await _diffuseOffThread(bytes, gw, gh, kernel, mode, levels, palette, bleed, serp, perc);
+          final out = await _diffuseOffThread(bytes, gw, gh, kernel, mode, levels, palette, bleed, serp, perc, extra);
           final img = await imageFromStraightRgba(out, gw, gh);
           final old = _diffused[id];
           _diffused[id] = (hash: hash, sig: sig, image: img);
@@ -2184,7 +2226,7 @@ class CanvasRenderer implements Renderer {
     if (have == null || have.sig != sig) return null;
     final rec = ui.PictureRecorder();
     final c = ui.Canvas(rec);
-    final o = f.ditherOpacity.clamp(0.0, 1.0);
+    final o = f.ditherStipple ? 1.0 : f.ditherOpacity.clamp(0.0, 1.0);
     if (o < 1) c.drawPicture(p);
     c.drawImageRect(
         have.image,
@@ -3212,6 +3254,10 @@ class CanvasRenderer implements Renderer {
       for (var pass = 0; pass < 12; pass++) {
         FreezeWatch.at('export: frame $globalFrame, getting it ready (pass $pass)');
         final before = notifyTotal;
+        // still layers drawn again: their one drawing for the whole
+        // export was made while something in them was still coming (a
+        // dither, a keying) - and kept so, on every frame.
+        if (pass > 0) _forgetStillPictures();
         renderFrame(project, globalFrame);
         while (busy) {
           if (DateTime.now().difference(started) > limit) return;

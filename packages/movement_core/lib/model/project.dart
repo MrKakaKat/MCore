@@ -2176,6 +2176,22 @@ class LayerFilters {
   /// plain distance.
   bool ditherPerceptual = false;
 
+  /// 'duo' mode: the brightness laid from `ditherDark` to `ditherLight`;
+  /// `ditherColorize` from the picture's own colours (0) to those two (1).
+  String ditherDark = '#000000';
+  String ditherLight = '#ffffff';
+  double ditherColorize = 1;
+
+  /// Brightness turned over before dithering (0..1).
+  double ditherInvert = 0;
+
+  /// Every other row of dots darker, like a screen (0..1).
+  double ditherScanlines = 0;
+
+  /// Opacity below 100% leaves dots out (by the pattern) instead of
+  /// blending.
+  bool ditherStipple = false;
+
   /// The pattern passes the error on (worked out on the processor), not
   /// an ordered one (drawn by the graphics chip).
   bool get ditherDiffuses => ditherDiffusion.contains(ditherPattern);
@@ -2241,7 +2257,13 @@ class LayerFilters {
         ..ditherAngle = ditherAngle
         ..ditherBleed = ditherBleed
         ..ditherSerpentine = ditherSerpentine
-        ..ditherPerceptual = ditherPerceptual;
+        ..ditherPerceptual = ditherPerceptual
+        ..ditherDark = ditherDark
+        ..ditherLight = ditherLight
+        ..ditherColorize = ditherColorize
+        ..ditherInvert = ditherInvert
+        ..ditherScanlines = ditherScanlines
+        ..ditherStipple = ditherStipple;
 
   Map<String, dynamic> toJson() => {
         'negative': trackToJson(negative),
@@ -2282,6 +2304,12 @@ class LayerFilters {
           'ditherBleed': ditherBleed,
           'ditherSerpentine': ditherSerpentine,
           'ditherPerceptual': ditherPerceptual,
+          'ditherDark': ditherDark,
+          'ditherLight': ditherLight,
+          'ditherColorize': ditherColorize,
+          'ditherInvert': ditherInvert,
+          'ditherScanlines': ditherScanlines,
+          'ditherStipple': ditherStipple,
         },
       };
 
@@ -2329,7 +2357,13 @@ class LayerFilters {
       ..ditherAngle = n(j['ditherAngle'], 0)
       ..ditherBleed = n(j['ditherBleed'], 1)
       ..ditherSerpentine = j['ditherSerpentine'] as bool? ?? true
-      ..ditherPerceptual = j['ditherPerceptual'] as bool? ?? false;
+      ..ditherPerceptual = j['ditherPerceptual'] as bool? ?? false
+      ..ditherDark = j['ditherDark'] as String? ?? '#000000'
+      ..ditherLight = j['ditherLight'] as String? ?? '#ffffff'
+      ..ditherColorize = n(j['ditherColorize'], 1)
+      ..ditherInvert = n(j['ditherInvert'], 0)
+      ..ditherScanlines = n(j['ditherScanlines'], 0)
+      ..ditherStipple = j['ditherStipple'] as bool? ?? false;
   }
 }
 

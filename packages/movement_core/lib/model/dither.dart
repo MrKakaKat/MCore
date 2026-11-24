@@ -23,15 +23,29 @@ Uint8List errorDiffuse(
   double bleed = 1,
   bool serpentine = true,
   bool perceptual = false,
+  List<int> dark = const [0, 0, 0],
+  List<int> light = const [255, 255, 255],
+  double colorize = 1,
+  double invert = 0,
+  double scanlines = 0,
+  double? stippleOpacity,
 }) {
   final k = _kernels[kernel] ?? _kernels['floyd']!;
+  final k2 = k;
   final n = math.max(1, levels - 1);
   // working values (with the errors added), 0..255 floats.
   final r = Float32List(w * h), g = Float32List(w * h), b = Float32List(w * h);
+  final inv = invert.clamp(0.0, 1.0);
   for (var i = 0; i < w * h; i++) {
-    r[i] = rgba[i * 4].toDouble();
-    g[i] = rgba[i * 4 + 1].toDouble();
-    b[i] = rgba[i * 4 + 2].toDouble();
+    var vr = rgba[i * 4].toDouble(), vg = rgba[i * 4 + 1].toDouble(), vb = rgba[i * 4 + 2].toDouble();
+    if (inv > 0) {
+      vr += (255 - 2 * vr) * inv;
+      vg += (255 - 2 * vg) * inv;
+      vb += (255 - 2 * vb) * inv;
+    }
+    r[i] = vr;
+    g[i] = vg;
+    b[i] = vb;
   }
   final out = Uint8List.fromList(rgba);
   final wr = perceptual ? 0.299 : 1.0, wg = perceptual ? 0.587 : 1.0, wb = perceptual ? 0.114 : 1.0;
@@ -57,6 +71,32 @@ Uint8List errorDiffuse(
         qr = best[0].toDouble();
         qg = best[1].toDouble();
         qb = best[2].toDouble();
+      } else if (mode == 'duo') {
+        // the brightness in steps, laid between the two colours; the
+        // picture's own colours kept as much as `colorize` leaves.
+        final l = 0.299 * cr + 0.587 * cg + 0.114 * cb;
+        final q = (l / 255 * n).roundToDouble() / n;
+        final k = colorize.clamp(0.0, 1.0);
+        final keep = l > 0.5 ? q * 255 / l : 0.0;
+        qr = cr * keep * (1 - k) + (dark[0] + (light[0] - dark[0]) * q) * k;
+        qg = cg * keep * (1 - k) + (dark[1] + (light[1] - dark[1]) * q) * k;
+        qb = cb * keep * (1 - k) + (dark[2] + (light[2] - dark[2]) * q) * k;
+        // the error is the brightness's (what was rounded).
+        final e = (l - q * 255) * bleed;
+        out[i * 4] = qr.round().clamp(0, 255);
+        out[i * 4 + 1] = qg.round().clamp(0, 255);
+        out[i * 4 + 2] = qb.round().clamp(0, 255);
+        for (final (dx, dy, wgt) in k2.taps) {
+          final nx = back ? x - dx : x + dx, ny = y + dy;
+          if (nx < 0 || nx >= w || ny >= h) continue;
+          final j = ny * w + nx;
+          if (rgba[j * 4 + 3] == 0) continue;
+          final f = wgt / k2.sum;
+          r[j] += e * f;
+          g[j] += e * f;
+          b[j] += e * f;
+        }
+        continue;
       } else if (mode == 'mono') {
         final l = 0.299 * cr + 0.587 * cg + 0.114 * cb;
         qr = qg = qb = (l / 255 * n).roundToDouble() / n * 255;
@@ -90,7 +130,47 @@ Uint8List errorDiffuse(
       }
     }
   }
+  // screen rows: every other one darker.
+  if (scanlines > 0) {
+    final keep = 1 - 0.45 * scanlines.clamp(0.0, 1.0);
+    for (var y = 1; y < h; y += 2) {
+      for (var x = 0; x < w; x++) {
+        final i = (y * w + x) * 4;
+        out[i] = (out[i] * keep).round();
+        out[i + 1] = (out[i + 1] * keep).round();
+        out[i + 2] = (out[i + 2] * keep).round();
+      }
+    }
+  }
+  // opacity as dots: where the 8x8 grid is above it, the plain picture.
+  final so = stippleOpacity;
+  if (so != null && so < 1) {
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (bayer8(x, y) < so) continue;
+        final i = (y * w + x) * 4;
+        out[i] = rgba[i];
+        out[i + 1] = rgba[i + 1];
+        out[i + 2] = rgba[i + 2];
+      }
+    }
+  }
   return out;
+}
+
+/// The 8x8 ordered threshold at (x, y), 0..1.
+double bayer8(int x, int y) {
+  var v = 0;
+  for (var bit = 0; bit < 3; bit++) {
+    final xb = (x >> bit) & 1, yb = (y >> bit) & 1;
+    v = (v << 2) | (((xb ^ yb) << 1) | yb);
+  }
+  // (bits interleaved from the coarsest down: reverse the order)
+  var r = 0;
+  for (var i = 0; i < 3; i++) {
+    r = (r << 2) | ((v >> (i * 2)) & 3);
+  }
+  return (r + 0.5) / 64;
 }
 
 class _Kernel {

@@ -56,4 +56,28 @@ void main() {
         ['atkinson', 0.4, 30.0, 0.7, false, true]);
     expect(b.ditherDiffuses, isTrue);
   });
+
+  test('two colours: the brightness laid between them; invert turns it over', () {
+    final out = errorDiffuse(grey(16, 16, 128), 16, 16, kernel: 'floyd', mode: 'duo', dark: [128, 0, 0], light: [255, 255, 0]);
+    for (var i = 0; i < 256; i++) {
+      expect([out[i * 4], out[i * 4 + 1], out[i * 4 + 2]], anyOf(equals([128, 0, 0]), equals([255, 255, 0])));
+    }
+    final dark = errorDiffuse(grey(8, 8, 230), 8, 8, kernel: 'floyd', mode: 'duo', invert: 1);
+    var black = 0;
+    for (var i = 0; i < 64; i++) {
+      if (dark[i * 4] == 0) black++;
+    }
+    expect(black, greaterThan(48), reason: 'a light grey turned over: mostly dark');
+  });
+
+  test('the 8x8 grid has every step once; opacity as dots keeps that share dithered', () {
+    expect({for (var y = 0; y < 8; y++) for (var x = 0; x < 8; x++) (bayer8(x, y) * 64).floor()}.length, 64);
+    final src = grey(16, 16, 128);
+    final out = errorDiffuse(src, 16, 16, kernel: 'floyd', stippleOpacity: 0.25);
+    var untouched = 0;
+    for (var i = 0; i < 256; i++) {
+      if (out[i * 4] == 128) untouched++;
+    }
+    expect(untouched, 192);
+  });
 }

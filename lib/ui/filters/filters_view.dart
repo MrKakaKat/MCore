@@ -285,15 +285,67 @@ class FiltersView extends StatelessWidget {
                 segments: const [
                   ButtonSegment(value: 'levels', label: Text('Levels')),
                   ButtonSegment(value: 'mono', label: Text('Greys')),
+                  ButtonSegment(value: 'duo', label: Text('Two')),
                   ButtonSegment(value: 'palette', label: Text('Palette')),
                 ],
                 selected: {f.ditherMode},
                 onSelectionChanged: (v) => edit(() => f.ditherMode = v.first),
               ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const ValueKey('filter-dither-retro'),
+                  icon: const Icon(Icons.tv, size: 18),
+                  label: const Text('Retro look'),
+                  // a starting point: two colours keeping a touch of the
+                  // picture's own, 2 px dots, a quarter of the dots left out.
+                  onPressed: () => edit(() => f
+                    ..ditherMode = 'duo'
+                    ..ditherLevels = 5
+                    ..ditherPattern = 'bayer4'
+                    ..ditherDot = 2
+                    ..ditherColorize = 0.1
+                    ..ditherDark = '#000000'
+                    ..ditherLight = '#ffffff'
+                    ..ditherOpacity = 0.75
+                    ..ditherStipple = true
+                    ..ditherInvert = 0
+                    ..ditherScanlines = 0),
+                ),
+              ),
+              if (f.ditherMode == 'duo') ...[
+                ColorRow(
+                    key: const ValueKey('filter-dither-dark'),
+                    label: 'Dark',
+                    hex: f.ditherDark,
+                    onPick: (c) => edit(() => f.ditherDark = c)),
+                ColorRow(
+                    key: const ValueKey('filter-dither-light'),
+                    label: 'Light',
+                    hex: f.ditherLight,
+                    onPick: (c) => edit(() => f.ditherLight = c)),
+                number('filter-dither-colorize', 'Its own colours ↔ these two', f.ditherColorize * 100, 0, 100,
+                    (v) => f.ditherColorize = v / 100,
+                    suffix: '%'),
+              ],
               if (f.ditherMode != 'palette')
-                number('filter-dither-levels', f.ditherMode == 'mono' ? 'Greys' : 'Steps per colour', f.ditherLevels.toDouble(),
+                number('filter-dither-levels', f.ditherMode == 'mono' ? 'Greys' : f.ditherMode == 'duo' ? 'Steps' : 'Steps per colour', f.ditherLevels.toDouble(),
                     2, 32, (v) => f.ditherLevels = v.round()),
               number('filter-dither-opacity', 'Opacity', f.ditherOpacity * 100, 0, 100, (v) => f.ditherOpacity = v / 100,
+                  suffix: '%'),
+              SwitchListTile(
+                key: const ValueKey('filter-dither-stipple'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Opacity as dots'),
+                subtitle: hint('Below 100%: a share of the dots left out (by the grid) instead of a blend.'),
+                value: f.ditherStipple,
+                onChanged: (v) => edit(() => f.ditherStipple = v),
+              ),
+              number('filter-dither-invert', 'Invert', f.ditherInvert * 100, 0, 100, (v) => f.ditherInvert = v / 100,
+                  suffix: '%'),
+              number('filter-dither-scanlines', 'Scanlines', f.ditherScanlines * 100, 0, 100,
+                  (v) => f.ditherScanlines = v / 100,
                   suffix: '%'),
               const SizedBox(height: 6),
               const Text('Ordered (a pattern over the picture)', style: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -304,7 +356,8 @@ class FiltersView extends StatelessWidget {
                   ('bayer8', 'Grid 8'),
                   ('halftone', 'Halftone'),
                   ('lines', 'Lines'),
-                  ('diagonal', 'Diagonal'),
+                  ('diagonal', 'Hatch'),
+                  ('dash', 'Dash'),
                   ('bluenoise', 'Blue noise'),
                   ('noise', 'Noise'),
                   ('none', 'None'),
