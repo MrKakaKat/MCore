@@ -389,21 +389,22 @@ void main() {
     expect(counts[2] / (160 * 60), closeTo(0.25, 0.03));
   });
 
-  test('only lighter with pattern hold: a light colour keeps its pattern, never flat white', () async {
-    final l = rect('a', '#e0e0e0', 100, 50, 200)
+  test('pattern hold: a light colour keeps its pattern instead of going (nearly) flat', () async {
+    // 230 of 255 with two levels: 90% of the pixels white without it.
+    final l = rect('a', '#e6e6e6', 100, 50, 200)
       ..filters.dither = true
-      ..filters.ditherLevels = 3
-      ..filters.ditherLightenOnly = true;
+      ..filters.ditherLevels = 2;
     final r = CanvasRenderer();
     await render(Project(layers: [l]), with_: r);
     await ui.FragmentProgram.fromAsset('shaders/filter.frag');
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    List<int> reds(int Function(int, int) at) => [for (var x = 20; x < 180; x++) (at(x, 50) >> 24) & 0xff];
-    final plain = reds(await render(Project(layers: [l]), with_: r));
-    expect(plain.where((v) => v == 255), isNotEmpty);
+    double white(int Function(int, int) at) {
+      final v = [for (var y = 20; y < 80; y++) for (var x = 20; x < 180; x++) (at(x, y) >> 24) & 0xff];
+      return v.where((e) => e == 255).length / v.length;
+    }
+
+    expect(white(await render(Project(layers: [l]), with_: r)), greaterThan(0.85));
     l.filters.ditherHold = 1;
-    final held = reds(await render(Project(layers: [l]), with_: r));
-    expect(held.every((v) => v < 255), isTrue);
-    expect(held.toSet().length, greaterThan(1));
+    expect(white(await render(Project(layers: [l]), with_: r)), closeTo(0.45, 0.06));
   });
 }

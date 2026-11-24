@@ -60,6 +60,16 @@ Uint8List errorDiffuse(
       vg += (255 - 2 * vg) * inv;
       vb += (255 - 2 * vb) * inv;
     }
+    // pattern hold: the top step pressed down before anything is rounded
+    // (and the errors reckoned from that - else they'd bring it back).
+    if (hold > 0) {
+      final n0 = math.max(1, levels - 1);
+      final top = (n0 - 1) / n0 * 255, k = 1 - 0.5 * hold.clamp(0.0, 1.0);
+      double press(double v) => v > top ? top + (v - top) * k : v;
+      vr = press(vr);
+      vg = press(vg);
+      vb = press(vb);
+    }
     r[i] = vr;
     g[i] = vg;
     b[i] = vb;
@@ -178,10 +188,8 @@ Uint8List errorDiffuse(
         // (the colour the pixel had, inverted if asked - before errors)
         var o = rgba[i * 4 + c].toDouble();
         if (inv > 0) o += (255 - 2 * o) * inv;
-        final d = (out[i * 4 + c] - o).abs();
-        // (hold: lightened by the share of the room left below white)
-        final room = 1 - hold.clamp(0.0, 1.0) * (o / 255);
-        out[i * 4 + c] = (o + d * room).round().clamp(0, 255);
+        final d = out[i * 4 + c] - o;
+        out[i * 4 + c] = (o + d.abs()).round().clamp(0, 255);
       }
     }
   }

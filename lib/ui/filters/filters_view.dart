@@ -438,12 +438,11 @@ class FiltersView extends StatelessWidget {
                 value: f.ditherLightenOnly,
                 onChanged: (v) => edit(() => f.ditherLightenOnly = v),
               ),
-              if (f.ditherLightenOnly)
-                number('filter-dither-hold', 'Pattern hold', f.ditherHold * 100, 0, 100, (v) => f.ditherHold = v / 100,
-                    suffix: '%'),
-              if (f.ditherLightenOnly)
-                const Hint('Pattern hold: light parts lightened only by the room left below white - they don\'t go '
-                    'flat white, the pattern stays.'),
+
+              number('filter-dither-hold', 'Pattern hold', f.ditherHold * 100, 0, 100, (v) => f.ditherHold = v / 100,
+                  suffix: '%'),
+              const Hint('Pattern hold: the light parts keep the pattern instead of going flat - the top step is '
+                  'pressed down (at 100% white lies halfway between the two top levels).'),
               number('filter-dither-squeeze', 'Squeeze toward middle', f.ditherSqueeze * 100, 0, 100,
                   (v) => f.ditherSqueeze = v / 100,
                   suffix: '%'),

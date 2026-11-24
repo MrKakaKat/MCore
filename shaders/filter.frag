@@ -49,9 +49,8 @@ uniform float uSoft;
 uniform float uLighten;
 // brightness squeezed toward the middle before dithering (0..1)
 uniform float uSqueeze;
-// only lighter: how much the lightening keeps to the room left below white
-// (0: added, may reach white; 1: like screen - never does, the pattern
-// stays to the brightest)
+// pattern hold: the top step squeezed so the light parts keep the
+// pattern (1: white lands halfway between the two top levels)
 uniform float uHold;
 uniform sampler2D uImage;
 
@@ -150,6 +149,9 @@ vec2 ditherCell(vec2 pos) {
 // jump at the threshold `th`, or (soft) a blend around it.
 float quant(float x, float n, float th) {
   x = clamp(x, 0.0, n);
+  // the light end: the top step pressed down - the pattern doesn't run
+  // out into flat white
+  if (x > n - 1.0) x = (n - 1.0) + (x - (n - 1.0)) * (1.0 - 0.5 * clamp(uHold, 0.0, 1.0));
   float b = floor(x);
   float fr = x - b;
   float s = clamp(uSoft, 0.0, 1.0);
@@ -220,11 +222,7 @@ vec3 dither(vec3 c0, vec2 pos) {
   } else {
     res = vec3(quant(c.r * n, n, th), quant(c.g * n, n, th), quant(c.b * n, n, th)) / n;
   }
-  if (uLighten > 0.5) {
-    vec3 d = abs(res - c);
-    float h = clamp(uHold, 0.0, 1.0);
-    res = clamp(c + d * mix(vec3(1.0), vec3(1.0) - c, h), 0.0, 1.0);
-  }
+  if (uLighten > 0.5) res = clamp(c + abs(res - c), 0.0, 1.0);
   // screen rows: every other row of dots darker
   res *= 1.0 - clamp(uScanlines, 0.0, 1.0) * 0.45 * mod(cell.y, 2.0);
   return res;

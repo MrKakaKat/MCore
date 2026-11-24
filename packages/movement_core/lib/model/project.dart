@@ -2206,9 +2206,9 @@ class LayerFilters {
   /// 0.4 is RetroDither's contrast 0.6) - for the dither only.
   double ditherSqueeze = 0;
 
-  /// Only lighter: how much the lightening keeps to the room left below
-  /// white (0: added - light parts may go flat white; 1: never reaches
-  /// it, the pattern stays to the brightest).
+  /// Pattern hold (0..1): the top step of brightness pressed down so light
+  /// parts keep the pattern instead of going flat (1: white lands halfway
+  /// between the two top levels).
   double ditherHold = 0;
 
   /// The pattern passes the error on (worked out on the processor), not
