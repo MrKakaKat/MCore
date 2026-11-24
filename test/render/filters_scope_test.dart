@@ -265,4 +265,37 @@ void main() {
     expect(back.mosaic.defaultValue, 12.0);
     expect([back.dither, back.ditherMode, back.ditherPalette], [true, 'palette', ['#112233', '#445566', '#778899']]);
   });
+
+  test('error diffusion (Floyd-Steinberg): an export frame comes out in the two levels, about half each', () async {
+    final l = rect('a', '#808080', 100, 50, 200)
+      ..filters.dither = true
+      ..filters.ditherLevels = 2
+      ..filters.ditherPattern = 'floyd';
+    final r = CanvasRenderer()..setSize(200, 100);
+    r.backgroundColor = null;
+    final p = Project(layers: [l]);
+    await ui.FragmentProgram.fromAsset('shaders/filter.frag');
+    r.renderFrame(p, 0); // loads the shader
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    r.beginExportReuse(p);
+    await r.prepareFrame(p, 0);
+    r.renderFrame(p, 0);
+    final img = await r.captureFrame();
+    r.endExportReuse();
+    final b = (await img.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+    final reds = <int>[for (var y = 20; y < 80; y++) for (var x = 20; x < 180; x++) b.getUint8((y * 200 + x) * 4)];
+    expect(reds.toSet().difference({0, 255}), isEmpty);
+    final white = reds.where((v) => v == 255).length / reds.length;
+    expect(white, closeTo(0.5, 0.08));
+    // half opacity: the plain grey shows through.
+    l.filters.ditherOpacity = 0.5;
+    r.beginExportReuse(p);
+    await r.prepareFrame(p, 0);
+    r.renderFrame(p, 0);
+    final img2 = await r.captureFrame();
+    r.endExportReuse();
+    final b2 = (await img2.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+    final mid = {for (var x = 20; x < 180; x++) b2.getUint8((50 * 200 + x) * 4)};
+    expect(mid.any((v) => v > 20 && v < 235), isTrue);
+  });
 }

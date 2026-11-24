@@ -14,6 +14,7 @@ import '../common/hint.dart';
 import '../../perf/perf_monitor.dart';
 import '../perf/perf_hud.dart';
 import '../../io/freeze_watch.dart';
+import '../../version.dart';
 
 /// Settings tab: app-wide view options.
 class SettingsView extends StatelessWidget {
@@ -28,6 +29,12 @@ class SettingsView extends StatelessWidget {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.all(8),
         children: [
+          const ListTile(
+            key: ValueKey('settings-version'),
+            dense: true,
+            leading: Icon(Icons.info_outline, size: 20),
+            title: Text('MCore $appVersion'),
+          ),
           ListTile(
             dense: true,
             title: const Text('Frame rate'),

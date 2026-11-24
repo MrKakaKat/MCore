@@ -28,6 +28,11 @@ uniform vec3 uPal4;
 uniform vec3 uPal5;
 uniform vec3 uPal6;
 uniform vec3 uPal7;
+// how much of the dither shows (0..1), the pattern's turn (radians), the
+// eye's weights for the nearest colour (0/1)
+uniform float uOpacity;
+uniform float uAngle;
+uniform float uPerceptual;
 uniform sampler2D uImage;
 
 out vec4 fragColor;
@@ -68,11 +73,23 @@ float threshold(vec2 cell) {
   if (uPattern < 1.5) return bayer2(cell);
   if (uPattern < 2.5) return bayer4(cell);
   if (uPattern < 3.5) return bayer8(cell);
-  return hash(cell);
+  if (uPattern < 4.5) return hash(cell);
+  // round dots growing from the middle of each 4x4 tile (halftone)
+  if (uPattern < 5.5) return clamp(length(fract(cell / 4.0) - 0.5) * 1.4142, 0.0, 1.0);
+  if (uPattern < 6.5) return fract((cell.y + 0.5) / 4.0);
+  if (uPattern < 7.5) return fract((cell.x + cell.y + 0.5) / 4.0);
+  // even noise without clumps (interleaved gradient noise)
+  return fract(52.9829189 * fract(0.06711056 * cell.x + 0.00583715 * cell.y));
+}
+
+float dist(vec3 a, vec3 b) {
+  vec3 d = a - b;
+  vec3 w = uPerceptual > 0.5 ? vec3(0.299, 0.587, 0.114) : vec3(1.0);
+  return dot(d * d, w);
 }
 
 vec3 nearest(vec3 c, vec3 p, vec3 best) {
-  return distance(c, p) < distance(c, best) ? p : best;
+  return dist(c, p) < dist(c, best) ? p : best;
 }
 
 vec3 palette(vec3 c) {
@@ -89,7 +106,10 @@ vec3 palette(vec3 c) {
 
 vec3 dither(vec3 c, vec2 pos) {
   float cellPx = uMosaic > 1.0 ? uMosaic : max(uDot, 1.0);
-  float t = threshold(floor(pos / cellPx)) - 0.5;
+  // the pattern turned (about the frame's corner)
+  vec2 rp = vec2(cos(uAngle) * pos.x - sin(uAngle) * pos.y, sin(uAngle) * pos.x + cos(uAngle) * pos.y);
+  // (with a mosaic, the cell's own middle: one value per cell)
+  float t = threshold(floor((uMosaic > 1.0 ? (floor(pos / uMosaic) + 0.5) * uMosaic : rp) / cellPx)) - 0.5;
   if (uMode > 1.5) {
     // the step between palette colours: about one over their count.
     float step = 1.0 / max(uPalCount - 1.0, 1.0);
@@ -114,7 +134,7 @@ void main() {
   vec4 c = texture(uImage, uv);
   if (c.a > 0.0) {
     vec3 rgb = pow(max(c.rgb / c.a, vec3(0.0)), uGamma);
-    if (uDither > 0.5) rgb = dither(rgb, FlutterFragCoord().xy);
+    if (uDither > 0.5) rgb = mix(rgb, dither(rgb, FlutterFragCoord().xy), clamp(uOpacity, 0.0, 1.0));
     c = vec4(rgb * c.a, c.a);
   }
   fragColor = c;

@@ -2151,8 +2151,36 @@ class LayerFilters {
   String ditherMode = 'levels';
   int ditherLevels = 4;
 
-  /// 'bayer2' | 'bayer4' | 'bayer8' (an ordered grid), 'noise', 'none'.
+  /// Ordered (a pattern over the picture): 'bayer2' | 'bayer4' |
+  /// 'bayer8' (grids), 'halftone' (round dots), 'lines', 'diagonal',
+  /// 'bluenoise', 'noise', 'none'. Error diffusion (each pixel's rounding
+  /// error passed on to the ones after it): 'floyd' (Floyd-Steinberg),
+  /// 'atkinson', 'jarvis' (Jarvis-Judice-Ninke), 'stucki', 'burkes',
+  /// 'sierra', 'sierralite'.
   String ditherPattern = 'bayer4';
+
+  /// How much of the dithered picture shows over the plain one (0..1).
+  double ditherOpacity = 1;
+
+  /// Ordered patterns: turned by this many degrees.
+  double ditherAngle = 0;
+
+  /// Error diffusion: how much of the error is passed on (0..1.5).
+  double ditherBleed = 1;
+
+  /// Error diffusion: every other row right to left (no drift to one
+  /// side).
+  bool ditherSerpentine = true;
+
+  /// Nearest colour as the eye sees it (green counts most) instead of
+  /// plain distance.
+  bool ditherPerceptual = false;
+
+  /// The pattern passes the error on (worked out on the processor), not
+  /// an ordered one (drawn by the graphics chip).
+  bool get ditherDiffuses => ditherDiffusion.contains(ditherPattern);
+
+  static const ditherDiffusion = {'floyd', 'atkinson', 'jarvis', 'stucki', 'burkes', 'sierra', 'sierralite'};
 
   /// How much the pattern breaks the steps (0..1; above 1 rougher).
   double ditherSpread = 1;
@@ -2208,7 +2236,12 @@ class LayerFilters {
         ..ditherPattern = ditherPattern
         ..ditherSpread = ditherSpread
         ..ditherDot = ditherDot
-        ..ditherPalette = [...ditherPalette];
+        ..ditherPalette = [...ditherPalette]
+        ..ditherOpacity = ditherOpacity
+        ..ditherAngle = ditherAngle
+        ..ditherBleed = ditherBleed
+        ..ditherSerpentine = ditherSerpentine
+        ..ditherPerceptual = ditherPerceptual;
 
   Map<String, dynamic> toJson() => {
         'negative': trackToJson(negative),
@@ -2244,6 +2277,11 @@ class LayerFilters {
           'ditherSpread': ditherSpread,
           'ditherDot': ditherDot,
           'ditherPalette': ditherPalette,
+          'ditherOpacity': ditherOpacity,
+          'ditherAngle': ditherAngle,
+          'ditherBleed': ditherBleed,
+          'ditherSerpentine': ditherSerpentine,
+          'ditherPerceptual': ditherPerceptual,
         },
       };
 
@@ -2286,7 +2324,12 @@ class LayerFilters {
       ..ditherDot = n(j['ditherDot'], 1)
       ..ditherPalette = j['ditherPalette'] is List
           ? [for (final c in j['ditherPalette'] as List) '$c']
-          : ['#0f380f', '#306230', '#8bac0f', '#9bbc0f'];
+          : ['#0f380f', '#306230', '#8bac0f', '#9bbc0f']
+      ..ditherOpacity = n(j['ditherOpacity'], 1)
+      ..ditherAngle = n(j['ditherAngle'], 0)
+      ..ditherBleed = n(j['ditherBleed'], 1)
+      ..ditherSerpentine = j['ditherSerpentine'] as bool? ?? true
+      ..ditherPerceptual = j['ditherPerceptual'] as bool? ?? false;
   }
 }
 

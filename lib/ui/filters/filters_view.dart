@@ -293,12 +293,19 @@ class FiltersView extends StatelessWidget {
               if (f.ditherMode != 'palette')
                 number('filter-dither-levels', f.ditherMode == 'mono' ? 'Greys' : 'Steps per colour', f.ditherLevels.toDouble(),
                     2, 32, (v) => f.ditherLevels = v.round()),
-              const SizedBox(height: 4),
+              number('filter-dither-opacity', 'Opacity', f.ditherOpacity * 100, 0, 100, (v) => f.ditherOpacity = v / 100,
+                  suffix: '%'),
+              const SizedBox(height: 6),
+              const Text('Ordered (a pattern over the picture)', style: TextStyle(fontSize: 12, color: Colors.grey)),
               SingleChildScrollView(scrollDirection: Axis.horizontal, child: Wrap(spacing: 6, children: [
                 for (final (k, name) in const [
                   ('bayer2', 'Grid 2'),
                   ('bayer4', 'Grid 4'),
                   ('bayer8', 'Grid 8'),
+                  ('halftone', 'Halftone'),
+                  ('lines', 'Lines'),
+                  ('diagonal', 'Diagonal'),
+                  ('bluenoise', 'Blue noise'),
                   ('noise', 'Noise'),
                   ('none', 'None'),
                 ])
@@ -309,8 +316,44 @@ class FiltersView extends StatelessWidget {
                     onSelected: (_) => edit(() => f.ditherPattern = k),
                   ),
               ])),
-              number('filter-dither-spread', 'Pattern strength', f.ditherSpread * 100, 0, 200, (v) => f.ditherSpread = v / 100,
-                  suffix: '%'),
+              const Text('Error diffusion (retro)', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              SingleChildScrollView(scrollDirection: Axis.horizontal, child: Wrap(spacing: 6, children: [
+                for (final (k, name) in const [
+                  ('floyd', 'Floyd-Steinberg'),
+                  ('atkinson', 'Atkinson'),
+                  ('jarvis', 'Jarvis'),
+                  ('stucki', 'Stucki'),
+                  ('burkes', 'Burkes'),
+                  ('sierra', 'Sierra'),
+                  ('sierralite', 'Sierra Lite'),
+                ])
+                  ChoiceChip(
+                    key: ValueKey('filter-dither-$k'),
+                    label: Text(name),
+                    selected: f.ditherPattern == k,
+                    onSelected: (_) => edit(() => f.ditherPattern = k),
+                  ),
+              ])),
+              if (!f.ditherDiffuses) ...[
+                number('filter-dither-spread', 'Pattern strength', f.ditherSpread * 100, 0, 200,
+                    (v) => f.ditherSpread = v / 100,
+                    suffix: '%'),
+                number('filter-dither-angle', 'Pattern angle', f.ditherAngle, -90, 90, (v) => f.ditherAngle = v, suffix: '°'),
+              ] else ...[
+                number('filter-dither-bleed', 'Error passed on', f.ditherBleed * 100, 0, 150, (v) => f.ditherBleed = v / 100,
+                    suffix: '%'),
+                SwitchListTile(
+                  key: const ValueKey('filter-dither-serpentine'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Back and forth'),
+                  subtitle: hint('Every other row right to left: no drift to one side.'),
+                  value: f.ditherSerpentine,
+                  onChanged: (v) => edit(() => f.ditherSerpentine = v),
+                ),
+                const Hint('Worked out on the side: the stage shows it a moment after a change, and a grid stands in '
+                    'while playing. Export waits for it on every frame.'),
+              ],
               number('filter-dither-dot', 'Pattern dot', f.ditherDot, 1, 64, (v) => f.ditherDot = v.roundToDouble(),
                   suffix: ' px'),
               const Hint('The dot is the mosaic\'s cell when a mosaic is on.'),
@@ -328,6 +371,15 @@ class FiltersView extends StatelessWidget {
                       onPressed: () => edit(() => f.ditherPalette = [...colours]),
                     ),
                 ])),
+                SwitchListTile(
+                  key: const ValueKey('filter-dither-perceptual'),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Nearest as the eye sees'),
+                  subtitle: hint('Green counts most, blue least - skin and greens land on truer colours.'),
+                  value: f.ditherPerceptual,
+                  onChanged: (v) => edit(() => f.ditherPerceptual = v),
+                ),
                 for (var i = 0; i < f.ditherPalette.length; i++)
                   Row(children: [
                     Expanded(

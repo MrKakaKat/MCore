@@ -121,6 +121,7 @@ class CanvasRenderer implements Renderer {
   final Map<String, int> notifyCounts = {};
 
   void _notify(String why) {
+    notifyTotal++;
     notifyCounts[why] = (notifyCounts[why] ?? 0) + 1;
     onImageDecoded?.call();
   }
@@ -1044,6 +1045,10 @@ class CanvasRenderer implements Renderer {
     _refRenderers.clear();
     _reading.clear();
     _refPictures.clear();
+    for (final d in _diffused.values) {
+      d.image.dispose();
+    }
+    _diffused.clear();
     _disposeNow();
   }
 
@@ -1872,6 +1877,9 @@ class CanvasRenderer implements Renderer {
     if (warp != 0 || f.gamma.any((v) => v != 0) || mosaic > 1 || f.dither) {
       p = _shaderPass(p, warp, f, globalFrame, mosaic: mosaic) ?? p;
     }
+    if (f.dither && f.ditherDiffuses && !_diffusePreview) {
+      p = _diffusePass(p, layer, f, mosaic) ?? p;
+    }
     final paint = ui.Paint();
     if (neg > 0 || f.graded) {
       final lin = liftGainLinear(f);
@@ -2059,13 +2067,29 @@ class CanvasRenderer implements Renderer {
     final layerMosaic = mosaic * px;
     shader
       ..setFloat(8, layerMosaic)
-      ..setFloat(9, f.dither ? 1 : 0)
+      // (error diffusion is done after, on the processor - while playing,
+      // an ordered grid stands in for it)
+      ..setFloat(9, f.dither && (!f.ditherDiffuses || _diffusePreview) ? 1 : 0)
       ..setFloat(10, switch (f.ditherMode) { 'mono' => 1, 'palette' => 2, _ => 0 })
       ..setFloat(11, f.ditherLevels.clamp(2, 64).toDouble())
-      ..setFloat(12, switch (f.ditherPattern) { 'none' => 0, 'bayer2' => 1, 'bayer8' => 3, 'noise' => 4, _ => 2 })
+      ..setFloat(12, switch (f.ditherPattern) {
+        'none' => 0,
+        'bayer2' => 1,
+        'bayer8' => 3,
+        'noise' => 4,
+        'halftone' => 5,
+        'lines' => 6,
+        'diagonal' => 7,
+        'bluenoise' => 8,
+        _ => 2, // bayer4, and error diffusion's stand-in
+      })
       ..setFloat(13, f.ditherSpread)
       ..setFloat(14, math.max(1.0, f.ditherDot * px))
       ..setFloat(15, f.ditherPalette.length.clamp(2, 8).toDouble());
+    shader
+      ..setFloat(40, f.ditherOpacity)
+      ..setFloat(41, f.ditherAngle * math.pi / 180)
+      ..setFloat(42, f.ditherPerceptual ? 1 : 0);
     for (var i = 0; i < 8; i++) {
       final hex = f.ditherPalette.isEmpty ? '#000000' : f.ditherPalette[math.min(i, f.ditherPalette.length - 1)];
       final c = parseRgbHex(hex) ?? const [0, 0, 0];
@@ -2082,6 +2106,94 @@ class CanvasRenderer implements Renderer {
     final rec2 = ui.PictureRecorder();
     ui.Canvas(rec2).drawImage(out, ui.Offset.zero, ui.Paint());
     return rec2.endRecording();
+  }
+
+  /// Playing on the stage: error diffusion (worked out on the side, a
+  /// step behind) gives way to an ordered grid.
+  bool get _diffusePreview => maxBlurSamples != null && !_exporting;
+
+  /// The latest error-diffused picture per layer, with what it was made
+  /// from (its source's fingerprint, the settings).
+  final Map<String, ({int hash, String sig, ui.Image image})> _diffused = {};
+  final Set<String> _diffusing = {};
+
+  /// Every notice of something new, all renderers together (an export
+  /// frame is ready when none comes while it is being drawn).
+  static int notifyTotal = 0;
+
+  /// (Only these go to the other thread - a closure inside the renderer
+  /// took the pictures around it along, which can't be sent.)
+  static Future<Uint8List> _diffuseOffThread(Uint8List bytes, int w, int h, String kernel, String mode, int levels,
+          List<List<int>> palette, double bleed, bool serp, bool perc) =>
+      Isolate.run(() => errorDiffuse(bytes, w, h,
+          kernel: kernel, mode: mode, levels: levels, palette: palette, bleed: bleed, serpentine: serp, perceptual: perc));
+
+  /// `p` with its colours error-diffused: worked out on the side on the
+  /// dither's grid (one cell per dot), drawn from the last result - null
+  /// until there is one for these settings.
+  ui.Picture? _diffusePass(ui.Picture p, Layer layer, LayerFilters f, double mosaic) {
+    final px = _width / stageSize.width;
+    final dot = math.max(1.0, (mosaic > 1 ? mosaic : f.ditherDot) * px);
+    final gw = math.max(1, (_width / dot).ceil()), gh = math.max(1, (_height / dot).ceil());
+    final sig = jsonEncode([
+      f.ditherPattern, f.ditherMode, f.ditherLevels, f.ditherBleed, f.ditherSerpentine, f.ditherPerceptual, //
+      f.ditherPalette, gw, gh,
+    ]);
+    final id = layer.id;
+    if (!_diffusing.contains(id)) {
+      final rec = ui.PictureRecorder();
+      ui.Canvas(rec)
+        ..scale(gw / _width, gh / _height)
+        ..drawPicture(p);
+      final small = rec.endRecording().toImageSync(gw, gh);
+      _diffusing.add(id);
+      final mode = f.ditherMode, levels = f.ditherLevels, kernel = f.ditherPattern, bleed = f.ditherBleed;
+      final serp = f.ditherSerpentine, perc = f.ditherPerceptual;
+      final palette = [for (final h in f.ditherPalette) parseRgbHex(h) ?? const [0, 0, 0]];
+      () async {
+        try {
+          final data = await small.toByteData(format: ui.ImageByteFormat.rawStraightRgba);
+          if (data == null) return;
+          final bytes = data.buffer.asUint8List();
+          // the same source and settings as last time: nothing new.
+          var hash = sig.hashCode;
+          for (var i = 0; i < bytes.length; i += 3) {
+            hash = (hash * 31 + bytes[i]) & 0x3fffffff;
+          }
+          if (_diffused[id]?.hash == hash) return;
+          final out = await _diffuseOffThread(bytes, gw, gh, kernel, mode, levels, palette, bleed, serp, perc);
+          final img = await imageFromStraightRgba(out, gw, gh);
+          final old = _diffused[id];
+          _diffused[id] = (hash: hash, sig: sig, image: img);
+          if (old != null) _disposeLater(old.image);
+          _notify('dither');
+        } catch (e) {
+          // left plain this time.
+          assert(() {
+            // ignore: avoid_print
+            print('dither failed: $e');
+            return true;
+          }());
+        } finally {
+          small.dispose();
+          _diffusing.remove(id);
+        }
+      }();
+    }
+    final have = _diffused[id];
+    if (have == null || have.sig != sig) return null;
+    final rec = ui.PictureRecorder();
+    final c = ui.Canvas(rec);
+    final o = f.ditherOpacity.clamp(0.0, 1.0);
+    if (o < 1) c.drawPicture(p);
+    c.drawImageRect(
+        have.image,
+        ui.Rect.fromLTWH(0, 0, gw.toDouble(), gh.toDouble()),
+        ui.Rect.fromLTWH(0, 0, gw * dot, gh * dot),
+        ui.Paint()
+          ..filterQuality = ui.FilterQuality.none
+          ..color = ui.Color.fromRGBO(0, 0, 0, o));
+    return rec.endRecording();
   }
 
   /// Light wrap: the blurred light of what is under the layer, kept in a
@@ -3099,12 +3211,14 @@ class CanvasRenderer implements Renderer {
     try {
       for (var pass = 0; pass < 12; pass++) {
         FreezeWatch.at('export: frame $globalFrame, getting it ready (pass $pass)');
+        final before = notifyTotal;
         renderFrame(project, globalFrame);
-        if (!busy) return;
         while (busy) {
           if (DateTime.now().difference(started) > limit) return;
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
+        // nothing new came while it was drawn: it is as it will be.
+        if (notifyTotal == before) return;
       }
     } finally {
       _exporting = was;
@@ -3140,6 +3254,7 @@ class CanvasRenderer implements Renderer {
       _keyingInFlight.isNotEmpty ||
       _pixelsLoading.isNotEmpty ||
       contours.busy ||
+      _diffusing.isNotEmpty ||
       _refRenderers.values.any((r) => r.busy);
 
   /// This renderer's project and the ones around it, outermost first: a

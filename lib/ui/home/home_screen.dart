@@ -22,6 +22,7 @@ import '../../io/project_store.dart';
 import '../layer_panel/project_ref_ui.dart' show showUsedInDialog;
 import '../../main.dart' show EditorScreen;
 import '../../io/freeze_watch.dart';
+import '../../version.dart';
 
 /// The app's start screen: "New project" plus the list of saved projects
 /// (newest first). Opening one gives it its own AppState/EditorScreen,
@@ -163,6 +164,7 @@ class _HomeScreenState extends State<HomeScreen> {
           'layers': app.project.layers.length,
           'refs': app.project.layers.where((l) => l.content.shape == 'projectRef').length,
           'memory MB': FreezeWatch.memoryMb(),
+          'version': appVersion,
         };
     final route = Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => player ? PlayerScreen(app: app) : EditorScreen(appState: app)),
@@ -575,7 +577,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             )
-          : AppBar(title: Text(tr('Projects')), actions: [
+          : AppBar(
+              title: Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+                Text(tr('Projects')),
+                const SizedBox(width: 8),
+                const Text('v$appVersion', key: ValueKey('home-version'), style: TextStyle(fontSize: 12, color: Colors.grey)),
+              ]),
+              actions: [
         IconButton(
           key: const ValueKey('home-trash'),
           icon: const Icon(Icons.delete_outline),

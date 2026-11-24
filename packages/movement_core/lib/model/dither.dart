@@ -1,0 +1,123 @@
+import 'dart:math' as math;
+import 'dart:typed_data';
+
+/// Error-diffusion dithering (the "retro" kinds): each pixel rounded to
+/// the nearest allowed colour, the error handed on to its neighbours
+/// after it, by the kernel's weights.
+///
+/// `rgba`: straight (not premultiplied) RGBA. `mode`: 'levels' (each
+/// channel to `levels` steps), 'mono' (`levels` greys) or 'palette'
+/// (`palette`, RGB 0..255 each). Fully clear pixels are left alone and
+/// pass no error on. Returns a new buffer.
+Uint8List errorDiffuse(
+  Uint8List rgba,
+  int w,
+  int h, {
+  required String kernel,
+  String mode = 'levels',
+  int levels = 2,
+  List<List<int>> palette = const [
+    [0, 0, 0],
+    [255, 255, 255]
+  ],
+  double bleed = 1,
+  bool serpentine = true,
+  bool perceptual = false,
+}) {
+  final k = _kernels[kernel] ?? _kernels['floyd']!;
+  final n = math.max(1, levels - 1);
+  // working values (with the errors added), 0..255 floats.
+  final r = Float32List(w * h), g = Float32List(w * h), b = Float32List(w * h);
+  for (var i = 0; i < w * h; i++) {
+    r[i] = rgba[i * 4].toDouble();
+    g[i] = rgba[i * 4 + 1].toDouble();
+    b[i] = rgba[i * 4 + 2].toDouble();
+  }
+  final out = Uint8List.fromList(rgba);
+  final wr = perceptual ? 0.299 : 1.0, wg = perceptual ? 0.587 : 1.0, wb = perceptual ? 0.114 : 1.0;
+  for (var y = 0; y < h; y++) {
+    final back = serpentine && y.isOdd;
+    for (var xi = 0; xi < w; xi++) {
+      final x = back ? w - 1 - xi : xi;
+      final i = y * w + x;
+      if (rgba[i * 4 + 3] == 0) continue;
+      final cr = r[i].clamp(0.0, 255.0), cg = g[i].clamp(0.0, 255.0), cb = b[i].clamp(0.0, 255.0);
+      double qr, qg, qb;
+      if (mode == 'palette' && palette.isNotEmpty) {
+        var best = palette.first;
+        var bestD = double.infinity;
+        for (final p in palette) {
+          final dr = cr - p[0], dg = cg - p[1], db = cb - p[2];
+          final d = wr * dr * dr + wg * dg * dg + wb * db * db;
+          if (d < bestD) {
+            bestD = d;
+            best = p;
+          }
+        }
+        qr = best[0].toDouble();
+        qg = best[1].toDouble();
+        qb = best[2].toDouble();
+      } else if (mode == 'mono') {
+        final l = 0.299 * cr + 0.587 * cg + 0.114 * cb;
+        qr = qg = qb = (l / 255 * n).roundToDouble() / n * 255;
+      } else {
+        qr = (cr / 255 * n).roundToDouble() / n * 255;
+        qg = (cg / 255 * n).roundToDouble() / n * 255;
+        qb = (cb / 255 * n).roundToDouble() / n * 255;
+      }
+      out[i * 4] = qr.round();
+      out[i * 4 + 1] = qg.round();
+      out[i * 4 + 2] = qb.round();
+      // (grey: the error of the grey, on all three)
+      double er, eg, eb;
+      if (mode == 'mono') {
+        final e = (0.299 * cr + 0.587 * cg + 0.114 * cb) - qr;
+        er = eg = eb = e * bleed;
+      } else {
+        er = (cr - qr) * bleed;
+        eg = (cg - qg) * bleed;
+        eb = (cb - qb) * bleed;
+      }
+      for (final (dx, dy, wgt) in k.taps) {
+        final nx = back ? x - dx : x + dx, ny = y + dy;
+        if (nx < 0 || nx >= w || ny >= h) continue;
+        final j = ny * w + nx;
+        if (rgba[j * 4 + 3] == 0) continue;
+        final f = wgt / k.sum;
+        r[j] += er * f;
+        g[j] += eg * f;
+        b[j] += eb * f;
+      }
+    }
+  }
+  return out;
+}
+
+class _Kernel {
+  final List<(int, int, double)> taps;
+  final double sum;
+  const _Kernel(this.taps, this.sum);
+}
+
+const _kernels = <String, _Kernel>{
+  'floyd': _Kernel([(1, 0, 7), (-1, 1, 3), (0, 1, 5), (1, 1, 1)], 16),
+  // passes on only 6/8 of the error: lighter, more contrast.
+  'atkinson': _Kernel([(1, 0, 1), (2, 0, 1), (-1, 1, 1), (0, 1, 1), (1, 1, 1), (0, 2, 1)], 8),
+  'jarvis': _Kernel([
+    (1, 0, 7), (2, 0, 5), //
+    (-2, 1, 3), (-1, 1, 5), (0, 1, 7), (1, 1, 5), (2, 1, 3),
+    (-2, 2, 1), (-1, 2, 3), (0, 2, 5), (1, 2, 3), (2, 2, 1),
+  ], 48),
+  'stucki': _Kernel([
+    (1, 0, 8), (2, 0, 4), //
+    (-2, 1, 2), (-1, 1, 4), (0, 1, 8), (1, 1, 4), (2, 1, 2),
+    (-2, 2, 1), (-1, 2, 2), (0, 2, 4), (1, 2, 2), (2, 2, 1),
+  ], 42),
+  'burkes': _Kernel([(1, 0, 8), (2, 0, 4), (-2, 1, 2), (-1, 1, 4), (0, 1, 8), (1, 1, 4), (2, 1, 2)], 32),
+  'sierra': _Kernel([
+    (1, 0, 5), (2, 0, 3), //
+    (-2, 1, 2), (-1, 1, 4), (0, 1, 5), (1, 1, 4), (2, 1, 2),
+    (-1, 2, 2), (0, 2, 3), (1, 2, 2),
+  ], 32),
+  'sierralite': _Kernel([(1, 0, 2), (-1, 1, 1), (0, 1, 1)], 4),
+};
