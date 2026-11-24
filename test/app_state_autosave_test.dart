@@ -63,7 +63,7 @@ void main() {
     app.setMaxFrame(777);
 
     // the debounce is 1 real second.
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    await Future<void>.delayed(const Duration(milliseconds: 2300));
 
     expect((await file.readAsString()).contains('777'), isTrue);
     app.dispose();

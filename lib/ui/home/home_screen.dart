@@ -162,13 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
           'playing': app.playing,
           'layers': app.project.layers.length,
           'refs': app.project.layers.where((l) => l.content.shape == 'projectRef').length,
-          'memory MB': () {
-            try {
-              return ProcessInfo.currentRss >> 20;
-            } catch (_) {
-              return null;
-            }
-          }(),
+          'memory MB': FreezeWatch.memoryMb(),
         };
     final route = Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => player ? PlayerScreen(app: app) : EditorScreen(appState: app)),

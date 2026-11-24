@@ -26,12 +26,29 @@ class FreezeWatch {
     // (with the memory the app takes: running out of it slows it to a
     // stop, then it is closed.)
     Timer.periodic(const Duration(milliseconds: 500), (_) {
-      var mb = 0;
-      try {
-        mb = ProcessInfo.currentRss >> 20;
-      } catch (_) {}
-      _port?.send(['ping', mb]);
+      _port?.send(['ping', memoryMb()]);
     });
+  }
+
+  /// The memory the app takes, MB: what is in the phone's memory plus what
+  /// the system put aside (swap - it no longer counts as "in memory", and
+  /// the app slows to a crawl over it).
+  static int memoryMb() {
+    try {
+      final status = File('/proc/self/status').readAsLinesSync();
+      int kb(String name) {
+        final l = status.firstWhere((l) => l.startsWith(name), orElse: () => '');
+        return int.tryParse(RegExp(r'\d+').firstMatch(l)?.group(0) ?? '') ?? 0;
+      }
+
+      final rss = kb('VmRSS:'), swap = kb('VmSwap:');
+      if (rss > 0) return (rss + swap) >> 10;
+    } catch (_) {}
+    try {
+      return ProcessInfo.currentRss >> 20;
+    } catch (_) {
+      return 0;
+    }
   }
 
   /// What the app is doing now (cheap: sent only when it changes).

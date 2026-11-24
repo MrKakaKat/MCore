@@ -65,6 +65,17 @@ class UndoHistory {
   /// they still need).
   Iterable<List<Layer>> get snapshots => [..._undoStack, ..._redoStack];
 
+  /// Keeps only the newest `keep` undo steps (memory ran short); redo
+  /// goes.
+  void trimTo(int keep) {
+    while (_undoStack.length > keep) {
+      _undoStack.removeAt(0);
+      _undoExtra.removeAt(0);
+    }
+    _redoStack.clear();
+    _redoExtra.clear();
+  }
+
   /// Undo + redo steps held.
   int get length => _undoStack.length + _redoStack.length;
 

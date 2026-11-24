@@ -1277,12 +1277,8 @@ class AppState extends ChangeNotifier {
   void _watchMemory() {
     if (++_rendersSinceMemoryCheck < 15) return;
     _rendersSinceMemoryCheck = 0;
-    int mb;
-    try {
-      mb = ProcessInfo.currentRss >> 20;
-    } catch (_) {
-      return;
-    }
+    final mb = FreezeWatch.memoryMb();
+    if (mb <= 0) return;
     if (mb < 700) return;
     final last = _lastTrim;
     if (last != null && DateTime.now().difference(last) < const Duration(seconds: 10)) return;
@@ -1292,7 +1288,17 @@ class AppState extends ChangeNotifier {
   /// Lets go of the renderer's caches (they fill again as needed).
   void trimMemory(String why) {
     _lastTrim = DateTime.now();
-    final held = renderer.memoryReport().entries.map((e) => '${e.key} ${e.value}').join(', ');
+    final pcmMb = _pcm.values.fold(0, (a, p) => a + p.lengthInBytes) >> 20;
+    final held = [
+      ...renderer.memoryReport().entries.map((e) => '${e.key} ${e.value}'),
+      'sounds $pcmMb',
+      'undo steps ${undo.length}',
+      'project file ${lastSavedBytes >> 10} KB',
+    ].join(', ');
+    // sounds are read again from their files when needed; the oldest
+    // undo steps go.
+    _pcm.clear();
+    undo.trimTo(15);
     // from then on it keeps less (placed projects at half size).
     renderer.trimMemory(usedSources: directRefs(project), low: true);
     _contextRenderer.trimMemory();
@@ -5505,10 +5511,13 @@ class AppState extends ChangeNotifier {
   void _scheduleAutosave() {
     if (_autosaveFile == null) return;
     _autosaveTimer?.cancel();
-    _autosaveTimer = Timer(const Duration(seconds: 1), () {
+    _autosaveTimer = Timer(const Duration(seconds: 2), () {
       unawaited(_writeAutosave());
     });
   }
+
+  Future<void>? _saving;
+  bool _saveAgain = false;
 
   /// What the project is, without the view (selection, toggles): a save
   /// that changes none of it keeps the file's date, so opening a project
@@ -5534,7 +5543,33 @@ class AppState extends ChangeNotifier {
         fps,
       ]);
 
-  Future<void> _writeAutosave() async {
+  /// One save at a time: a save asked for while one is being written
+  /// follows it (two at once wrote the same temporary file - one of them
+  /// failed, and the file could be left half done).
+  Future<void> _writeAutosave() {
+    final running = _saving;
+    if (running != null) {
+      _saveAgain = true;
+      return running;
+    }
+    final job = () async {
+      try {
+        do {
+          _saveAgain = false;
+          await _writeAutosaveOnce();
+        } while (_saveAgain && !_disposed);
+      } finally {
+        _saving = null;
+      }
+    }();
+    _saving = job;
+    return job;
+  }
+
+  /// The project file's size when last written (for the memory report).
+  int lastSavedBytes = 0;
+
+  Future<void> _writeAutosaveOnce() async {
     final file = _autosaveFile;
     if (file == null) return;
     // a save of the host clears the "updated" badges.
@@ -5558,6 +5593,9 @@ class AppState extends ChangeNotifier {
     FreezeWatch.at('saving: writing');
     await _saveFile(file);
     FreezeWatch.at('saving: written');
+    try {
+      lastSavedBytes = await file.length();
+    } catch (_) {}
     if (keepDate != null) {
       try {
         await file.setLastModified(keepDate);
