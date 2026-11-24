@@ -32,6 +32,7 @@ import 'line_path.dart' show LineNode, straightLineNodes, syncLineBox;
 import '../text/text_animators.dart' show TextAnimator;
 import '../effects/motion/follow.dart' show FollowSettings;
 import 'project_json.dart' show trackToJson, trackFromJson;
+import 'glitch_presets.dart';
 
 int fps = 60;
 
@@ -2379,6 +2380,9 @@ class Layer {
 
   /// Copies trailing behind it (Effects tab, "Echo").
   Echo echo = Echo();
+
+  /// The glitch put on it (Filters tab) and its settings - null: none.
+  GlitchSettings? glitch;
   Wiggle wiggle;
 
   /// Effects tab, "Scale wiggle": its size wobbles at random (amplitude:
@@ -2922,6 +2926,7 @@ Layer cloneLayer(Layer src) {
   )
     ..confirmHistory = [for (final h in src.confirmHistory) Map<String, dynamic>.from(h)]
     ..echo = src.echo.copy()
+    ..glitch = src.glitch?.copy()
     ..effectRanges = {for (final e in src.effectRanges.entries) e.key: [...e.value]}
     ..content.playReversed = src.content.playReversed
     ..content.mediaSpeed = src.content.mediaSpeed

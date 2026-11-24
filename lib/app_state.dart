@@ -9,6 +9,7 @@ import 'dart:ui' show Canvas, Color, FilterQuality, Offset, Paint, Picture, Pict
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/painting.dart' show PaintingBinding;
 import 'package:movement_core/movement_core.dart';
 import 'package:movement_core/movement_core.dart' as core show bakeFollowToKeys;
 
@@ -1283,13 +1284,24 @@ class AppState extends ChangeNotifier {
     if (mb <= 0) return;
     if (mb < 700) return;
     final last = _lastTrim;
-    if (last != null && DateTime.now().difference(last) < const Duration(seconds: 10)) return;
+    // a letting go that freed next to nothing isn't done again soon (it
+    // only made everything be drawn again).
+    final wait = _lastTrimFreed < 50 ? const Duration(seconds: 60) : const Duration(seconds: 10);
+    if (last != null && DateTime.now().difference(last) < wait) return;
     trimMemory('$mb MB taken');
   }
 
   /// Lets go of the renderer's caches (they fill again as needed).
+  /// What the last letting go freed of the caches, MB.
+  int _lastTrimFreed = 1 << 20;
+
   void trimMemory(String why) {
     _lastTrim = DateTime.now();
+    _lastTrimFreed = renderer.memoryReport().values.fold(0, (a, v) => a + v);
+    // the app's own small pictures (icons, thumbnails) too.
+    try {
+      PaintingBinding.instance.imageCache.clear();
+    } catch (_) {}
     final pcmMb = _pcm.values.fold(0, (a, p) => a + p.lengthInBytes) >> 20;
     final held = [
       ...renderer.memoryReport().entries.map((e) => '${e.key} ${e.value}'),

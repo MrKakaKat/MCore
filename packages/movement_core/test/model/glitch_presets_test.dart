@@ -16,7 +16,7 @@ void main() {
 
   test('bursts jump: the colours split now and then, at once, back to calm between', () {
     final l = layer();
-    applyGlitchPreset(l, 'bursts');
+    applyGlitchPreset(l, 'digital');
     final ks = l.filters.blur.keyframes;
     expect(l.filters.blurKind, 'chromatic');
     expect(ks.length, greaterThan(4));
@@ -44,8 +44,25 @@ void main() {
   });
 
   test('every preset applies', () {
-    for (final (k, _) in glitchPresets) {
+    for (final (k, _, _) in glitchPresets) {
       applyGlitchPreset(layer(), k);
     }
+  });
+
+  test('every setting is kept on the layer, survives a save, and changes the result', () {
+    final l = layer();
+    final g = GlitchSettings(rgbBurst: 30, gapMin: 3, gapMax: 5, burstMax: 1, variance: 0, rgbFlip: false, seed: 7);
+    applyGlitch(l, g);
+    final json = layerToJson(l);
+    final back = layerFromJson(json);
+    expect(back.glitch!.toJson(), g.toJson());
+    final values = {for (final k in l.filters.blur.keyframes) k.value as double};
+    expect(values.any((v) => (v - 30).abs() < 12.1 && v >= 18), isTrue, reason: 'bursts at the set strength');
+    // gaps of 3..5 frames, one-frame bursts: many of them.
+    expect(l.filters.blur.keyframes.length, greaterThan(30));
+    applyGlitch(l, g.copy()..rgb = false);
+    expect(l.filters.blur.keyframes, isEmpty);
+    clearGlitch(l);
+    expect(l.glitch, isNull);
   });
 }

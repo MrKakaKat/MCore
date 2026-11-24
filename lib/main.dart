@@ -60,6 +60,8 @@ import 'ui/timeline/timeline_toolbar.dart';
 /// project gets its own AppState/EditorScreen, autosaved to its own file.
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // the app's own pictures (icons, thumbnails): a small share of memory.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 32 << 20;
   // something on the screen at once (the system's splash goes): the
   // start's steps run under it, each named - a start that stops says
   // where, and an error is shown, never an endless splash.

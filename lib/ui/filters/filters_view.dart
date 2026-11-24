@@ -80,21 +80,115 @@ class FiltersView extends StatelessWidget {
             }),
             section('Glitch'),
             Wrap(spacing: 6, runSpacing: 4, children: [
-              for (final (k, name) in glitchPresets)
+              for (final (k, name, _) in glitchPresets)
                 ActionChip(
                   key: ValueKey('glitch-$k'),
                   label: Text(name),
                   onPressed: () => edit(() => applyGlitchPreset(layer, k, seed: ++_glitchSeed)),
                 ),
-              ActionChip(
-                key: const ValueKey('glitch-clear'),
-                avatar: const Icon(Icons.close, size: 16),
-                label: const Text('Clear'),
-                onPressed: () => edit(() => clearGlitch(layer)),
-              ),
+              if (layer.glitch == null)
+                ActionChip(
+                  key: const ValueKey('glitch-custom'),
+                  avatar: const Icon(Icons.tune, size: 16),
+                  label: const Text('Own'),
+                  onPressed: () => edit(() => applyGlitch(layer, GlitchSettings(seed: ++_glitchSeed))),
+                ),
             ]),
-            const Hint('A look over the whole layer, made of the filters below, wiggle and time steps (all '
-                'editable after). Tap again for other bursts.'),
+            if (layer.glitch == null)
+              const Hint('A starting point - then every part of it is yours to set: when the bursts come, how '
+                  'strong, colours pulled apart, jolts, time steps, tears, flashes of negative.'),
+            if (layer.glitch case final g?) ...() {
+              // every change puts the glitch on again with the new settings.
+              void put(void Function() change) {
+                change();
+                applyGlitch(layer, g);
+              }
+
+              Widget num(String key, String label, double v, double min, double max, void Function(double) set,
+                      {String suffix = '', int decimals = 0}) =>
+                  number('glitch-$key', label, v, min, max, (x) => put(() => set(x)), suffix: suffix, decimals: decimals);
+              Widget toggle(String key, String label, bool v, void Function(bool) set) => SwitchListTile(
+                    key: ValueKey('glitch-$key'),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    value: v,
+                    onChanged: (x) => edit(() => put(() => set(x))),
+                  );
+              return <Widget>[
+                Row(children: [
+                  const Text('Acts on'),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SegmentedButton<String>(
+                      key: const ValueKey('glitch-scope'),
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(value: 'self', label: Text('Object')),
+                        ButtonSegment(value: 'scene', label: Text('Frame')),
+                        ButtonSegment(value: 'glass', label: Text('Under it')),
+                      ],
+                      selected: {g.scope},
+                      onSelectionChanged: (v) => edit(() => put(() => g.scope = v.first)),
+                    ),
+                  ),
+                ]),
+                const SizedBox(height: 6),
+                const Text('Bursts', style: TextStyle(fontWeight: FontWeight.w600)),
+                num('gap-min', 'Calm at least', g.gapMin.toDouble(), 1, 300, (v) => g.gapMin = v.round(), suffix: ' fr'),
+                num('gap-max', 'Calm at most', g.gapMax.toDouble(), 1, 600, (v) => g.gapMax = v.round(), suffix: ' fr'),
+                num('burst', 'Burst up to', g.burstMax.toDouble(), 1, 60, (v) => g.burstMax = v.round(), suffix: ' fr'),
+                num('intensity', 'Strength', g.intensity * 100, 0, 300, (v) => g.intensity = v / 100, suffix: '%'),
+                num('variance', 'Bursts differ', g.variance * 100, 0, 100, (v) => g.variance = v / 100, suffix: '%'),
+                Row(children: [
+                  Text('Pattern ${g.seed}', style: const TextStyle(fontSize: 12)),
+                  const Spacer(),
+                  TextButton.icon(
+                    key: const ValueKey('glitch-reroll'),
+                    onPressed: () => edit(() => put(() => g.seed = ++_glitchSeed)),
+                    icon: const Icon(Icons.casino_outlined, size: 18),
+                    label: const Text('Other bursts'),
+                  ),
+                ]),
+                toggle('rgb', 'Colours pulled apart', g.rgb, (v) => g.rgb = v),
+                if (g.rgb) ...[
+                  num('rgb-calm', 'Between bursts', g.rgbCalm, 0, 60, (v) => g.rgbCalm = v, suffix: ' px'),
+                  num('rgb-burst', 'In a burst', g.rgbBurst, 0, 200, (v) => g.rgbBurst = v, suffix: ' px'),
+                  num('rgb-angle', 'Direction', g.rgbAngle, -180, 180, (v) => g.rgbAngle = v, suffix: '°'),
+                  toggle('rgb-flip', 'Either way at random', g.rgbFlip, (v) => g.rgbFlip = v),
+                ],
+                toggle('shake', 'Jolts', g.shake, (v) => g.shake = v),
+                if (g.shake) ...[
+                  num('shake-amount', 'How far', g.shakeAmount, 0, 100, (v) => g.shakeAmount = v, suffix: ' px'),
+                  num('shake-speed', 'How fast', g.shakeSpeed, 1, 120, (v) => g.shakeSpeed = v),
+                  num('shake-smooth', 'Smoothness', g.shakeSmooth, 0, 100, (v) => g.shakeSmooth = v, suffix: '%'),
+                ],
+                num('steps', 'Time in steps (0: smooth)', g.stepFps, 0, 30, (v) => g.stepFps = v.roundToDouble(),
+                    suffix: ' fps'),
+                toggle('tear', 'Tears (noise)', g.tear, (v) => g.tear = v),
+                if (g.tear) ...[
+                  num('tear-calm', 'Between bursts', g.tearCalm, 0, 60, (v) => g.tearCalm = v, suffix: ' px'),
+                  num('tear-burst', 'In a burst', g.tearBurst, 0, 200, (v) => g.tearBurst = v, suffix: ' px'),
+                  num('tear-size', 'Grain', g.tearSize, 2, 200, (v) => g.tearSize = v, suffix: ' px'),
+                  num('tear-speed', 'Changes', g.tearSpeed, 0, 20, (v) => g.tearSpeed = v, suffix: '/s', decimals: 1),
+                ],
+                toggle('flicker', 'Flashes of negative', g.flicker, (v) => g.flicker = v),
+                if (g.flicker)
+                  num('flicker-chance', 'Bursts that flash', g.flickerChance * 100, 0, 100, (v) => g.flickerChance = v / 100,
+                      suffix: '%'),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    key: const ValueKey('glitch-clear'),
+                    onPressed: () => edit(() => clearGlitch(layer)),
+                    icon: const Icon(Icons.close, size: 18),
+                    label: const Text('Take the glitch off'),
+                  ),
+                ),
+                const Hint('It sets the filters below (blur, fractal warp, negative), the wiggle and the time steps - '
+                    'changing them by hand there works too, until the glitch is set again here.'),
+              ];
+            }(),
             section('Negative'),
             _TrackRow(app: app, layer: layer, track: f.negative, keyName: 'filter-negative', label: 'Negative',
                 min: 0, max: 100, factor: 100, suffix: '%'),

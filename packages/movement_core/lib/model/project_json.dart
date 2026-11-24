@@ -20,6 +20,7 @@ import 'line_path.dart' show LineNode, isNodeLine, flipLineNodes;
 import '../text/text_animators.dart' show TextAnimator;
 import '../effects/motion/follow.dart' show FollowSettings;
 import 'project.dart';
+import 'glitch_presets.dart';
 
 Map<String, dynamic> easingToJson(Easing e) => {
       'x1': e.x1,
@@ -885,6 +886,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.edgeMatte) 'edgeMatte': {'color': l.edgeMatteColor, 'strength': l.edgeMatteStrength},
       if (l.timeQuantize.enabled) 'timeQuantize': timeQuantizeToJson(l.timeQuantize),
       if (l.echo.enabled) 'echo': l.echo.toJson(),
+      if (l.glitch != null) 'glitch': l.glitch!.toJson(),
       if (l.physics.collide) 'physics': l.physics.toJson(),
       if (l.chromaKey.enabled || l.chromaKey.region.isNotEmpty || l.chromaKey.applied.isNotEmpty) 'chromaKey': chromaKeyToJson(l.chromaKey),
     };
@@ -894,6 +896,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
 Layer layerFromJson(Map<String, dynamic> j) {
   final l = _layerFromJson(j);
   if (j['echo'] is Map) l.echo = Echo.fromJson(Map<String, dynamic>.from(j['echo'] as Map));
+  if (j['glitch'] is Map) l.glitch = GlitchSettings.fromJson(Map<String, dynamic>.from(j['glitch'] as Map));
   if (j['scaleWiggle'] is Map) l.scaleWiggle = wiggleFromJson(Map<String, dynamic>.from(j['scaleWiggle'] as Map));
   l.confirmHistory = [
     for (final h in (j['confirmHistory'] as List? ?? const [])) Map<String, dynamic>.from(h as Map)

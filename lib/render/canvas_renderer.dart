@@ -1842,7 +1842,9 @@ class CanvasRenderer implements Renderer {
     final f = layer.filters;
     double tv(Track t) => (evaluateTrack(project, t, lf.toDouble(), layer) as num).toDouble();
     final neg = tv(f.negative).clamp(0.0, 1.0);
-    final blur = math.max(0.0, tv(f.blur));
+    final rawBlur = tv(f.blur);
+    // (colours pulled apart may pull the other way: below 0.)
+    final blur = f.blurKind == 'chromatic' ? rawBlur.abs() : math.max(0.0, rawBlur);
     final warp = tv(f.warp);
     var p = pic;
     if (warp != 0 || f.gamma.any((v) => v != 0)) {
@@ -1910,7 +1912,7 @@ class CanvasRenderer implements Renderer {
         canvas.restore();
       }
     } else if (blur > 0.1 && f.blurKind == 'chromatic') {
-      _drawChromatic(canvas, p, blur, f, middle());
+      _drawChromatic(canvas, p, rawBlur, f, middle());
     } else {
       canvas.drawPicture(p);
     }
