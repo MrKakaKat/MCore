@@ -47,6 +47,8 @@ uniform float uStipple;
 uniform float uSoft;
 // only lighter (0/1): a darkening turned into the same lightening
 uniform float uLighten;
+// brightness squeezed toward the middle before dithering (0..1)
+uniform float uSqueeze;
 uniform sampler2D uImage;
 
 out vec4 fragColor;
@@ -82,6 +84,16 @@ float bayer2(vec2 a) {
 float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
 float bayer8(vec2 a) { return bayer4(0.5 * a) * 0.25 + bayer2(a); }
 
+// the classic 4x4 ordered table (0 8 2 10 / 12 4 14 6 / 3 11 1 9 /
+// 15 7 13 5), 0..1: four of the 2x2 one, each step within one of them.
+float m2(vec2 a) {
+  a = mod(floor(a), 2.0);
+  return a.y < 0.5 ? 2.0 * a.x : (a.x < 0.5 ? 3.0 : 1.0);
+}
+float classic4(vec2 cell) {
+  return (4.0 * m2(cell) + m2(floor(cell / 2.0)) + 0.5) / 16.0;
+}
+
 float threshold(vec2 cell) {
   if (uPattern < 0.5) return 0.5;
   if (uPattern < 1.5) return bayer2(cell);
@@ -95,7 +107,9 @@ float threshold(vec2 cell) {
   // even noise without clumps (interleaved gradient noise)
   if (uPattern < 8.5) return fract(52.9829189 * fract(0.06711056 * cell.x + 0.00583715 * cell.y));
   // dashes: across, every other row shifted half
-  return fract(cell.x * 0.25 + mod(cell.y, 2.0) * 0.5 + 0.125);
+  if (uPattern < 9.5) return fract(cell.x * 0.25 + mod(cell.y, 2.0) * 0.5 + 0.125);
+  // the classic table, laid so a pixel turns up where its step is passed
+  return 1.0 - classic4(cell);
 }
 
 float dist(vec3 a, vec3 b) {
@@ -174,14 +188,19 @@ vec3 dither(vec3 c0, vec2 pos) {
   float t = threshold(cell) - 0.5;
   // where between two steps a pixel turns to the upper one
   float th = 0.5 - t * uSpread;
-  vec3 c = mix(c0, vec3(1.0) - c0, clamp(uInvert, 0.0, 1.0));
+  float sq = 1.0 - clamp(uSqueeze, 0.0, 1.0);
+  // (two colours: the squeeze is on the brightness only, below - the
+  // picture's own colours are kept as they are)
+  vec3 c = uMode > 2.5 ? c0 : (c0 - 0.5) * sq + 0.5;
+  c = mix(c, vec3(1.0) - c, clamp(uInvert, 0.0, 1.0));
   vec3 res;
   float n = max(uLevels - 1.0, 1.0);
   if (uMode > 2.5) {
     // two colours: the brightness in steps, laid from dark to light
-    float l = dot(c, vec3(0.299, 0.587, 0.114));
+    float l = (dot(c0, vec3(0.299, 0.587, 0.114)) - 0.5) * sq + 0.5;
+    l = mix(l, 1.0 - l, clamp(uInvert, 0.0, 1.0));
     float q = quant(l * n, n, th) / n;
-    vec3 keep = c * (q / max(l, 0.001));
+    vec3 keep = c0 * (q / max(l, 0.001));
     res = mix(keep, mix(uDark, uLight, q), clamp(uColorize, 0.0, 1.0));
   } else if (uMode > 1.5) {
     if (uSoft > 0.001) {
@@ -220,7 +239,8 @@ void main() {
       // opacity as dots: a share of the cells dithered, the rest left
       // as they were (no blend)
       if (uStipple > 0.5) {
-        rgb = bayer8(ditherCell(p)) < o ? d : rgb;
+        vec2 dc = ditherCell(p);
+        rgb = (uPattern > 9.5 ? classic4(dc) : bayer8(dc)) <= o ? d : rgb;
       } else {
         rgb = mix(rgb, d, o);
       }

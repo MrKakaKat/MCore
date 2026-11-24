@@ -31,6 +31,7 @@ Uint8List errorDiffuse(
   double? stippleOpacity,
   double softness = 0,
   bool lightenOnly = false,
+  double squeeze = 0,
 }) {
   final k = _kernels[kernel] ?? _kernels['floyd']!;
   final n = math.max(1, levels - 1);
@@ -49,7 +50,10 @@ Uint8List errorDiffuse(
   final r = Float32List(w * h), g = Float32List(w * h), b = Float32List(w * h);
   final inv = invert.clamp(0.0, 1.0);
   for (var i = 0; i < w * h; i++) {
-    var vr = rgba[i * 4].toDouble(), vg = rgba[i * 4 + 1].toDouble(), vb = rgba[i * 4 + 2].toDouble();
+    // (two colours: squeezed on the brightness only, below)
+    final sq = mode == 'duo' ? 1.0 : 1 - squeeze.clamp(0.0, 1.0);
+    var vr = (rgba[i * 4] - 127.5) * sq + 127.5, vg = (rgba[i * 4 + 1] - 127.5) * sq + 127.5;
+    var vb = (rgba[i * 4 + 2] - 127.5) * sq + 127.5;
     if (inv > 0) {
       vr += (255 - 2 * vr) * inv;
       vg += (255 - 2 * vg) * inv;
@@ -109,7 +113,7 @@ Uint8List errorDiffuse(
       } else if (mode == 'duo') {
         // the brightness in steps, laid between the two colours; the
         // picture's own colours kept as much as `colorize` leaves.
-        final l = 0.299 * cr + 0.587 * cg + 0.114 * cb;
+        final l = (0.299 * cr + 0.587 * cg + 0.114 * cb - 127.5) * (1 - squeeze.clamp(0.0, 1.0)) + 127.5;
         final q = step(l) / 255;
         final k = colorize.clamp(0.0, 1.0);
         final keep = l > 0.5 ? q * 255 / l : 0.0;

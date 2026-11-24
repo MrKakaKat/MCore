@@ -31,6 +31,7 @@ const _filterDefaults = <String, double>{
   'filter-dither-levels': 4,
   'filter-dither-opacity': 100,
   'filter-dither-softness': 0,
+  'filter-dither-squeeze': 0,
   'filter-dither-invert': 0,
   'filter-dither-scanlines': 0,
   'filter-dither-spread': 100,
@@ -361,6 +362,35 @@ class FiltersView extends StatelessWidget {
                     ..ditherOpacity = 0.75
                     ..ditherStipple = true
                     ..ditherInvert = 0
+                    ..ditherSqueeze = 0
+                    ..ditherScanlines = 0),
+                ),
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const ValueKey('filter-dither-retrodither'),
+                  icon: const Icon(Icons.blur_on, size: 18),
+                  label: const Text('RetroDither'),
+                  // its own defaults (canvas-ui's RetroDither): two colours,
+                  // 2 px cells (the picture sampled per cell too), its 4x4
+                  // table, contrast 0.6, three quarters of the cells.
+                  onPressed: () => edit(() => f
+                    ..mosaic = Track(2.0, false)
+                    ..ditherMode = 'duo'
+                    ..ditherLevels = 5
+                    ..ditherPattern = _lastOrdered = 'bayer4c'
+                    ..ditherDot = 2
+                    ..ditherColorize = 0.1
+                    ..ditherDark = '#000000'
+                    ..ditherLight = '#ffffff'
+                    ..ditherOpacity = 0.75
+                    ..ditherStipple = true
+                    ..ditherSqueeze = 0.4
+                    ..ditherSpread = 1
+                    ..ditherSoftness = 0
+                    ..ditherLightenOnly = false
+                    ..ditherInvert = 0
                     ..ditherScanlines = 0),
                 ),
               ),
@@ -407,6 +437,9 @@ class FiltersView extends StatelessWidget {
                 value: f.ditherLightenOnly,
                 onChanged: (v) => edit(() => f.ditherLightenOnly = v),
               ),
+              number('filter-dither-squeeze', 'Squeeze toward middle', f.ditherSqueeze * 100, 0, 100,
+                  (v) => f.ditherSqueeze = v / 100,
+                  suffix: '%'),
               number('filter-dither-invert', 'Invert', f.ditherInvert * 100, 0, 100, (v) => f.ditherInvert = v / 100,
                   suffix: '%'),
               number('filter-dither-scanlines', 'Scanlines', f.ditherScanlines * 100, 0, 100,
@@ -418,6 +451,7 @@ class FiltersView extends StatelessWidget {
                 for (final (k, name) in const [
                   ('bayer2', 'Grid 2'),
                   ('bayer4', 'Grid 4'),
+                  ('bayer4c', 'Grid 4 classic'),
                   ('bayer8', 'Grid 8'),
                   ('halftone', 'Halftone'),
                   ('lines', 'Lines'),

@@ -352,4 +352,40 @@ void main() {
     expect(reds.every((v) => v >= 0x50 - 1), isTrue);
     expect(reds.any((v) => v > 0x60), isTrue);
   });
+
+  test('the RetroDither settings give the colours RetroDither\'s own formula does', () async {
+    // (200, 100, 50): brightness 0.487, squeezed by contrast 0.6 to 0.492
+    // -> between steps 1/4 and 2/4; colorize 0.1 over its own colour.
+    final l = rect('a', '#c86432', 100, 50, 200)
+      ..filters.dither = true
+      ..filters.ditherMode = 'duo'
+      ..filters.ditherLevels = 5
+      ..filters.ditherPattern = 'bayer4c'
+      ..filters.ditherDot = 2
+      ..filters.ditherColorize = 0.1
+      ..filters.ditherOpacity = 0.75
+      ..filters.ditherStipple = true
+      ..filters.ditherSqueeze = 0.4;
+    final r = CanvasRenderer();
+    await render(Project(layers: [l]), with_: r);
+    await ui.FragmentProgram.fromAsset('shaders/filter.frag');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final at = await render(Project(layers: [l]), with_: r);
+    const expected = [
+      [98, 52, 29], // step 1/4
+      [196, 104, 58], // step 2/4
+      [200, 100, 50], // a quarter of the cells left as they were
+    ];
+    var counts = [0, 0, 0];
+    for (var y = 20; y < 80; y++) {
+      for (var x = 20; x < 180; x++) {
+        final v = at(x, y);
+        final c = [(v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff];
+        final k = expected.indexWhere((e) => [for (var i = 0; i < 3; i++) (e[i] - c[i]).abs()].every((d) => d <= 3));
+        expect(k, isNot(-1), reason: 'colour \$c');
+        counts[k]++;
+      }
+    }
+    expect(counts[2] / (160 * 60), closeTo(0.25, 0.03));
+  });
 }

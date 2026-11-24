@@ -2152,7 +2152,8 @@ class LayerFilters {
   int ditherLevels = 4;
 
   /// Ordered (a pattern over the picture): 'bayer2' | 'bayer4' |
-  /// 'bayer8' (grids), 'halftone' (round dots), 'lines', 'diagonal',
+  /// 'bayer8' (grids), 'bayer4c' (the classic 4x4 table, as in
+  /// RetroDither), 'halftone' (round dots), 'lines', 'diagonal',
   /// 'bluenoise', 'noise', 'none'. Error diffusion (each pixel's rounding
   /// error passed on to the ones after it): 'floyd' (Floyd-Steinberg),
   /// 'atkinson', 'jarvis' (Jarvis-Judice-Ninke), 'stucki', 'burkes',
@@ -2200,6 +2201,10 @@ class LayerFilters {
   /// Only lighter: where dithering would darken a pixel it lightens it by
   /// as much instead (nothing gets darker).
   bool ditherLightenOnly = false;
+
+  /// The brightness squeezed toward the middle before dithering (0..1;
+  /// 0.4 is RetroDither's contrast 0.6) - for the dither only.
+  double ditherSqueeze = 0;
 
   /// The pattern passes the error on (worked out on the processor), not
   /// an ordered one (drawn by the graphics chip).
@@ -2274,7 +2279,8 @@ class LayerFilters {
         ..ditherScanlines = ditherScanlines
         ..ditherStipple = ditherStipple
         ..ditherSoftness = ditherSoftness
-        ..ditherLightenOnly = ditherLightenOnly;
+        ..ditherLightenOnly = ditherLightenOnly
+        ..ditherSqueeze = ditherSqueeze;
 
   Map<String, dynamic> toJson() => {
         'negative': trackToJson(negative),
@@ -2323,6 +2329,7 @@ class LayerFilters {
           'ditherStipple': ditherStipple,
           'ditherSoftness': ditherSoftness,
           if (ditherLightenOnly) 'ditherLightenOnly': true,
+          if (ditherSqueeze != 0) 'ditherSqueeze': ditherSqueeze,
         },
       };
 
@@ -2378,7 +2385,8 @@ class LayerFilters {
       ..ditherScanlines = n(j['ditherScanlines'], 0)
       ..ditherStipple = j['ditherStipple'] as bool? ?? false
       ..ditherSoftness = n(j['ditherSoftness'], 0)
-      ..ditherLightenOnly = j['ditherLightenOnly'] as bool? ?? false;
+      ..ditherLightenOnly = j['ditherLightenOnly'] as bool? ?? false
+      ..ditherSqueeze = n(j['ditherSqueeze'], 0);
   }
 }
 
