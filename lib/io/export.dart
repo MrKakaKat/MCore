@@ -43,9 +43,17 @@ Future<Uint8List> exportStillFrame({
   required String format, // "png" | "jpg"
   int jpegQuality = 85,
 }) async {
-  await prepareExportFrame(renderer, project, frame);
-  renderer.renderFrame(project, frame);
-  final image = await renderer.captureFrame();
+  // drawn fully (no stage time limit), with everything on the way ready.
+  final canvas = renderer is CanvasRenderer ? renderer : null;
+  canvas?.beginExportReuse(project);
+  final ui.Image image;
+  try {
+    await prepareExportFrame(renderer, project, frame);
+    renderer.renderFrame(project, frame);
+    image = await renderer.captureFrame();
+  } finally {
+    canvas?.endExportReuse();
+  }
   final width = image.width, height = image.height;
 
   if (format == 'jpg') {

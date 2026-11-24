@@ -1242,6 +1242,8 @@ class AppState extends ChangeNotifier {
   /// asked for its own, and each frame could start more), and never
   /// without end.
   void _decodedRender() {
+    // an export is drawing with the same renderer: the stage waits.
+    if (CanvasRenderer.exporting) return;
     if (_decodeRenderQueued || _decodeStormHeld) return;
     _decodeRenderQueued = true;
     scheduleMicrotask(() {

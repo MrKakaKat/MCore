@@ -891,6 +891,7 @@ class _ExportViewState extends State<ExportView> {
     } finally {
       renderer.backgroundColor = background;
       renderer.endExportReuse();
+      widget.app.rerender();
     }
     final path = await _saveBytes(exportFileName(widget.app.projectName, 'gif'), bytes);
     setState(() {
@@ -970,6 +971,7 @@ class _ExportViewState extends State<ExportView> {
       setState(() => _status = path == null ? 'Cancelled' : _saved(path));
     } finally {
       renderer.endExportReuse();
+      app.rerender(); // the stage shows its own frame again
       await tempDir.delete(recursive: true);
     }
   }

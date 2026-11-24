@@ -927,6 +927,7 @@ class CanvasRenderer implements Renderer {
   void beginExportReuse(Project project) {
     endExportReuse();
     _stillIds = {for (final l in project.layers) if (layerIsStill(project, l)) l.id};
+    _exportMode(true);
   }
 
   /// Export: whether `frame` draws exactly what `previous` drew - every
@@ -943,7 +944,34 @@ class CanvasRenderer implements Renderer {
     return true;
   }
 
+  ({Duration? budget, int? blur, bool low})? _stageSettings;
+
+  /// Export: every layer drawn fully - no time limit, every blur pass,
+  /// placed projects at full size (the stage's settings come back after).
+  void _exportMode(bool on) {
+    if (on) {
+      _stageSettings ??= (budget: timeBudget, blur: maxBlurSamples, low: lowMemory);
+      timeBudget = null;
+      maxBlurSamples = null;
+      lowMemory = false;
+      _exporting = true;
+    } else {
+      final s = _stageSettings;
+      if (s != null) {
+        timeBudget = s.budget;
+        maxBlurSamples = s.blur;
+        lowMemory = s.low;
+      }
+      _stageSettings = null;
+      _exporting = false;
+    }
+  }
+
+  /// An export is drawing (the stage waits with its own frames).
+  static bool get exporting => _exporting;
+
   void endExportReuse() {
+    _exportMode(false);
     _stillIds = {};
     for (final p in _stillPictures.values) {
       p.dispose();
@@ -2995,7 +3023,35 @@ class CanvasRenderer implements Renderer {
       if (job != null) jobs.add(job.catchError((Object _) {}));
     }
     await Future.wait(jobs);
+    if (top) await settleFrame(project, globalFrame);
   }
+
+  /// Draws the frame until nothing is left on the way: pictures decoded,
+  /// keyed (on placed projects too, and inside them), contours worked out.
+  /// Export used to take a frame while these were still coming - the
+  /// frame showed them half done (unkeyed, missing, a step behind).
+  Future<void> settleFrame(Project project, int globalFrame, {Duration limit = const Duration(seconds: 30)}) async {
+    final started = DateTime.now();
+    final was = _exporting;
+    _exporting = true;
+    try {
+      for (var pass = 0; pass < 12; pass++) {
+        FreezeWatch.at('export: frame $globalFrame, getting it ready (pass $pass)');
+        renderFrame(project, globalFrame);
+        if (!busy) return;
+        while (busy) {
+          if (DateTime.now().difference(started) > limit) return;
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      }
+    } finally {
+      _exporting = was;
+    }
+  }
+
+  /// Getting an export frame ready: a keying that failed is tried again
+  /// at once (on the stage it waits a while).
+  static bool _exporting = false;
 
   void _unpinRefs() {
     for (final r in _refRenderers.values) {
@@ -3021,6 +3077,7 @@ class CanvasRenderer implements Renderer {
       _decodingKeys.isNotEmpty ||
       _keyingInFlight.isNotEmpty ||
       _pixelsLoading.isNotEmpty ||
+      contours.busy ||
       _refRenderers.values.any((r) => r.busy);
 
   /// This renderer's project and the ones around it, outermost first: a
@@ -3368,7 +3425,7 @@ class CanvasRenderer implements Renderer {
     final recent = _keyedRecent[sig];
     if (recent != null) return recent;
     final failed = _keyFailed[sig];
-    final retry = failed == null || DateTime.now().difference(failed) > const Duration(seconds: 5);
+    final retry = failed == null || _exporting || DateTime.now().difference(failed) > const Duration(seconds: 5);
     if (retry && !_keyingInFlight.containsKey(layer.id)) {
       _keyingInFlight[layer.id] = _keyLayerAsync(layer.id, src.key, src.image, ck.copy(), sig,
           matte: matte, edge: _edgeMatteOn(layer) ? (parseRgbHex(layer.edgeMatteColor) ?? const [0, 0, 0], layer.edgeMatteStrength) : null);

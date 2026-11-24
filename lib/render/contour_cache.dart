@@ -24,6 +24,9 @@ class ContourCache {
   final LinkedHashMap<String, Contour> _lru = LinkedHashMap();
   final Set<String> _pending = {};
 
+  /// Contours still being worked out.
+  bool get busy => _pending.isNotEmpty;
+
   /// Layers with an extraction running: one at a time each - while it
   /// runs, newer frames of that layer wait (the last contour is held),
   /// so playing several pictures never piles up isolates and copies.
