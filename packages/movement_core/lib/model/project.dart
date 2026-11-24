@@ -2197,6 +2197,10 @@ class LayerFilters {
   /// other (0: hard steps).
   double ditherSoftness = 0;
 
+  /// Only lighter: where dithering would darken a pixel it lightens it by
+  /// as much instead (nothing gets darker).
+  bool ditherLightenOnly = false;
+
   /// The pattern passes the error on (worked out on the processor), not
   /// an ordered one (drawn by the graphics chip).
   bool get ditherDiffuses => ditherDiffusion.contains(ditherPattern);
@@ -2269,7 +2273,8 @@ class LayerFilters {
         ..ditherInvert = ditherInvert
         ..ditherScanlines = ditherScanlines
         ..ditherStipple = ditherStipple
-        ..ditherSoftness = ditherSoftness;
+        ..ditherSoftness = ditherSoftness
+        ..ditherLightenOnly = ditherLightenOnly;
 
   Map<String, dynamic> toJson() => {
         'negative': trackToJson(negative),
@@ -2317,6 +2322,7 @@ class LayerFilters {
           'ditherScanlines': ditherScanlines,
           'ditherStipple': ditherStipple,
           'ditherSoftness': ditherSoftness,
+          if (ditherLightenOnly) 'ditherLightenOnly': true,
         },
       };
 
@@ -2371,7 +2377,8 @@ class LayerFilters {
       ..ditherInvert = n(j['ditherInvert'], 0)
       ..ditherScanlines = n(j['ditherScanlines'], 0)
       ..ditherStipple = j['ditherStipple'] as bool? ?? false
-      ..ditherSoftness = n(j['ditherSoftness'], 0);
+      ..ditherSoftness = n(j['ditherSoftness'], 0)
+      ..ditherLightenOnly = j['ditherLightenOnly'] as bool? ?? false;
   }
 }
 

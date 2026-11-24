@@ -30,6 +30,7 @@ Uint8List errorDiffuse(
   double scanlines = 0,
   double? stippleOpacity,
   double softness = 0,
+  bool lightenOnly = false,
 }) {
   final k = _kernels[kernel] ?? _kernels['floyd']!;
   final n = math.max(1, levels - 1);
@@ -161,6 +162,19 @@ Uint8List errorDiffuse(
         r[j] += er * f;
         g[j] += eg * f;
         b[j] += eb * f;
+      }
+    }
+  }
+  // only lighter: a darkening turned into the same lightening.
+  if (lightenOnly) {
+    for (var i = 0; i < w * h; i++) {
+      if (rgba[i * 4 + 3] == 0) continue;
+      for (var c = 0; c < 3; c++) {
+        // (the colour the pixel had, inverted if asked - before errors)
+        var o = rgba[i * 4 + c].toDouble();
+        if (inv > 0) o += (255 - 2 * o) * inv;
+        final d = out[i * 4 + c] - o;
+        out[i * 4 + c] = (o + d.abs()).round().clamp(0, 255);
       }
     }
   }

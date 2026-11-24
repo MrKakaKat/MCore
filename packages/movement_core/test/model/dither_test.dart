@@ -91,4 +91,11 @@ void main() {
     final pal = errorDiffuse(grey(4, 4, 115), 4, 4, kernel: 'floyd', bleed: 0, softness: 1, mode: 'palette');
     expect(pal[0], inInclusiveRange(80, 140), reason: 'between the black and the white of the palette');
   });
+
+  test('only lighter: nothing comes out darker than it was', () {
+    final out = errorDiffuse(grey(16, 16, 64), 16, 16, kernel: 'floyd', lightenOnly: true);
+    final values = {for (var i = 0; i < 256; i++) out[i * 4]};
+    expect(values.every((v) => v >= 64), isTrue);
+    expect(values.any((v) => v > 64), isTrue, reason: 'some dots lighter');
+  });
 }

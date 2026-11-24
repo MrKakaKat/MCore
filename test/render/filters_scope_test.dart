@@ -337,4 +337,19 @@ void main() {
     final soft = reds(await render(Project(layers: [l]), with_: r));
     expect(soft.where((v) => v > 10 && v < 245).length, greaterThan(soft.length ~/ 2));
   });
+
+  test('dither, only lighter: no pixel ends up darker than the picture', () async {
+    final l = rect('a', '#505050', 100, 50, 200)
+      ..filters.dither = true
+      ..filters.ditherLevels = 2
+      ..filters.ditherLightenOnly = true;
+    final r = CanvasRenderer();
+    await render(Project(layers: [l]), with_: r);
+    await ui.FragmentProgram.fromAsset('shaders/filter.frag');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final at = await render(Project(layers: [l]), with_: r);
+    final reds = [for (var x = 20; x < 180; x++) (at(x, 50) >> 24) & 0xff];
+    expect(reds.every((v) => v >= 0x50 - 1), isTrue);
+    expect(reds.any((v) => v > 0x60), isTrue);
+  });
 }

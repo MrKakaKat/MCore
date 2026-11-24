@@ -15,6 +15,36 @@ import '../../io/freeze_watch.dart';
 /// Filters: what they act on (the layer, the whole scene, or what is under
 /// the layer as glass), negative, blur, fractal warp, colour wheels with
 /// Match Color, light wrap.
+/// The ordered pattern picked last (error diffusion tapped off goes back
+/// to it).
+String _lastOrdered = 'bayer4';
+
+/// What each filter value starts at (as shown: percentages as 0..100).
+const _filterDefaults = <String, double>{
+  'filter-blur-angle': 0,
+  'filter-focus-x': 50,
+  'filter-focus-y': 50,
+  'filter-focus-angle': 0,
+  'filter-focus-size': 12,
+  'filter-focus-soft': 20,
+  'filter-dither-colorize': 100,
+  'filter-dither-levels': 4,
+  'filter-dither-opacity': 100,
+  'filter-dither-softness': 0,
+  'filter-dither-invert': 0,
+  'filter-dither-scanlines': 0,
+  'filter-dither-spread': 100,
+  'filter-dither-angle': 0,
+  'filter-dither-bleed': 100,
+  'filter-dither-dot': 1,
+  'filter-vignette-size': 50,
+  'filter-vignette-soft': 50,
+  'filter-warp-scale': 60,
+  'filter-warp-speed': 0.5,
+  'filter-wrap': 0,
+  'filter-wrap-width': 12,
+};
+
 /// Ready-made palettes for the dither (up to 8 colours).
 const _ditherPalettes = <(String, List<String>)>[
   ('1-bit', ['#000000', '#ffffff']),
@@ -52,20 +82,27 @@ class FiltersView extends StatelessWidget {
               child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
             );
         Widget number(String key, String label, double value, double min, double max, ValueChanged<double> set,
-                {String suffix = '', int decimals = 0}) =>
-            ParamEditor(
-              key: ValueKey(key),
-              prefKey: key,
-              label: label,
-              values: [value],
-              scale: ParamScale.slider(min, max, decimals: decimals, suffix: suffix),
-              onEditStart: app.pushUndo,
-              onChanged: (x) {
-                set(x.first);
-                app.commitEdit();
-              },
-              onCommit: (x) => edit(() => set(x.first)),
-            );
+                {String suffix = '', int decimals = 0, double? reset}) {
+          // every value can go back to how it starts.
+          final def = reset ?? _filterDefaults[key];
+          return ParamEditor(
+            key: ValueKey(key),
+            prefKey: key,
+            label: label,
+            values: [value],
+            scale: ParamScale.slider(min, max, decimals: decimals, suffix: suffix),
+            onEditStart: app.pushUndo,
+            onChanged: (x) {
+              set(x.first);
+              app.commitEdit();
+            },
+            onCommit: (x) => edit(() => set(x.first)),
+            trailing: [
+              if (def != null && (value - def).abs() > 1e-9)
+                ResetIconButton(key: ValueKey('$key-reset'), onPressed: () => edit(() => set(def))),
+            ],
+          );
+        }
         return ListView(
           padding: const EdgeInsets.all(8),
           children: [
@@ -114,9 +151,23 @@ class FiltersView extends StatelessWidget {
                 applyGlitch(layer, g);
               }
 
-              Widget num(String key, String label, double v, double min, double max, void Function(double) set,
-                      {String suffix = '', int decimals = 0}) =>
-                  number('glitch-$key', label, v, min, max, (x) => put(() => set(x)), suffix: suffix, decimals: decimals);
+              // (back to the preset's own start: a fresh glitch's value)
+              final fresh = GlitchSettings().toJson();
+              const shown = {'intensity': 'intensity', 'variance': 'variance', 'flicker-chance': 'flickerChance'};
+              const field = {
+                'gap-min': 'gapMin', 'gap-max': 'gapMax', 'burst': 'burstMax', 'rgb-calm': 'rgbCalm', //
+                'rgb-burst': 'rgbBurst', 'rgb-angle': 'rgbAngle', 'shake-amount': 'shakeAmount',
+                'shake-speed': 'shakeSpeed', 'shake-smooth': 'shakeSmooth', 'steps': 'stepFps', 'tear-calm': 'tearCalm',
+                'tear-burst': 'tearBurst', 'tear-size': 'tearSize', 'tear-speed': 'tearSpeed',
+              };
+              Widget gNum(String key, String label, double v, double min, double max, void Function(double) set,
+                  {String suffix = '', int decimals = 0}) {
+                final name = shown[key] ?? field[key];
+                final raw = name == null ? null : (fresh[name] as num).toDouble();
+                final def = raw == null ? null : (shown.containsKey(key) ? raw * 100 : raw);
+                return number('glitch-$key', label, v, min, max, (x) => put(() => set(x)),
+                    suffix: suffix, decimals: decimals, reset: def);
+              }
               Widget toggle(String key, String label, bool v, void Function(bool) set) => SwitchListTile(
                     key: ValueKey('glitch-$key'),
                     dense: true,
@@ -145,11 +196,11 @@ class FiltersView extends StatelessWidget {
                 ]),
                 const SizedBox(height: 6),
                 const Text('Bursts', style: TextStyle(fontWeight: FontWeight.w600)),
-                num('gap-min', 'Calm at least', g.gapMin.toDouble(), 1, 300, (v) => g.gapMin = v.round(), suffix: ' fr'),
-                num('gap-max', 'Calm at most', g.gapMax.toDouble(), 1, 600, (v) => g.gapMax = v.round(), suffix: ' fr'),
-                num('burst', 'Burst up to', g.burstMax.toDouble(), 1, 60, (v) => g.burstMax = v.round(), suffix: ' fr'),
-                num('intensity', 'Strength', g.intensity * 100, 0, 300, (v) => g.intensity = v / 100, suffix: '%'),
-                num('variance', 'Bursts differ', g.variance * 100, 0, 100, (v) => g.variance = v / 100, suffix: '%'),
+                gNum('gap-min', 'Calm at least', g.gapMin.toDouble(), 1, 300, (v) => g.gapMin = v.round(), suffix: ' fr'),
+                gNum('gap-max', 'Calm at most', g.gapMax.toDouble(), 1, 600, (v) => g.gapMax = v.round(), suffix: ' fr'),
+                gNum('burst', 'Burst up to', g.burstMax.toDouble(), 1, 60, (v) => g.burstMax = v.round(), suffix: ' fr'),
+                gNum('intensity', 'Strength', g.intensity * 100, 0, 300, (v) => g.intensity = v / 100, suffix: '%'),
+                gNum('variance', 'Bursts differ', g.variance * 100, 0, 100, (v) => g.variance = v / 100, suffix: '%'),
                 Row(children: [
                   Text('Pattern ${g.seed}', style: const TextStyle(fontSize: 12)),
                   const Spacer(),
@@ -162,29 +213,29 @@ class FiltersView extends StatelessWidget {
                 ]),
                 toggle('rgb', 'Colours pulled apart', g.rgb, (v) => g.rgb = v),
                 if (g.rgb) ...[
-                  num('rgb-calm', 'Between bursts', g.rgbCalm, 0, 60, (v) => g.rgbCalm = v, suffix: ' px'),
-                  num('rgb-burst', 'In a burst', g.rgbBurst, 0, 200, (v) => g.rgbBurst = v, suffix: ' px'),
-                  num('rgb-angle', 'Direction', g.rgbAngle, -180, 180, (v) => g.rgbAngle = v, suffix: '°'),
+                  gNum('rgb-calm', 'Between bursts', g.rgbCalm, 0, 60, (v) => g.rgbCalm = v, suffix: ' px'),
+                  gNum('rgb-burst', 'In a burst', g.rgbBurst, 0, 200, (v) => g.rgbBurst = v, suffix: ' px'),
+                  gNum('rgb-angle', 'Direction', g.rgbAngle, -180, 180, (v) => g.rgbAngle = v, suffix: '°'),
                   toggle('rgb-flip', 'Either way at random', g.rgbFlip, (v) => g.rgbFlip = v),
                 ],
                 toggle('shake', 'Jolts', g.shake, (v) => g.shake = v),
                 if (g.shake) ...[
-                  num('shake-amount', 'How far', g.shakeAmount, 0, 100, (v) => g.shakeAmount = v, suffix: ' px'),
-                  num('shake-speed', 'How fast', g.shakeSpeed, 1, 120, (v) => g.shakeSpeed = v),
-                  num('shake-smooth', 'Smoothness', g.shakeSmooth, 0, 100, (v) => g.shakeSmooth = v, suffix: '%'),
+                  gNum('shake-amount', 'How far', g.shakeAmount, 0, 100, (v) => g.shakeAmount = v, suffix: ' px'),
+                  gNum('shake-speed', 'How fast', g.shakeSpeed, 1, 120, (v) => g.shakeSpeed = v),
+                  gNum('shake-smooth', 'Smoothness', g.shakeSmooth, 0, 100, (v) => g.shakeSmooth = v, suffix: '%'),
                 ],
-                num('steps', 'Time in steps (0: smooth)', g.stepFps, 0, 30, (v) => g.stepFps = v.roundToDouble(),
+                gNum('steps', 'Time in steps (0: smooth)', g.stepFps, 0, 30, (v) => g.stepFps = v.roundToDouble(),
                     suffix: ' fps'),
                 toggle('tear', 'Tears (noise)', g.tear, (v) => g.tear = v),
                 if (g.tear) ...[
-                  num('tear-calm', 'Between bursts', g.tearCalm, 0, 60, (v) => g.tearCalm = v, suffix: ' px'),
-                  num('tear-burst', 'In a burst', g.tearBurst, 0, 200, (v) => g.tearBurst = v, suffix: ' px'),
-                  num('tear-size', 'Grain', g.tearSize, 2, 200, (v) => g.tearSize = v, suffix: ' px'),
-                  num('tear-speed', 'Changes', g.tearSpeed, 0, 20, (v) => g.tearSpeed = v, suffix: '/s', decimals: 1),
+                  gNum('tear-calm', 'Between bursts', g.tearCalm, 0, 60, (v) => g.tearCalm = v, suffix: ' px'),
+                  gNum('tear-burst', 'In a burst', g.tearBurst, 0, 200, (v) => g.tearBurst = v, suffix: ' px'),
+                  gNum('tear-size', 'Grain', g.tearSize, 2, 200, (v) => g.tearSize = v, suffix: ' px'),
+                  gNum('tear-speed', 'Changes', g.tearSpeed, 0, 20, (v) => g.tearSpeed = v, suffix: '/s', decimals: 1),
                 ],
                 toggle('flicker', 'Flashes of negative', g.flicker, (v) => g.flicker = v),
                 if (g.flicker)
-                  num('flicker-chance', 'Bursts that flash', g.flickerChance * 100, 0, 100, (v) => g.flickerChance = v / 100,
+                  gNum('flicker-chance', 'Bursts that flash', g.flickerChance * 100, 0, 100, (v) => g.flickerChance = v / 100,
                       suffix: '%'),
                 Align(
                   alignment: Alignment.centerRight,
@@ -346,6 +397,16 @@ class FiltersView extends StatelessWidget {
                   (v) => f.ditherSoftness = v / 100,
                   suffix: '%'),
               const Hint('Softness: between two levels a pixel blends them smoothly instead of jumping.'),
+              SwitchListTile(
+                key: const ValueKey('filter-dither-lighten'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Only lighter dots'),
+                subtitle: hint('Where the dither would darken, it lightens by as much instead - dark colours '
+                    'get light dots, nothing gets darker.'),
+                value: f.ditherLightenOnly,
+                onChanged: (v) => edit(() => f.ditherLightenOnly = v),
+              ),
               number('filter-dither-invert', 'Invert', f.ditherInvert * 100, 0, 100, (v) => f.ditherInvert = v / 100,
                   suffix: '%'),
               number('filter-dither-scanlines', 'Scanlines', f.ditherScanlines * 100, 0, 100,
@@ -370,7 +431,7 @@ class FiltersView extends StatelessWidget {
                     key: ValueKey('filter-dither-$k'),
                     label: Text(name),
                     selected: f.ditherPattern == k,
-                    onSelected: (_) => edit(() => f.ditherPattern = k),
+                    onSelected: (_) => edit(() => f.ditherPattern = _lastOrdered = k),
                   ),
               ])),
               const Text('Error diffusion (retro)', style: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -388,7 +449,8 @@ class FiltersView extends StatelessWidget {
                     key: ValueKey('filter-dither-$k'),
                     label: Text(name),
                     selected: f.ditherPattern == k,
-                    onSelected: (_) => edit(() => f.ditherPattern = k),
+                    // tapped again: off - back to the ordered pattern before.
+                    onSelected: (_) => edit(() => f.ditherPattern = f.ditherPattern == k ? _lastOrdered : k),
                   ),
               ])),
               if (!f.ditherDiffuses) ...[
@@ -409,7 +471,7 @@ class FiltersView extends StatelessWidget {
                   onChanged: (v) => edit(() => f.ditherSerpentine = v),
                 ),
                 const Hint('Worked out on the side: the stage shows it a moment after a change, and a grid stands in '
-                    'while playing. Export waits for it on every frame.'),
+                    'while playing. Export waits for it on every frame. Tap it again to go back to a pattern.'),
               ],
               number('filter-dither-dot', 'Pattern dot', f.ditherDot, 1, 64, (v) => f.ditherDot = v.roundToDouble(),
                   suffix: ' px'),

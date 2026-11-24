@@ -113,6 +113,8 @@ class AudioView extends StatelessWidget {
               ),
             ),
             const Text(' ×', style: TextStyle(fontSize: 13)),
+            if (s != 1)
+              ResetIconButton(key: const ValueKey('media-speed-reset'), onPressed: () => app.setMediaSpeedOf(layer.id, 1)),
             const SizedBox(width: 6),
             Expanded(
               child: ListView(
@@ -164,6 +166,8 @@ class AudioView extends StatelessWidget {
               ),
             ),
             const Text(' st', style: TextStyle(fontSize: 13)),
+            if (p != 0)
+              ResetIconButton(key: const ValueKey('audio-pitch-reset'), onPressed: () => app.setAudioPitch(layer.id, 0)),
             const SizedBox(width: 6),
             Expanded(
               child: ListView(

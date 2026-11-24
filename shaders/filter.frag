@@ -45,6 +45,8 @@ uniform float uStipple;
 // softness: near the pattern's threshold a pixel blends the two levels
 // (colours) it falls between instead of jumping (0: hard)
 uniform float uSoft;
+// only lighter (0/1): a darkening turned into the same lightening
+uniform float uLighten;
 uniform sampler2D uImage;
 
 out vec4 fragColor;
@@ -195,6 +197,7 @@ vec3 dither(vec3 c0, vec2 pos) {
   } else {
     res = vec3(quant(c.r * n, n, th), quant(c.g * n, n, th), quant(c.b * n, n, th)) / n;
   }
+  if (uLighten > 0.5) res = clamp(c + abs(res - c), 0.0, 1.0);
   // screen rows: every other row of dots darker
   res *= 1.0 - clamp(uScanlines, 0.0, 1.0) * 0.45 * mod(cell.y, 2.0);
   return res;
