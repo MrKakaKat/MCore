@@ -80,4 +80,15 @@ void main() {
     }
     expect(untouched, 192);
   });
+
+  test('softness: in-between values blended near halfway, hard steps at 0', () {
+    // a grey at 45% between the two levels, no error passed on: hard
+    // rounds it down, soft gives a blend.
+    final hard = errorDiffuse(grey(4, 4, 115), 4, 4, kernel: 'floyd', bleed: 0);
+    final soft = errorDiffuse(grey(4, 4, 115), 4, 4, kernel: 'floyd', bleed: 0, softness: 1);
+    expect(hard[0], 0);
+    expect(soft[0], inInclusiveRange(80, 140));
+    final pal = errorDiffuse(grey(4, 4, 115), 4, 4, kernel: 'floyd', bleed: 0, softness: 1, mode: 'palette');
+    expect(pal[0], inInclusiveRange(80, 140), reason: 'between the black and the white of the palette');
+  });
 }

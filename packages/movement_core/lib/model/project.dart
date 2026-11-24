@@ -2192,6 +2192,11 @@ class LayerFilters {
   /// blending.
   bool ditherStipple = false;
 
+  /// Softness (0..1): between two levels (colours) a pixel blends them
+  /// near the pattern's threshold instead of jumping from one to the
+  /// other (0: hard steps).
+  double ditherSoftness = 0;
+
   /// The pattern passes the error on (worked out on the processor), not
   /// an ordered one (drawn by the graphics chip).
   bool get ditherDiffuses => ditherDiffusion.contains(ditherPattern);
@@ -2263,7 +2268,8 @@ class LayerFilters {
         ..ditherColorize = ditherColorize
         ..ditherInvert = ditherInvert
         ..ditherScanlines = ditherScanlines
-        ..ditherStipple = ditherStipple;
+        ..ditherStipple = ditherStipple
+        ..ditherSoftness = ditherSoftness;
 
   Map<String, dynamic> toJson() => {
         'negative': trackToJson(negative),
@@ -2310,6 +2316,7 @@ class LayerFilters {
           'ditherInvert': ditherInvert,
           'ditherScanlines': ditherScanlines,
           'ditherStipple': ditherStipple,
+          'ditherSoftness': ditherSoftness,
         },
       };
 
@@ -2363,7 +2370,8 @@ class LayerFilters {
       ..ditherColorize = n(j['ditherColorize'], 1)
       ..ditherInvert = n(j['ditherInvert'], 0)
       ..ditherScanlines = n(j['ditherScanlines'], 0)
-      ..ditherStipple = j['ditherStipple'] as bool? ?? false;
+      ..ditherStipple = j['ditherStipple'] as bool? ?? false
+      ..ditherSoftness = n(j['ditherSoftness'], 0);
   }
 }
 

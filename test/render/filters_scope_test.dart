@@ -320,4 +320,21 @@ void main() {
     final grey = [for (var x = 20; x < 180; x++) for (var y = 20; y < 80; y++) half(x, y) >> 8].where((c) => c == 0x808080).length;
     expect(grey / (160 * 60), closeTo(0.5, 0.05));
   });
+
+  test('dither softness: pixels between two levels blend them instead of jumping', () async {
+    final l = rect('a', '#808080', 100, 50, 200)
+      ..filters.dither = true
+      ..filters.ditherLevels = 2
+      ..filters.ditherPattern = 'bayer4';
+    final r = CanvasRenderer();
+    await render(Project(layers: [l]), with_: r);
+    await ui.FragmentProgram.fromAsset('shaders/filter.frag');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    List<int> reds(int Function(int, int) at) => [for (var x = 20; x < 180; x++) (at(x, 50) >> 24) & 0xff];
+    final hard = reds(await render(Project(layers: [l]), with_: r));
+    expect(hard.toSet().difference({0, 255}), isEmpty);
+    l.filters.ditherSoftness = 1;
+    final soft = reds(await render(Project(layers: [l]), with_: r));
+    expect(soft.where((v) => v > 10 && v < 245).length, greaterThan(soft.length ~/ 2));
+  });
 }

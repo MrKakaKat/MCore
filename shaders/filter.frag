@@ -42,6 +42,9 @@ uniform float uColorize;
 uniform float uInvert;
 uniform float uScanlines;
 uniform float uStipple;
+// softness: near the pattern's threshold a pixel blends the two levels
+// (colours) it falls between instead of jumping (0: hard)
+uniform float uSoft;
 uniform sampler2D uImage;
 
 out vec4 fragColor;
@@ -123,27 +126,74 @@ vec2 ditherCell(vec2 pos) {
   return floor((uMosaic > 1.0 ? (floor(pos / uMosaic) + 0.5) * uMosaic : rp) / cellPx);
 }
 
+// `x` in steps (0..n): the step below plus how far toward the next - a
+// jump at the threshold `th`, or (soft) a blend around it.
+float quant(float x, float n, float th) {
+  x = clamp(x, 0.0, n);
+  float b = floor(x);
+  float fr = x - b;
+  float s = clamp(uSoft, 0.0, 1.0);
+  float w = s < 0.001 ? step(th, fr) : smoothstep(th - s * 0.5, th + s * 0.5, fr);
+  return min(b + w, n);
+}
+
+// the palette's nearest colour and the next nearest
+void nearestTwo(vec3 c, inout vec3 p1, inout vec3 p2, vec3 p) {
+  if (dist(c, p) < dist(c, p1)) {
+    p2 = p1;
+    p1 = p;
+  } else if (dist(c, p) < dist(c, p2)) {
+    p2 = p;
+  }
+}
+
+vec3 paletteSoft(vec3 c, float th) {
+  vec3 p1 = uPal0;
+  vec3 p2 = uPal1;
+  if (dist(c, p2) < dist(c, p1)) {
+    p1 = uPal1;
+    p2 = uPal0;
+  }
+  if (uPalCount > 2.5) nearestTwo(c, p1, p2, uPal2);
+  if (uPalCount > 3.5) nearestTwo(c, p1, p2, uPal3);
+  if (uPalCount > 4.5) nearestTwo(c, p1, p2, uPal4);
+  if (uPalCount > 5.5) nearestTwo(c, p1, p2, uPal5);
+  if (uPalCount > 6.5) nearestTwo(c, p1, p2, uPal6);
+  if (uPalCount > 7.5) nearestTwo(c, p1, p2, uPal7);
+  // how far from the nearest toward the next (0..1 along between them)
+  vec3 d = p2 - p1;
+  float f = clamp(dot(c - p1, d) / max(dot(d, d), 1e-6), 0.0, 1.0);
+  float s = clamp(uSoft, 0.0, 1.0);
+  return mix(p1, p2, smoothstep(th - s * 0.5, th + s * 0.5, f));
+}
+
 vec3 dither(vec3 c0, vec2 pos) {
   vec2 cell = ditherCell(pos);
   float t = threshold(cell) - 0.5;
+  // where between two steps a pixel turns to the upper one
+  float th = 0.5 - t * uSpread;
   vec3 c = mix(c0, vec3(1.0) - c0, clamp(uInvert, 0.0, 1.0));
   vec3 res;
   float n = max(uLevels - 1.0, 1.0);
   if (uMode > 2.5) {
     // two colours: the brightness in steps, laid from dark to light
     float l = dot(c, vec3(0.299, 0.587, 0.114));
-    float q = floor(clamp(l * n + t * uSpread + 0.5, 0.0, n)) / n;
+    float q = quant(l * n, n, th) / n;
     vec3 keep = c * (q / max(l, 0.001));
     res = mix(keep, mix(uDark, uLight, q), clamp(uColorize, 0.0, 1.0));
   } else if (uMode > 1.5) {
-    // the step between palette colours: about one over their count.
-    float step = 1.0 / max(uPalCount - 1.0, 1.0);
-    res = palette(clamp(c + vec3(t * uSpread * step), 0.0, 1.0));
+    if (uSoft > 0.001) {
+      res = paletteSoft(c, th);
+    } else {
+      // the step between palette colours: about one over their count.
+      float step = 1.0 / max(uPalCount - 1.0, 1.0);
+      res = palette(clamp(c + vec3(t * uSpread * step), 0.0, 1.0));
+    }
   } else if (uMode > 0.5) {
     float g = dot(c, vec3(0.299, 0.587, 0.114));
-    res = vec3(floor(clamp(g * n + t * uSpread + 0.5, 0.0, n)) / n);
+    res = vec3(quant(g * n, n, th) / n);
   } else {
-    res = floor(clamp(c * n + vec3(t * uSpread) + 0.5, 0.0, n)) / n;
+    res = vec3(quant(c.r * n, n, th), quant(c.g * n, n, th), quant(c.b * n, n, th)) / n;
   }
   // screen rows: every other row of dots darker
   res *= 1.0 - clamp(uScanlines, 0.0, 1.0) * 0.45 * mod(cell.y, 2.0);

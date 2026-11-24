@@ -2109,7 +2109,8 @@ class CanvasRenderer implements Renderer {
       ..setFloat(49, f.ditherColorize)
       ..setFloat(50, f.ditherInvert)
       ..setFloat(51, f.ditherScanlines)
-      ..setFloat(52, f.ditherStipple ? 1 : 0);
+      ..setFloat(52, f.ditherStipple ? 1 : 0)
+      ..setFloat(53, f.ditherSoftness);
     for (var i = 0; i < 8; i++) {
       final hex = f.ditherPalette.isEmpty ? '#000000' : f.ditherPalette[math.min(i, f.ditherPalette.length - 1)];
       final c = parseRgbHex(hex) ?? const [0, 0, 0];
@@ -2145,7 +2146,8 @@ class CanvasRenderer implements Renderer {
   /// took the pictures around it along, which can't be sent.)
   static Future<Uint8List> _diffuseOffThread(Uint8List bytes, int w, int h, String kernel, String mode, int levels,
           List<List<int>> palette, double bleed, bool serp, bool perc,
-          ({List<int> dark, List<int> light, double colorize, double invert, double scanlines, double? stipple}) x) =>
+          ({List<int> dark, List<int> light, double colorize, double invert, double scanlines, double? stipple, double soft})
+              x) =>
       Isolate.run(() => errorDiffuse(bytes, w, h,
           kernel: kernel,
           mode: mode,
@@ -2159,7 +2161,8 @@ class CanvasRenderer implements Renderer {
           colorize: x.colorize,
           invert: x.invert,
           scanlines: x.scanlines,
-          stippleOpacity: x.stipple));
+          stippleOpacity: x.stipple,
+          softness: x.soft));
 
   /// `p` with its colours error-diffused: worked out on the side on the
   /// dither's grid (one cell per dot), drawn from the last result - null
@@ -2171,7 +2174,7 @@ class CanvasRenderer implements Renderer {
     final sig = jsonEncode([
       f.ditherPattern, f.ditherMode, f.ditherLevels, f.ditherBleed, f.ditherSerpentine, f.ditherPerceptual, //
       f.ditherPalette, gw, gh, f.ditherDark, f.ditherLight, f.ditherColorize, f.ditherInvert, f.ditherScanlines, //
-      f.ditherStipple ? f.ditherOpacity : null,
+      f.ditherStipple ? f.ditherOpacity : null, f.ditherSoftness,
     ]);
     final id = layer.id;
     if (!_diffusing.contains(id)) {
@@ -2191,6 +2194,7 @@ class CanvasRenderer implements Renderer {
         invert: f.ditherInvert,
         scanlines: f.ditherScanlines,
         stipple: f.ditherStipple ? f.ditherOpacity : null,
+        soft: f.ditherSoftness,
       );
       () async {
         try {

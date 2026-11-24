@@ -29,10 +29,21 @@ Uint8List errorDiffuse(
   double invert = 0,
   double scanlines = 0,
   double? stippleOpacity,
+  double softness = 0,
 }) {
   final k = _kernels[kernel] ?? _kernels['floyd']!;
-  final k2 = k;
   final n = math.max(1, levels - 1);
+  final soft = softness.clamp(0.0, 1.0);
+  // `v` (0..255) to the steps: the nearest - or, soft, a blend of the two
+  // around halfway.
+  double step(double v) {
+    final x = (v / 255 * n).clamp(0.0, n.toDouble());
+    final b = x.floorToDouble(), fr = x - b;
+    final w = soft < 1e-3 ? (fr >= 0.5 ? 1.0 : 0.0) : _smooth(0.5 - soft / 2, 0.5 + soft / 2, fr);
+    return math.min(b + w, n.toDouble()) / n * 255;
+  }
+
+  final k2 = k;
   // working values (with the errors added), 0..255 floats.
   final r = Float32List(w * h), g = Float32List(w * h), b = Float32List(w * h);
   final inv = invert.clamp(0.0, 1.0);
@@ -71,11 +82,34 @@ Uint8List errorDiffuse(
         qr = best[0].toDouble();
         qg = best[1].toDouble();
         qb = best[2].toDouble();
+        if (soft > 1e-3 && palette.length > 1) {
+          // the next nearest, and how far toward it along between the two
+          List<int>? second;
+          var secondD = double.infinity;
+          for (final p in palette) {
+            if (identical(p, best)) continue;
+            final dr = cr - p[0], dg = cg - p[1], db = cb - p[2];
+            final d = wr * dr * dr + wg * dg * dg + wb * db * db;
+            if (d < secondD) {
+              secondD = d;
+              second = p;
+            }
+          }
+          if (second != null) {
+            final dx = second[0] - qr, dy = second[1] - qg, dz = second[2] - qb;
+            final len = dx * dx + dy * dy + dz * dz;
+            final f = len < 1e-6 ? 0.0 : (((cr - qr) * dx + (cg - qg) * dy + (cb - qb) * dz) / len).clamp(0.0, 1.0);
+            final w = _smooth(0.5 - soft / 2, 0.5 + soft / 2, f);
+            qr += dx * w;
+            qg += dy * w;
+            qb += dz * w;
+          }
+        }
       } else if (mode == 'duo') {
         // the brightness in steps, laid between the two colours; the
         // picture's own colours kept as much as `colorize` leaves.
         final l = 0.299 * cr + 0.587 * cg + 0.114 * cb;
-        final q = (l / 255 * n).roundToDouble() / n;
+        final q = step(l) / 255;
         final k = colorize.clamp(0.0, 1.0);
         final keep = l > 0.5 ? q * 255 / l : 0.0;
         qr = cr * keep * (1 - k) + (dark[0] + (light[0] - dark[0]) * q) * k;
@@ -99,11 +133,11 @@ Uint8List errorDiffuse(
         continue;
       } else if (mode == 'mono') {
         final l = 0.299 * cr + 0.587 * cg + 0.114 * cb;
-        qr = qg = qb = (l / 255 * n).roundToDouble() / n * 255;
+        qr = qg = qb = step(l);
       } else {
-        qr = (cr / 255 * n).roundToDouble() / n * 255;
-        qg = (cg / 255 * n).roundToDouble() / n * 255;
-        qb = (cb / 255 * n).roundToDouble() / n * 255;
+        qr = step(cr);
+        qg = step(cg);
+        qb = step(cb);
       }
       out[i * 4] = qr.round();
       out[i * 4 + 1] = qg.round();
@@ -156,6 +190,11 @@ Uint8List errorDiffuse(
     }
   }
   return out;
+}
+
+double _smooth(double a, double b, double x) {
+  final t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+  return t * t * (3 - 2 * t);
 }
 
 /// The 8x8 ordered threshold at (x, y), 0..1.
