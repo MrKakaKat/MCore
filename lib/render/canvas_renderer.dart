@@ -1868,8 +1868,9 @@ class CanvasRenderer implements Renderer {
     final blur = f.blurKind == 'chromatic' ? rawBlur.abs() : math.max(0.0, rawBlur);
     final warp = tv(f.warp);
     var p = pic;
-    if (warp != 0 || f.gamma.any((v) => v != 0)) {
-      p = _shaderPass(p, warp, f, globalFrame) ?? p;
+    final mosaic = math.max(0.0, tv(f.mosaic));
+    if (warp != 0 || f.gamma.any((v) => v != 0) || mosaic > 1 || f.dither) {
+      p = _shaderPass(p, warp, f, globalFrame, mosaic: mosaic) ?? p;
     }
     final paint = ui.Paint();
     if (neg > 0 || f.graded) {
@@ -2035,7 +2036,7 @@ class CanvasRenderer implements Renderer {
   }
 
   /// Warp and gamma per pixel (the shader) - null until it is loaded.
-  ui.Picture? _shaderPass(ui.Picture pic, double warp, LayerFilters f, int globalFrame) {
+  ui.Picture? _shaderPass(ui.Picture pic, double warp, LayerFilters f, int globalFrame, {double mosaic = 0}) {
     final prog = _filterProgram;
     if (prog == null) {
       _loadFilterProgram();
@@ -2053,6 +2054,26 @@ class CanvasRenderer implements Renderer {
       ..setFloat(6, math.pow(2, -f.gamma[1]).toDouble())
       ..setFloat(7, math.pow(2, -f.gamma[2]).toDouble())
       ..setImageSampler(0, img);
+    // mosaic and dither (px on the stage: scaled with the frame's size).
+    final px = _width / stageSize.width;
+    final layerMosaic = mosaic * px;
+    shader
+      ..setFloat(8, layerMosaic)
+      ..setFloat(9, f.dither ? 1 : 0)
+      ..setFloat(10, switch (f.ditherMode) { 'mono' => 1, 'palette' => 2, _ => 0 })
+      ..setFloat(11, f.ditherLevels.clamp(2, 64).toDouble())
+      ..setFloat(12, switch (f.ditherPattern) { 'none' => 0, 'bayer2' => 1, 'bayer8' => 3, 'noise' => 4, _ => 2 })
+      ..setFloat(13, f.ditherSpread)
+      ..setFloat(14, math.max(1.0, f.ditherDot * px))
+      ..setFloat(15, f.ditherPalette.length.clamp(2, 8).toDouble());
+    for (var i = 0; i < 8; i++) {
+      final hex = f.ditherPalette.isEmpty ? '#000000' : f.ditherPalette[math.min(i, f.ditherPalette.length - 1)];
+      final c = parseRgbHex(hex) ?? const [0, 0, 0];
+      shader
+        ..setFloat(16 + i * 3, c[0] / 255)
+        ..setFloat(17 + i * 3, c[1] / 255)
+        ..setFloat(18 + i * 3, c[2] / 255);
+    }
     final rec = ui.PictureRecorder();
     ui.Canvas(rec).drawRect(ui.Rect.fromLTWH(0, 0, w.toDouble(), h.toDouble()), ui.Paint()..shader = shader);
     final out = rec.endRecording().toImageSync(w, h);

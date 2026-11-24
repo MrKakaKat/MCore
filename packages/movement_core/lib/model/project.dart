@@ -2138,8 +2138,36 @@ class LayerFilters {
   /// The colour wheels move anything.
   bool get graded => [...lift, ...gamma, ...gain].any((v) => v != 0);
 
+  /// Mosaic: the picture in square cells this many px wide (keyable; 0
+  /// or 1: off).
+  Track mosaic = Track(0.0, false);
+
+  /// Dither (in the manner of pixel-art dithering): the colours brought
+  /// down to a few, the steps between them broken up by a pattern.
+  bool dither = false;
+
+  /// 'levels' (each channel to `ditherLevels` steps), 'mono' (greys) or
+  /// 'palette' (the nearest of `ditherPalette`).
+  String ditherMode = 'levels';
+  int ditherLevels = 4;
+
+  /// 'bayer2' | 'bayer4' | 'bayer8' (an ordered grid), 'noise', 'none'.
+  String ditherPattern = 'bayer4';
+
+  /// How much the pattern breaks the steps (0..1; above 1 rougher).
+  double ditherSpread = 1;
+
+  /// The pattern's dot, px (the mosaic's cell when there is one).
+  double ditherDot = 1;
+
+  /// The colours of the 'palette' mode (2..8).
+  List<String> ditherPalette = ['#0f380f', '#306230', '#8bac0f', '#9bbc0f'];
+
   bool get any =>
-      _on(negative) || _on(blur) || _on(warp) || graded || lightWrap > 0 || _on(vignette);
+      _on(negative) || _on(blur) || _on(warp) || graded || lightWrap > 0 || _on(vignette) || _on(mosaic) || dither;
+
+  /// The mosaic or the dither is on (drawn by the filters' shader).
+  bool get pixelated => _on(mosaic) || dither;
 
   /// Settings that differ from a fresh one (saved even with nothing on).
   bool get changed => any || scope != 'self' || blurKind != 'gaussian' || blurAngle != 0 ||
@@ -2172,7 +2200,15 @@ class LayerFilters {
         vignetteSize: vignetteSize,
         vignetteSoft: vignetteSoft,
         vignetteColor: vignetteColor,
-      );
+      )
+        ..mosaic = cloneTrack(mosaic)
+        ..dither = dither
+        ..ditherMode = ditherMode
+        ..ditherLevels = ditherLevels
+        ..ditherPattern = ditherPattern
+        ..ditherSpread = ditherSpread
+        ..ditherDot = ditherDot
+        ..ditherPalette = [...ditherPalette];
 
   Map<String, dynamic> toJson() => {
         'negative': trackToJson(negative),
@@ -2199,6 +2235,16 @@ class LayerFilters {
         if (vignetteSize != 0.5) 'vignetteSize': vignetteSize,
         if (vignetteSoft != 0.5) 'vignetteSoft': vignetteSoft,
         if (vignetteColor != '#000000') 'vignetteColor': vignetteColor,
+        if (_on(mosaic)) 'mosaic': trackToJson(mosaic),
+        if (dither) ...{
+          'dither': true,
+          'ditherMode': ditherMode,
+          'ditherLevels': ditherLevels,
+          'ditherPattern': ditherPattern,
+          'ditherSpread': ditherSpread,
+          'ditherDot': ditherDot,
+          'ditherPalette': ditherPalette,
+        },
       };
 
   static LayerFilters fromJson(Map<String, dynamic> j) {
@@ -2230,7 +2276,17 @@ class LayerFilters {
       vignetteSize: n(j['vignetteSize'], 0.5),
       vignetteSoft: n(j['vignetteSoft'], 0.5),
       vignetteColor: j['vignetteColor'] as String? ?? '#000000',
-    );
+    )
+      ..mosaic = j['mosaic'] is Map ? trackFromJson(j['mosaic'] as Map<String, dynamic>) : Track(0.0, false)
+      ..dither = j['dither'] as bool? ?? false
+      ..ditherMode = j['ditherMode'] as String? ?? 'levels'
+      ..ditherLevels = (j['ditherLevels'] as num?)?.toInt() ?? 4
+      ..ditherPattern = j['ditherPattern'] as String? ?? 'bayer4'
+      ..ditherSpread = n(j['ditherSpread'], 1)
+      ..ditherDot = n(j['ditherDot'], 1)
+      ..ditherPalette = j['ditherPalette'] is List
+          ? [for (final c in j['ditherPalette'] as List) '$c']
+          : ['#0f380f', '#306230', '#8bac0f', '#9bbc0f'];
   }
 }
 

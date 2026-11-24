@@ -221,4 +221,48 @@ void main() {
     final same = await render(Project(layers: [l]));
     expect(same(90, 50), 0xff0000ff, reason: 'the back prints the front the right way round');
   });
+
+  test('dither: the colours brought down to the set levels; mosaic: whole cells of one colour', () async {
+    // a grey that sits between the levels: dithered to black and white.
+    final l = rect('a', '#808080', 100, 50, 80)
+      ..filters.dither = true
+      ..filters.ditherLevels = 2
+      ..filters.ditherPattern = 'bayer2';
+    final r = CanvasRenderer();
+    await render(Project(layers: [l]), with_: r);
+    await ui.FragmentProgram.fromAsset('shaders/filter.frag');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final at = await render(Project(layers: [l]), with_: r);
+    final reds = {for (var x = 90; x < 110; x++) for (var y = 40; y < 60; y++) (at(x, y) >> 24) & 0xff};
+    expect(reds, {0, 255}, reason: 'only the two levels, mixed by the pattern');
+    // a palette: only its colours.
+    l.filters
+      ..ditherMode = 'palette'
+      ..ditherPalette = ['#000000', '#ff0000'];
+    final pal = await render(Project(layers: [l]), with_: r);
+    final colours = {for (var x = 90; x < 110; x++) for (var y = 40; y < 60; y++) pal(x, y) >> 8};
+    expect(colours.difference({0x000000, 0xff0000}), isEmpty);
+    // mosaic of 10 px cells over a left-right split: no cell is half one, half the other.
+    final left = rect('l', '#ff0000', 50, 50, 100);
+    final right = rect('r', '#0000ff', 150, 50, 100);
+    final m = rect('m', '#ffffff', 100, 50, 200)
+      ..filters.scope = 'glass'
+      ..filters.mosaic = Track(10.0, false);
+    final mo = await render(Project(layers: [left, right, m]), with_: r);
+    for (var cell = 0; cell < 20; cell++) {
+      final xs = {for (var x = cell * 10; x < cell * 10 + 10; x++) mo(x, 55)};
+      expect(xs.length, 1, reason: 'cell $cell');
+    }
+  });
+
+  test('mosaic and dither are saved', () {
+    final f = LayerFilters()
+      ..mosaic = Track(12.0, false)
+      ..dither = true
+      ..ditherMode = 'palette'
+      ..ditherPalette = ['#112233', '#445566', '#778899'];
+    final back = LayerFilters.fromJson(f.toJson());
+    expect(back.mosaic.defaultValue, 12.0);
+    expect([back.dither, back.ditherMode, back.ditherPalette], [true, 'palette', ['#112233', '#445566', '#778899']]);
+  });
 }

@@ -15,6 +15,16 @@ import '../../io/freeze_watch.dart';
 /// Filters: what they act on (the layer, the whole scene, or what is under
 /// the layer as glass), negative, blur, fractal warp, colour wheels with
 /// Match Color, light wrap.
+/// Ready-made palettes for the dither (up to 8 colours).
+const _ditherPalettes = <(String, List<String>)>[
+  ('1-bit', ['#000000', '#ffffff']),
+  ('Handheld', ['#0f380f', '#306230', '#8bac0f', '#9bbc0f']),
+  ('CGA', ['#000000', '#55ffff', '#ff55ff', '#ffffff']),
+  ('Sepia', ['#2b1d0e', '#6b4a2b', '#b08a5a', '#f1e1c2']),
+  ('Neon', ['#0d0221', '#261447', '#ff3864', '#2de2e6', '#f6019d', '#fdfdfd']),
+  ('Pastel', ['#2e2e3a', '#f4a6a6', '#f8e1a1', '#a8e6cf', '#a0c4ff', '#fdfdfd']),
+];
+
 /// Each glitch tap: other bursts.
 int _glitchSeed = 0;
 
@@ -254,6 +264,100 @@ class FiltersView extends StatelessWidget {
                   suffix: '%'),
               number('filter-focus-soft', 'Fade', f.blurFocusSoft * 100, 0, 100, (v) => f.blurFocusSoft = v / 100,
                   suffix: '%'),
+            ],
+            section('Pixels'),
+            _TrackRow(app: app, layer: layer, track: f.mosaic, keyName: 'filter-mosaic', label: 'Mosaic',
+                min: 0, max: 200, suffix: ' px'),
+            const Hint('Mosaic: the picture in square cells this wide (0: off) - keyable.'),
+            SwitchListTile(
+              key: const ValueKey('filter-dither'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Dither', style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: hint('Few colours, the steps between them broken up by a pattern - pixel-art style.'),
+              value: f.dither,
+              onChanged: (v) => edit(() => f.dither = v),
+            ),
+            if (f.dither) ...[
+              SegmentedButton<String>(
+                key: const ValueKey('filter-dither-mode'),
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: 'levels', label: Text('Levels')),
+                  ButtonSegment(value: 'mono', label: Text('Greys')),
+                  ButtonSegment(value: 'palette', label: Text('Palette')),
+                ],
+                selected: {f.ditherMode},
+                onSelectionChanged: (v) => edit(() => f.ditherMode = v.first),
+              ),
+              if (f.ditherMode != 'palette')
+                number('filter-dither-levels', f.ditherMode == 'mono' ? 'Greys' : 'Steps per colour', f.ditherLevels.toDouble(),
+                    2, 32, (v) => f.ditherLevels = v.round()),
+              const SizedBox(height: 4),
+              SingleChildScrollView(scrollDirection: Axis.horizontal, child: Wrap(spacing: 6, children: [
+                for (final (k, name) in const [
+                  ('bayer2', 'Grid 2'),
+                  ('bayer4', 'Grid 4'),
+                  ('bayer8', 'Grid 8'),
+                  ('noise', 'Noise'),
+                  ('none', 'None'),
+                ])
+                  ChoiceChip(
+                    key: ValueKey('filter-dither-$k'),
+                    label: Text(name),
+                    selected: f.ditherPattern == k,
+                    onSelected: (_) => edit(() => f.ditherPattern = k),
+                  ),
+              ])),
+              number('filter-dither-spread', 'Pattern strength', f.ditherSpread * 100, 0, 200, (v) => f.ditherSpread = v / 100,
+                  suffix: '%'),
+              number('filter-dither-dot', 'Pattern dot', f.ditherDot, 1, 64, (v) => f.ditherDot = v.roundToDouble(),
+                  suffix: ' px'),
+              const Hint('The dot is the mosaic\'s cell when a mosaic is on.'),
+              if (f.ditherMode == 'palette') ...[
+                const SizedBox(height: 4),
+                SingleChildScrollView(scrollDirection: Axis.horizontal, child: Wrap(spacing: 6, children: [
+                  for (final (name, colours) in _ditherPalettes)
+                    ActionChip(
+                      key: ValueKey('filter-dither-pal-$name'),
+                      label: Text(name),
+                      avatar: Row(mainAxisSize: MainAxisSize.min, children: [
+                        for (final c in colours.take(4))
+                          Container(width: 4, height: 14, color: Color(0xFF000000 | int.parse(c.substring(1), radix: 16))),
+                      ]),
+                      onPressed: () => edit(() => f.ditherPalette = [...colours]),
+                    ),
+                ])),
+                for (var i = 0; i < f.ditherPalette.length; i++)
+                  Row(children: [
+                    Expanded(
+                      child: ColorRow(
+                        key: ValueKey('filter-dither-colour-$i'),
+                        label: 'Colour ${i + 1}',
+                        hex: f.ditherPalette[i],
+                        onPick: (c) => edit(() => f.ditherPalette = [...f.ditherPalette]..[i] = c),
+                      ),
+                    ),
+                    IconButton(
+                      key: ValueKey('filter-dither-remove-$i'),
+                      icon: const Icon(Icons.remove_circle_outline, size: 18),
+                      tooltip: 'Remove',
+                      onPressed: f.ditherPalette.length > 2
+                          ? () => edit(() => f.ditherPalette = [...f.ditherPalette]..removeAt(i))
+                          : null,
+                    ),
+                  ]),
+                if (f.ditherPalette.length < 8)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const ValueKey('filter-dither-add'),
+                      onPressed: () => edit(() => f.ditherPalette = [...f.ditherPalette, '#ffffff']),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add a colour'),
+                    ),
+                  ),
+              ],
             ],
             section('Vignette'),
             _TrackRow(app: app, layer: layer, track: f.vignette, keyName: 'filter-vignette', label: 'Amount',

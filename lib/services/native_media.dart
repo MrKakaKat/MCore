@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 import 'package:movement_core/movement_core.dart' show audioChannels, audioSampleRate;
@@ -201,6 +202,9 @@ class NativeVideoService extends VideoService {
     final w = width ~/ 2 * 2, h = height ~/ 2 * 2;
     final kbps = bitrateKbps ?? ((quality ?? 80) / 100 * w * h * fps * 0.15 / 1000).round().clamp(800, 40000);
     final id = 'enc${DateTime.now().microsecondsSinceEpoch}';
+    // the encoder reads raw samples: a WAV's 44-byte header went in as
+    // sound too - a click at the very start of the video.
+    final pcmPath = audioPath == null ? null : await rawPcmOf(audioPath);
     await _m.call('beginEncode', {
       'id': id,
       'path': outputPath,
@@ -209,7 +213,7 @@ class NativeVideoService extends VideoService {
       'height': h,
       'fps': fps,
       'bitrateKbps': kbps,
-      'audioPcm': audioPath,
+      'audioPcm': pcmPath,
       'audioKbps': audioKbps,
       'rate': audioSampleRate,
       'channels': audioChannels,
@@ -297,4 +301,33 @@ class NativeAudioService implements AudioService {
         {'pcm': pcm.path, 'path': outputPath, 'rate': audioSampleRate, 'channels': audioChannels, 'kbps': kbps});
     return File(path ?? outputPath);
   }
+}
+
+/// The raw samples of a WAV file (its header left out), in a file beside
+/// it; any other file as it is.
+Future<String> rawPcmOf(String path) async {
+  if (!path.toLowerCase().endsWith('.wav')) return path;
+  final bytes = await File(path).readAsBytes();
+  final start = wavDataOffset(bytes);
+  if (start == 0) return path;
+  final out = File('$path.pcm');
+  await out.writeAsBytes(Uint8List.sublistView(bytes, start));
+  return out.path;
+}
+
+/// Where a WAV file's samples begin (after its "data" chunk header); 0
+/// when it isn't one.
+int wavDataOffset(Uint8List b) {
+  if (b.length < 12 || String.fromCharCodes(b.sublist(0, 4)) != 'RIFF' || String.fromCharCodes(b.sublist(8, 12)) != 'WAVE') {
+    return 0;
+  }
+  var at = 12;
+  final bd = ByteData.sublistView(b);
+  while (at + 8 <= b.length) {
+    final id = String.fromCharCodes(b.sublist(at, at + 4));
+    final len = bd.getUint32(at + 4, Endian.little);
+    if (id == 'data') return at + 8;
+    at += 8 + len + (len & 1);
+  }
+  return 0;
 }
