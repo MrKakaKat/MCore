@@ -5493,7 +5493,10 @@ class AppState extends ChangeNotifier {
         project = data.project;
         fps = data.fps > 0 ? data.fps : 60;
         project.fps = fps;
-        _explicitTimelineLength = data.timelineLength;
+        // (a length under two frames is no length: everything added got
+        // cut to it)
+        final tl = data.timelineLength;
+        _explicitTimelineLength = tl != null && tl >= 2 ? tl : null;
         renderer.mirrorX = data.mirrorX;
         renderer.mirrorY = data.mirrorY;
         maxFrame = recomputeMaxFrameToFit(project.layers, _maxFrameFloor);
@@ -5598,6 +5601,15 @@ class AppState extends ChangeNotifier {
   Future<void> _writeAutosaveOnce() async {
     final file = _autosaveFile;
     if (file == null) return;
+    // about to save it empty over a file with layers: that file is put
+    // aside first, where later saves never reach (Previous versions).
+    if (project.layers.isEmpty) {
+      try {
+        if (await file.exists() && projectFileLayerCount(await file.readAsString()) > 0) {
+          await file.copy('${file.path}.keep');
+        }
+      } catch (_) {}
+    }
     // a save of the host clears the "updated" badges.
     for (final l in project.layers) {
       final src = l.content.shape == 'projectRef' ? refSourceOf(l.content, refSources) : null;

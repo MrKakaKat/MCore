@@ -162,6 +162,7 @@ void _swapRefs(Layer l, String from, String to) {
   l.parentId = swap(l.parentId);
   l.mirrorSourceId = swap(l.mirrorSourceId);
   l.backSourceId = swap(l.backSourceId);
+  l.filters.matteLayerId = swap(l.filters.matteLayerId);
   l.follow.targetId = swap(l.follow.targetId);
   final pf = l.transform.pathFollow;
   pf.sourceLayerId = swap(pf.sourceLayerId);

@@ -407,4 +407,95 @@ void main() {
     l.filters.ditherHold = 1;
     expect(white(await render(Project(layers: [l]), with_: r)), closeTo(0.45, 0.06));
   });
+
+  test('Simple Choker: the edge pulled in, or spread out', () async {
+    final l = rect('a', '#ff0000', 100, 50, 40); // 80..120 across
+    final r = CanvasRenderer();
+    final plain = await render(Project(layers: [l]), with_: r);
+    expect(plain(82, 50) & 0xff, 255);
+    l.filters.choke = Track(6.0, false);
+    final choked = await render(Project(layers: [l]), with_: r);
+    expect(choked(82, 50) & 0xff, 0, reason: 'pulled in');
+    expect(choked(100, 50) & 0xff, 255);
+    l.filters.choke = Track(-6.0, false);
+    final spread = await render(Project(layers: [l]), with_: r);
+    expect(spread(76, 50) & 0xff, 255, reason: 'spread out');
+  });
+
+  test('Dissolve: the opacity as a share of whole pixels; dancing: other ones each frame', () async {
+    final l = rect('a', '#ff0000', 100, 50, 200)
+      ..transform.opacity = Track(0.5, false)
+      ..filters.dissolve = 'dancing';
+    final r = CanvasRenderer();
+    await render(Project(layers: [l]), with_: r);
+    await ui.FragmentProgram.fromAsset('shaders/filter.frag');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    Future<List<int>> alphas(int frame) async {
+      r.setSize(200, 100);
+      r.backgroundColor = null;
+      clearStateCaches();
+      r.renderFrame(Project(layers: [l]), frame);
+      final img = await r.captureFrame();
+      final b = (await img.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+      return [for (var y = 20; y < 80; y++) for (var x = 20; x < 180; x++) b.getUint8((y * 200 + x) * 4 + 3)];
+    }
+
+    final a0 = await alphas(0);
+    expect(a0.toSet().difference({0, 255}), isEmpty, reason: 'whole pixels or none');
+    expect(a0.where((v) => v == 255).length / a0.length, closeTo(0.5, 0.05));
+    final a1 = await alphas(1);
+    var differ = 0;
+    for (var i = 0; i < a0.length; i++) {
+      if (a0[i] != a1[i]) differ++;
+    }
+    expect(differ, greaterThan(a0.length ~/ 4), reason: 'dancing');
+  });
+
+  test('effect matte: the filter works only where the matte layer is light; inverted the other way round', () async {
+    final bg = rect('bg', '#ff0000', 100, 50, 200);
+    final l = rect('a', '#ff0000', 100, 50, 200)
+      ..filters.negative = Track(1.0, false)
+      ..filters.matteLayerId = 'm';
+    // the matte: a white left half, hidden (still read).
+    final m = rect('m', '#ffffff', 50, 50, 100)..hidden = true;
+    final at = await render(Project(layers: [bg, m, l]));
+    expect(at(40, 50) >> 8, 0x00ffff, reason: 'left: the negative');
+    expect(at(160, 50) >> 8, 0xff0000, reason: 'right: as it was');
+    l.filters.matteInvert = true;
+    final inv = await render(Project(layers: [bg, m, l]));
+    expect(inv(40, 50) >> 8, 0xff0000);
+    expect(inv(160, 50) >> 8, 0x00ffff);
+  });
+
+  test('effect matte on motion blur: blurred where the matte is light, sharp where it is dark', () async {
+    Layer mover() {
+      final l = rect('a', '#ffffff', 40, 50, 20)
+        ..motionBlur.enabled = true
+        ..motionBlur.samples = 8
+        ..motionBlur.shutterAngle = 360;
+      l.transform.anchor.keyframes.addAll([
+        Keyframe(frame: 0, value: [0.1, 0.5]),
+        Keyframe(frame: 10, value: [0.9, 0.5]),
+      ]);
+      return l;
+    }
+
+    Future<List<int>> row(Layer l, List<Layer> more) async {
+      final r = CanvasRenderer()..setSize(200, 100);
+      r.backgroundColor = null;
+      clearStateCaches();
+      r.renderFrame(Project(layers: [...more, l]), 5);
+      final img = await r.captureFrame();
+      final b = (await img.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+      return [for (var x = 0; x < 200; x++) b.getUint8((50 * 200 + x) * 4 + 3)];
+    }
+
+    final blurred = await row(mover(), []);
+    final sharp = await row(mover()..motionBlur.enabled = false, []);
+    expect(blurred, isNot(sharp));
+    final white = rect('m', '#ffffff', 100, 50, 200)..hidden = true;
+    expect(await row(mover()..filters.matteLayerId = 'm', [white]), blurred);
+    final black = rect('m', '#000000', 100, 50, 200)..hidden = true;
+    expect(await row(mover()..filters.matteLayerId = 'm', [black]), sharp);
+  });
 }

@@ -2226,6 +2226,27 @@ class LayerFilters {
   /// The colours of the 'palette' mode (2..8).
   List<String> ditherPalette = ['#0f380f', '#306230', '#8bac0f', '#9bbc0f'];
 
+  /// Simple Choker: the layer's edge pulled in (px, keyable; below 0:
+  /// spread out).
+  Track choke = Track(0.0, false);
+
+  /// Dissolve: the layer's opacity as a share of its pixels shown whole
+  /// (the rest left out, at random) instead of a blend - 'none',
+  /// 'dissolve' (the same pixels every frame) or 'dancing' (other ones
+  /// each frame).
+  String dissolve = 'none';
+
+  /// Effect matte: another layer whose brightness says where the effects
+  /// work - white: fully, black: not at all (`matteInvert`: the other way
+  /// round). The matte layer can be hidden; it is still read.
+  String? matteLayerId;
+  bool matteInvert = false;
+
+  /// What the matte limits: the filters (with glitch and dither), the
+  /// motion blur.
+  bool matteFilters = true;
+  bool matteBlur = true;
+
   bool get any =>
       _on(negative) || _on(blur) || _on(warp) || graded || lightWrap > 0 || _on(vignette) || _on(mosaic) || dither;
 
@@ -2233,7 +2254,7 @@ class LayerFilters {
   bool get pixelated => _on(mosaic) || dither;
 
   /// Settings that differ from a fresh one (saved even with nothing on).
-  bool get changed => any || scope != 'self' || blurKind != 'gaussian' || blurAngle != 0 ||
+  bool get changed => any || _on(choke) || dissolve != 'none' || matteLayerId != null || scope != 'self' || blurKind != 'gaussian' || blurAngle != 0 ||
       !blurCentered || blurFocus != 'none' ||
       warpScale != 60 || warpSpeed != 0.5 || lightWrapWidth != 12 ||
       vignetteSize != 0.5 || vignetteSoft != 0.5 || vignetteColor != '#000000';
@@ -2286,7 +2307,13 @@ class LayerFilters {
         ..ditherSoftness = ditherSoftness
         ..ditherLightenOnly = ditherLightenOnly
         ..ditherSqueeze = ditherSqueeze
-        ..ditherHold = ditherHold;
+        ..ditherHold = ditherHold
+        ..choke = cloneTrack(choke)
+        ..dissolve = dissolve
+        ..matteLayerId = matteLayerId
+        ..matteInvert = matteInvert
+        ..matteFilters = matteFilters
+        ..matteBlur = matteBlur;
 
   Map<String, dynamic> toJson() => {
         'negative': trackToJson(negative),
@@ -2314,6 +2341,14 @@ class LayerFilters {
         if (vignetteSoft != 0.5) 'vignetteSoft': vignetteSoft,
         if (vignetteColor != '#000000') 'vignetteColor': vignetteColor,
         if (_on(mosaic)) 'mosaic': trackToJson(mosaic),
+        if (_on(choke)) 'choke': trackToJson(choke),
+        if (dissolve != 'none') 'dissolve': dissolve,
+        if (matteLayerId != null) ...{
+          'matteLayerId': matteLayerId,
+          'matteInvert': matteInvert,
+          'matteFilters': matteFilters,
+          'matteBlur': matteBlur,
+        },
         if (dither) ...{
           'dither': true,
           'ditherMode': ditherMode,
@@ -2394,7 +2429,13 @@ class LayerFilters {
       ..ditherSoftness = n(j['ditherSoftness'], 0)
       ..ditherLightenOnly = j['ditherLightenOnly'] as bool? ?? false
       ..ditherSqueeze = n(j['ditherSqueeze'], 0)
-      ..ditherHold = n(j['ditherHold'], 0);
+      ..ditherHold = n(j['ditherHold'], 0)
+      ..choke = j['choke'] is Map ? trackFromJson(j['choke'] as Map<String, dynamic>) : Track(0.0, false)
+      ..dissolve = j['dissolve'] as String? ?? 'none'
+      ..matteLayerId = j['matteLayerId'] as String?
+      ..matteInvert = j['matteInvert'] as bool? ?? false
+      ..matteFilters = j['matteFilters'] as bool? ?? true
+      ..matteBlur = j['matteBlur'] as bool? ?? true;
   }
 }
 

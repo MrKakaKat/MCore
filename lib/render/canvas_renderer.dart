@@ -1085,8 +1085,35 @@ class CanvasRenderer implements Renderer {
       return false;
     }
 
-    if (mb.enabled && mb.samples > 1 && effectActiveAt(layer, 'motionBlur', globalFrame - layer.startFrame) &&
-        movesAcrossShutter()) {
+    final blurs = mb.enabled &&
+        mb.samples > 1 &&
+        _sharpLayer != layerId &&
+        effectActiveAt(layer, 'motionBlur', globalFrame - layer.startFrame) &&
+        movesAcrossShutter();
+    // an effect matte on the blur: blurred where it is light, sharp where
+    // it is dark - both drawn, mixed by it.
+    if (blurs && _blurOnly != layerId && layer.filters.matteBlur && layer.filters.matteLayerId != null) {
+      final matte = _mattePicture(project, layer, globalFrame);
+      if (matte != null) {
+        final sharp = ui.PictureRecorder();
+        _sharpLayer = layerId;
+        try {
+          _drawLayer(ui.Canvas(sharp), project, layerId, globalFrame);
+        } finally {
+          _sharpLayer = null;
+        }
+        final blurred = ui.PictureRecorder();
+        _blurOnly = layerId;
+        try {
+          _drawLayer(ui.Canvas(blurred), project, layerId, globalFrame);
+        } finally {
+          _blurOnly = null;
+        }
+        _mixByMatte(canvas, sharp.endRecording(), blurred.endRecording(), matte, layer.filters.matteInvert);
+        return;
+      }
+    }
+    if (blurs) {
       // the shutter angle as a fraction of one frame's duration (longer
       // for a slow move with sensitivity on).
       final shutterFrames = window;
@@ -1248,7 +1275,7 @@ class CanvasRenderer implements Renderer {
     final localFrameOp = math
         .min(layer.durationFrames, math.max(0, layerTimeFrame(layer, globalFrame) - layer.startFrame))
         .toDouble();
-    final opacity = ((evaluateTrack(project, layer.transform.opacity, localFrameOp, layer) as double) +
+    var opacity = ((evaluateTrack(project, layer.transform.opacity, localFrameOp, layer) as double) +
                 (layer.links.isEmpty ? 0.0 : linkOffset(project, layer, 'opacity', globalFrame)))
             .clamp(0.0, 1.0) *
         sampleWeight;
@@ -1669,6 +1696,20 @@ class CanvasRenderer implements Renderer {
 
     var contentPicture = contentRecorder.endRecording();
     if (!isPrecompose) contentPicture = _edgeColourGlows(contentPicture, layer, mCanvas, globalFrame);
+    // Simple Choker: the edge pulled in (or spread out).
+    final choke = (evaluateTrack(project, layer.filters.choke, localFrameOp, layer) as num).toDouble() * _width / stageSize.width;
+    if (choke.abs() > 0.05) contentPicture = _choked(contentPicture, choke);
+    // Dissolve: the opacity as a share of whole pixels, not a blend.
+    if (layer.filters.dissolve != 'none' && opacity < 1) {
+      final keep = opacity.clamp(0.0, 1.0).toDouble();
+      final dissolved = _shaderPass(contentPicture, 0, layer.filters, globalFrame,
+          keep: keep, seed: layer.filters.dissolve == 'dancing' ? globalFrame.toDouble() : 0, only: true);
+      // (the shader not there yet: the plain blend meanwhile)
+      if (dissolved != null) {
+        contentPicture = dissolved;
+        opacity = 1;
+      }
+    }
     // opacity AND blend composite together in one saveLayer, against
     // destCanvas's actual current contents - this matters for motion
     // blur (blend: BlendMode.plus): each sample has to accumulate
@@ -1717,7 +1758,16 @@ class CanvasRenderer implements Renderer {
     // Filters on the layer itself (the whole scene's are applied once
     // every layer is drawn - see renderFrame).
     if (filters.scope == 'self' && filters.any) {
-      _drawFiltered(destCanvas, contentPicture, project, layer, localFrameOp, globalFrame);
+      final matte = filters.matteFilters ? _mattePicture(project, layer, globalFrame) : null;
+      if (matte != null) {
+        // only where the matte is light: the filtered picture there, the
+        // plain one elsewhere.
+        final rec = ui.PictureRecorder();
+        _drawFiltered(ui.Canvas(rec), contentPicture, project, layer, localFrameOp, globalFrame);
+        _mixByMatte(destCanvas, contentPicture, rec.endRecording(), matte, filters.matteInvert);
+      } else {
+        _drawFiltered(destCanvas, contentPicture, project, layer, localFrameOp, globalFrame);
+      }
     } else {
       destCanvas.drawPicture(contentPicture);
     }
@@ -1725,6 +1775,79 @@ class CanvasRenderer implements Renderer {
       _lightWrap(destCanvas, project, layer, contentPicture, globalFrame);
     }
     destCanvas.restore();
+  }
+
+  /// `pic` with its edge pulled in by `px` (canvas px; below 0: spread).
+  ui.Picture _choked(ui.Picture pic, double px) {
+    final rec = ui.PictureRecorder();
+    final c = ui.Canvas(rec);
+    final r = px.abs();
+    if (px > 0) {
+      // only where the picture stays when its alpha is worn away.
+      c.drawPicture(pic);
+      c.saveLayer(null, ui.Paint()
+        ..blendMode = ui.BlendMode.dstIn
+        ..imageFilter = ui.ImageFilter.erode(radiusX: r, radiusY: r));
+      c.drawPicture(pic);
+      c.restore();
+    } else {
+      c.saveLayer(null, ui.Paint()..imageFilter = ui.ImageFilter.dilate(radiusX: r, radiusY: r));
+      c.drawPicture(pic);
+      c.restore();
+    }
+    return rec.endRecording();
+  }
+
+  /// The layer's effect matte drawn alone (null: none, or the layer itself,
+  /// or one that isn't there).
+  ui.Picture? _mattePicture(Project project, Layer layer, int globalFrame) {
+    final id = layer.filters.matteLayerId;
+    if (id == null || id == layer.id || _matteDepth > 3) return null;
+    final m = findLayer(project, id);
+    if (m == null) return null;
+    _matteDepth++;
+    try {
+      final rec = ui.PictureRecorder();
+      _drawLayer(ui.Canvas(rec), project, m.id, globalFrame);
+      return rec.endRecording();
+    } finally {
+      _matteDepth--;
+    }
+  }
+
+  int _matteDepth = 0;
+
+  /// The layer drawn sharp (no motion blur) / blurred without its matte
+  /// - the two halves an effect matte mixes.
+  String? _sharpLayer, _blurOnly;
+
+  /// `plain` where the matte is dark, `effect` where it is light (in
+  /// between: both, by how light) - added, so they make one picture.
+  void _mixByMatte(ui.Canvas canvas, ui.Picture plain, ui.Picture effect, ui.Picture matte, bool invert) {
+    // the matte's brightness as see-through-ness (over black: its clear
+    // parts count as black).
+    final toAlpha = ui.ColorFilter.matrix(invert
+        ? const [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -0.2126, -0.7152, -0.0722, 0, 255]
+        : const [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2126, 0.7152, 0.0722, 0, 0]);
+    void mask(ui.BlendMode mode) {
+      canvas.saveLayer(null, ui.Paint()
+        ..blendMode = mode
+        ..colorFilter = toAlpha);
+      canvas.drawPaint(ui.Paint()..color = const ui.Color(0xFF000000));
+      canvas.drawPicture(matte);
+      canvas.restore();
+    }
+
+    canvas.saveLayer(null, ui.Paint());
+    canvas.saveLayer(null, ui.Paint());
+    canvas.drawPicture(plain);
+    mask(ui.BlendMode.dstOut);
+    canvas.restore();
+    canvas.saveLayer(null, ui.Paint()..blendMode = ui.BlendMode.plus);
+    canvas.drawPicture(effect);
+    mask(ui.BlendMode.dstIn);
+    canvas.restore();
+    canvas.restore();
   }
 
   // ============================================================
@@ -2051,7 +2174,8 @@ class CanvasRenderer implements Renderer {
   }
 
   /// Warp and gamma per pixel (the shader) - null until it is loaded.
-  ui.Picture? _shaderPass(ui.Picture pic, double warp, LayerFilters f, int globalFrame, {double mosaic = 0}) {
+  ui.Picture? _shaderPass(ui.Picture pic, double warp, LayerFilters f, int globalFrame,
+      {double mosaic = 0, double keep = -1, double seed = 0, bool only = false}) {
     final prog = _filterProgram;
     if (prog == null) {
       _loadFilterProgram();
@@ -2114,7 +2238,19 @@ class CanvasRenderer implements Renderer {
       ..setFloat(53, f.ditherSoftness)
       ..setFloat(54, f.ditherLightenOnly ? 1 : 0)
       ..setFloat(55, f.ditherSqueeze)
-      ..setFloat(56, f.ditherHold);
+      ..setFloat(56, f.ditherHold)
+      ..setFloat(57, keep)
+      ..setFloat(58, seed);
+    // (a dissolve alone: nothing else of the filters)
+    if (only) {
+      shader
+        ..setFloat(2, 0)
+        ..setFloat(5, 1)
+        ..setFloat(6, 1)
+        ..setFloat(7, 1)
+        ..setFloat(8, 0)
+        ..setFloat(9, 0);
+    }
     for (var i = 0; i < 8; i++) {
       final hex = f.ditherPalette.isEmpty ? '#000000' : f.ditherPalette[math.min(i, f.ditherPalette.length - 1)];
       final c = parseRgbHex(hex) ?? const [0, 0, 0];

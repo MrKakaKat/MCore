@@ -52,6 +52,10 @@ uniform float uSqueeze;
 // pattern hold: the top step squeezed so the light parts keep the
 // pattern (1: white lands halfway between the two top levels)
 uniform float uHold;
+// dissolve: the share of pixels kept whole (< 0: off) and the draw of
+// the dice (another each frame for "dancing")
+uniform float uKeep;
+uniform float uSeed;
 uniform sampler2D uImage;
 
 out vec4 fragColor;
@@ -252,6 +256,10 @@ void main() {
       }
     }
     c = vec4(rgb * c.a, c.a);
+  }
+  if (uKeep >= 0.0) {
+    vec2 px = floor(FlutterFragCoord().xy);
+    if (hash(px + vec2(uSeed * 17.31, uSeed * 7.77)) >= uKeep) c = vec4(0.0);
   }
   fragColor = c;
 }

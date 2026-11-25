@@ -74,6 +74,7 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
   fn('fractal warp', layer.filters.warp);
   fn('vignette', layer.filters.vignette);
   fn('mosaic', layer.filters.mosaic);
+  fn('choke', layer.filters.choke);
   fn('shadow echo fade', layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
   if (ts != null) fn('text shadow echo fade', ts.echoFade);
@@ -149,6 +150,7 @@ void visitLayerTracks(Layer layer, void Function(Track track) fn) {
   fn(layer.filters.warp);
   fn(layer.filters.vignette);
   fn(layer.filters.mosaic);
+  fn(layer.filters.choke);
   fn(layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
   if (ts != null) fn(ts.echoFade);

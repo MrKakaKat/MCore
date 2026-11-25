@@ -51,6 +51,28 @@ class ProjectMeta {
 /// Projects live as one save_load.dart file each under
 /// `<root>/projects/<id>.json`. `root` is the app documents directory in
 /// the app (path_provider), a temp dir in tests.
+/// Layers in a project file's text (0 when it can't be read).
+int projectFileLayerCount(String text) {
+  try {
+    final j = jsonDecode(text);
+    final layers = j is Map ? (j['project'] is Map ? (j['project'] as Map)['layers'] : null) : null;
+    return layers is List ? layers.length : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+/// A project file's earlier versions kept beside it: the save before the
+/// last (`.bak`), one put aside before it was saved empty (`.keep`), one
+/// that couldn't be read (`.damaged`), the one replaced by a restore
+/// (`.before-restore`).
+const projectVersionKinds = <(String, String)>[
+  ('.bak', 'The save before the last'),
+  ('.keep', 'Before it was saved empty'),
+  ('.before-restore', 'Before the last restore'),
+  ('.damaged', 'A damaged copy (as it was)'),
+];
+
 class ProjectStore {
   final Directory root;
 
@@ -163,7 +185,10 @@ class ProjectStore {
   Future<File> create(String name, double width, double height, {int fps = 60}) async {
     await _dir.create(recursive: true);
     final file = File('${_dir.path}/${DateTime.now().microsecondsSinceEpoch}.json');
+    // (a timeline 3 s long: with nothing on it, it fit to nothing - a
+    // frame or two - and the layers added after were cut to that.)
     await saveProjectToFile(file, Project(layers: []),
+        timelineLength: 3 * fps,
         maxFrame: 3 * fps,
         playbackSpeed: 1,
         name: name,
@@ -284,6 +309,78 @@ class ProjectStore {
     if (repaired) found['name'] = '${found['name'] ?? 'Untitled'} (restored)';
     await writeFileSafely(f, const JsonEncoder.withIndent('  ').convert(found), keepBackup: false);
     return found;
+  }
+
+  // ---- folders of projects (the projects list) ----
+
+  File get _foldersFile => File('${_dir.path}/folders.json');
+
+  /// Project id -> its folder's name (projects not in one: absent).
+  Future<Map<String, String>> folders() async {
+    try {
+      final f = _foldersFile;
+      if (!await f.exists()) return {};
+      final j = jsonDecode(await f.readAsString());
+      if (j is! Map) return {};
+      return {for (final e in j.entries) if (e.value is String) '${e.key}': e.value as String};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _saveFolders(Map<String, String> m) async {
+    await _dir.create(recursive: true);
+    await writeFileSafely(_foldersFile, jsonEncode(m), keepBackup: false);
+  }
+
+  /// Puts the projects `ids` into folder `name` (null or empty: out of any).
+  Future<void> setFolder(Iterable<String> ids, String? name) async {
+    final m = await folders();
+    for (final id in ids) {
+      if (name == null || name.trim().isEmpty) {
+        m.remove(id);
+      } else {
+        m[id] = name.trim();
+      }
+    }
+    await _saveFolders(m);
+  }
+
+  /// A folder renamed (its projects go along).
+  Future<void> renameFolder(String from, String to) async {
+    if (to.trim().isEmpty) return;
+    final m = await folders();
+    m.updateAll((_, v) => v == from ? to.trim() : v);
+    await _saveFolders(m);
+  }
+
+  /// A folder taken apart (its projects stay, out of any folder).
+  Future<void> ungroupFolder(String name) async {
+    final m = await folders()
+      ..removeWhere((_, v) => v == name);
+    await _saveFolders(m);
+  }
+
+  /// The earlier versions of `f` there are: their kind's name, file,
+  /// layers in it, when written.
+  Future<List<({String label, File file, int layers, DateTime modified})>> versionsOf(File f) async {
+    final out = <({String label, File file, int layers, DateTime modified})>[];
+    for (final (ext, label) in projectVersionKinds) {
+      final v = File('${f.path}$ext');
+      try {
+        if (!await v.exists()) continue;
+        out.add((label: label, file: v, layers: projectFileLayerCount(await v.readAsString()), modified: await v.lastModified()));
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  /// `f` becomes the earlier version `v` (what it was is kept as
+  /// `.before-restore`).
+  Future<void> restoreVersion(File f, File v) async {
+    final text = await v.readAsString();
+    if (await f.exists()) await f.copy('${f.path}.before-restore');
+    await writeFileSafely(f, text, keepBackup: false);
   }
 
   /// A save cut off between its steps: only its side files there - the

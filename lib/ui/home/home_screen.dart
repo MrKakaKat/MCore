@@ -48,8 +48,13 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
   /// The projects, newest first by the chosen date (see Settings).
+  /// Project id -> its folder (see ProjectStore.folders); folders open.
+  Map<String, String> _folders = {};
+  final Set<String> _openFolders = {};
+
   Future<List<ProjectMeta>> _list() async {
     final all = await widget.store.list();
+    _folders = await widget.store.folders();
     // kept outside the app too: written there once something changed.
     _keepOutside(all);
     // what waited out its week in the trash goes now.
@@ -286,6 +291,47 @@ class _HomeScreenState extends State<HomeScreen> {
     final metas = await widget.store.list();
     _refresh();
     await _open(metas.firstWhere((m) => m.file.path == file.path));
+  }
+
+  /// The project's earlier versions kept beside its file: one picked
+  /// becomes the project again.
+  Future<void> _versions(ProjectMeta meta) async {
+    final versions = await widget.store.versionsOf(meta.file);
+    var now = 0;
+    try {
+      now = projectFileLayerCount(await meta.file.readAsString());
+    } catch (_) {}
+    if (!mounted) return;
+    final picked = await showDialog<File>(
+      context: context,
+      builder: (c) => AlertDialog(
+        key: const ValueKey('project-versions'),
+        title: Text('"${meta.name}"'),
+        content: SizedBox(
+          width: 360,
+          child: ListView(shrinkWrap: true, children: [
+            ListTile(dense: true, title: Text(tr('Now')), subtitle: Text('$now ${tr('layers')}')),
+            if (versions.isEmpty)
+              Padding(padding: const EdgeInsets.all(8), child: Text(tr('No earlier versions kept.'))),
+            for (final v in versions)
+              ListTile(
+                key: ValueKey('project-version-${v.file.path}'),
+                dense: true,
+                title: Text(tr(v.label)),
+                subtitle: Text('${v.layers} ${tr('layers')}  ·  ${_formatDate(v.modified)}'),
+                trailing: TextButton(onPressed: () => Navigator.pop(c, v.file), child: Text(tr('Restore'))),
+              ),
+          ]),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('Close')))],
+      ),
+    );
+    if (picked == null) return;
+    await widget.store.restoreVersion(meta.file, picked);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('Restored (what was there is kept too)'))));
+    }
+    _refresh();
   }
 
   Future<void> _rename(ProjectMeta meta) async {
@@ -624,11 +670,19 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ]),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _create,
-        icon: const Icon(Icons.add),
-        label: Text(tr('New project')),
-      ),
+      // several picked: they go into one folder from here.
+      floatingActionButton: _picked.isNotEmpty
+          ? FloatingActionButton.extended(
+              key: const ValueKey('home-pick-folder'),
+              onPressed: () async => _folderPicked(await _projects),
+              icon: const Icon(Icons.create_new_folder_outlined),
+              label: Text(tr('Put into a folder')),
+            )
+          : FloatingActionButton.extended(
+              onPressed: _create,
+              icon: const Icon(Icons.add),
+              label: Text(tr('New project')),
+            ),
       body: FutureBuilder<List<ProjectMeta>>(
         future: _projects,
         builder: (context, snapshot) {
@@ -643,44 +697,177 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text('No projects yet - tap "New project" to start.', style: TextStyle(color: Colors.grey)),
             );
           }
+          // folders first (each folded or open), then the projects in none.
+          final byFolder = <String, List<ProjectMeta>>{};
+          final loose = <ProjectMeta>[];
+          for (final p in projects) {
+            final f = _folders[p.id];
+            if (f == null) {
+              loose.add(p);
+            } else {
+              (byFolder[f] ??= []).add(p);
+            }
+          }
+          final names = byFolder.keys.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+          final rows = <Widget>[
+            for (final b in bad) _unreadableTile(b),
+            for (final f in names) ...[
+              _folderTile(f, byFolder[f]!),
+              if (_openFolders.contains(f))
+                for (final p in byFolder[f]!)
+                  Padding(padding: const EdgeInsets.only(left: 16), child: _projectTile(p, projects.indexOf(p))),
+            ],
+            for (final p in loose) _projectTile(p, projects.indexOf(p)),
+          ];
           return ListView.separated(
             padding: const EdgeInsets.only(bottom: 88),
-            itemCount: projects.length + bad.length,
+            itemCount: rows.length,
             separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, i) {
-              if (i < bad.length) return _unreadableTile(bad[i]);
-              i -= bad.length;
-              final p = projects[i];
-              final picked = _picked.contains(p.file.path);
-              return ListTile(
-                key: ValueKey('home-project-$i'),
-                // picked: tinted half-see-through.
-                tileColor: picked ? Theme.of(context).colorScheme.primary.withOpacity(0.18) : null,
-                onLongPress: () => _togglePick(p),
-                leading: _AspectThumb(width: p.frameWidth, height: p.frameHeight),
-                title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: hint('${p.frameWidth.round()} × ${p.frameHeight.round()}  ·  ${_formatDate(p.modified)}'),
-                onTap: () => _picked.isNotEmpty ? _togglePick(p) : _open(p),
-                trailing: PopupMenuButton<String>(
-                  onSelected: (action) => switch (action) {
-                    'play' => _open(p, player: true),
-                    'rename' => _rename(p),
-                    'duplicate' => _duplicate(p),
-                    'usedIn' => showUsedInDialog(context, widget.store, p),
-                    _ => _delete(p),
-                  },
-                  itemBuilder: (_) => [
-                    PopupMenuItem(value: 'play', child: Text(tr('Play full screen'))),
-                    PopupMenuItem(value: 'rename', child: Text(tr('Rename'))),
-                    PopupMenuItem(value: 'duplicate', child: Text(tr('Duplicate'))),
-                    PopupMenuItem(value: 'usedIn', child: Text(tr('Used in...'))),
-                    PopupMenuItem(value: 'delete', child: Text(tr('Delete'))),
-                  ],
-                ),
-              );
-            },
+            itemBuilder: (context, i) => rows[i],
           );
         },
+      ),
+    );
+  }
+
+  /// A folder of projects: its name and count; tap folds / opens it.
+  Widget _folderTile(String name, List<ProjectMeta> items) {
+    final open = _openFolders.contains(name);
+    final picked = items.isNotEmpty && items.every((p) => _picked.contains(p.file.path));
+    return ListTile(
+      key: ValueKey('home-folder-$name'),
+      tileColor: picked ? Theme.of(context).colorScheme.primary.withOpacity(0.18) : null,
+      leading: Icon(open ? Icons.folder_open : Icons.folder),
+      title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
+      subtitle: hint('${items.length} ${tr('projects')}'),
+      onTap: () => setState(() => open ? _openFolders.remove(name) : _openFolders.add(name)),
+      // long press: the whole folder picked (or not).
+      onLongPress: () => setState(() {
+        for (final p in items) {
+          picked ? _picked.remove(p.file.path) : _picked.add(p.file.path);
+        }
+      }),
+      trailing: PopupMenuButton<String>(
+        key: ValueKey('home-folder-menu-$name'),
+        onSelected: (a) async {
+          if (a == 'rename') {
+            final to = await _askName(tr('Rename folder'), name);
+            if (to == null || to.isEmpty) return;
+            await widget.store.renameFolder(name, to);
+            if (_openFolders.remove(name)) _openFolders.add(to);
+          } else {
+            await widget.store.ungroupFolder(name);
+          }
+          _refresh();
+        },
+        itemBuilder: (_) => [
+          PopupMenuItem(value: 'rename', child: Text(tr('Rename'))),
+          PopupMenuItem(value: 'ungroup', child: Text(tr('Ungroup (projects stay)'))),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _askName(String title, String initial) async {
+    final controller = TextEditingController(text: initial);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(title),
+        content: TextField(key: const ValueKey('folder-name'), controller: controller, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('Cancel'))),
+          TextButton(
+              key: const ValueKey('folder-name-ok'), onPressed: () => Navigator.pop(c, controller.text.trim()), child: Text(tr('OK'))),
+        ],
+      ),
+    );
+    controller.dispose();
+    return name;
+  }
+
+  /// Where the projects go: a folder there is, a new one, or out of any.
+  /// Null: cancelled; '': out of any folder.
+  Future<String?> _chooseFolder(int count) async {
+    const newOne = '\u0000new';
+    final names = {..._folders.values}.toList()..sort();
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (c) => SimpleDialog(
+        key: const ValueKey('folder-choose'),
+        title: Text('$count: ${tr('into a folder')}'),
+        children: [
+          for (final n in names)
+            SimpleDialogOption(key: ValueKey('folder-choose-$n'), onPressed: () => Navigator.pop(c, n), child: Text(n)),
+          SimpleDialogOption(
+              key: const ValueKey('folder-choose-new'), onPressed: () => Navigator.pop(c, newOne), child: Text(tr('New folder...'))),
+          if (names.isNotEmpty)
+            SimpleDialogOption(
+                key: const ValueKey('folder-choose-none'),
+                onPressed: () => Navigator.pop(c, ''),
+                child: Text(tr('Out of any folder'))),
+        ],
+      ),
+    );
+    if (choice != newOne) return choice;
+    final name = await _askName(tr('New folder'), '');
+    return name == null || name.isEmpty ? null : name;
+  }
+
+  Future<void> _folderPicked(List<ProjectMeta> all) async {
+    final ps = [for (final p in all) if (_picked.contains(p.file.path)) p];
+    if (ps.isEmpty) return;
+    final to = await _chooseFolder(ps.length);
+    if (to == null) return;
+    await widget.store.setFolder([for (final p in ps) p.id], to.isEmpty ? null : to);
+    if (to.isNotEmpty) _openFolders.add(to);
+    _picked.clear();
+    _refresh();
+  }
+
+  Widget _projectTile(ProjectMeta p, int i) {
+    final picked = _picked.contains(p.file.path);
+    return ListTile(
+      key: ValueKey('home-project-$i'),
+      // picked: tinted half-see-through.
+      tileColor: picked ? Theme.of(context).colorScheme.primary.withOpacity(0.18) : null,
+      onLongPress: () => _togglePick(p),
+      leading: _AspectThumb(width: p.frameWidth, height: p.frameHeight),
+      title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: hint('${p.frameWidth.round()} × ${p.frameHeight.round()}  ·  ${_formatDate(p.modified)}'),
+      onTap: () => _picked.isNotEmpty ? _togglePick(p) : _open(p),
+      trailing: PopupMenuButton<String>(
+        onSelected: (action) async {
+          switch (action) {
+            case 'play':
+              await _open(p, player: true);
+            case 'rename':
+              await _rename(p);
+            case 'duplicate':
+              await _duplicate(p);
+            case 'usedIn':
+              await showUsedInDialog(context, widget.store, p);
+            case 'versions':
+              await _versions(p);
+            case 'folder':
+              final to = await _chooseFolder(1);
+              if (to == null) return;
+              await widget.store.setFolder([p.id], to.isEmpty ? null : to);
+              if (to.isNotEmpty) _openFolders.add(to);
+              _refresh();
+            default:
+              await _delete(p);
+          }
+        },
+        itemBuilder: (_) => [
+          PopupMenuItem(value: 'play', child: Text(tr('Play full screen'))),
+          PopupMenuItem(value: 'rename', child: Text(tr('Rename'))),
+          PopupMenuItem(value: 'duplicate', child: Text(tr('Duplicate'))),
+          PopupMenuItem(value: 'folder', child: Text(tr('Into a folder...'))),
+          PopupMenuItem(value: 'usedIn', child: Text(tr('Used in...'))),
+          PopupMenuItem(value: 'versions', child: Text(tr('Previous versions...'))),
+          PopupMenuItem(value: 'delete', child: Text(tr('Delete'))),
+        ],
       ),
     );
   }

@@ -127,6 +127,65 @@ class FiltersView extends StatelessWidget {
                   'glass (a negative glass over another one cancels out).',
               _ => 'Only this layer goes through the filters.',
             }),
+            section('Effect matte'),
+            DropdownButton<String?>(
+              key: const ValueKey('filter-matte-layer'),
+              isExpanded: true,
+              value: f.matteLayerId != null && app.project.layers.any((l) => l.id == f.matteLayerId) ? f.matteLayerId : null,
+              items: [
+                const DropdownMenuItem<String?>(value: null, child: Text('None - everywhere')),
+                for (final l in app.project.layers.reversed)
+                  if (l.id != layer.id)
+                    DropdownMenuItem<String?>(
+                        value: l.id, child: Text('${l.name}${l.hidden ? '  (hidden)' : ''}', overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: (v) => edit(() => f.matteLayerId = v),
+            ),
+            if (f.matteLayerId != null) ...[
+              SwitchListTile(
+                key: const ValueKey('filter-matte-invert'),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Invert'),
+                value: f.matteInvert,
+                onChanged: (v) => edit(() => f.matteInvert = v),
+              ),
+              Wrap(spacing: 6, children: [
+                FilterChip(
+                  key: const ValueKey('filter-matte-filters'),
+                  label: const Text('Filters'),
+                  selected: f.matteFilters,
+                  onSelected: (v) => edit(() => f.matteFilters = v),
+                ),
+                FilterChip(
+                  key: const ValueKey('filter-matte-blur'),
+                  label: const Text('Motion blur'),
+                  selected: f.matteBlur,
+                  onSelected: (v) => edit(() => f.matteBlur = v),
+                ),
+              ]),
+            ],
+            const Hint('Another layer\'s brightness says where the effects work: white fully, black not at all '
+                '(grey: partly). Any layer can be one - hide it and it still works; a black-and-white filter on it '
+                'shapes it further.'),
+            section('Edge and dissolve'),
+            _TrackRow(app: app, layer: layer, track: f.choke, keyName: 'filter-choke', label: 'Simple Choker',
+                min: -50, max: 50, suffix: ' px'),
+            const Hint('Simple Choker: the layer\'s edge pulled in (or, below 0, spread out) - keyable.'),
+            const SizedBox(height: 4),
+            SegmentedButton<String>(
+              key: const ValueKey('filter-dissolve'),
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(value: 'none', label: Text('Blend')),
+                ButtonSegment(value: 'dissolve', label: Text('Dissolve')),
+                ButtonSegment(value: 'dancing', label: Text('Dancing')),
+              ],
+              selected: {f.dissolve},
+              onSelectionChanged: (v) => edit(() => f.dissolve = v.first),
+            ),
+            const Hint('Dissolve: the layer\'s opacity shows as a share of whole pixels, at random, instead of a '
+                'see-through blend. Dancing: other pixels every frame.'),
             section('Glitch'),
             Wrap(spacing: 6, runSpacing: 4, children: [
               for (final (k, name, _) in glitchPresets)
