@@ -188,17 +188,17 @@ LayerBaseState getLayerBaseStateAt(Project project, String layerId, num globalFr
       anchor[1] + linkOffset(project, layer, 'y', globalFrame) / stageSize.height,
     ];
   }
-  if (layer.wiggle.enabled && effectActiveAt(layer, 'wiggle', clamped)) {
+  if (layer.wiggle.enabled && effectActiveAt(layer, 'wiggle', clamped, project)) {
     final off = evaluateWiggleOffset(layer, globalFrame.round());
     anchor = [anchor[0] + off[0], anchor[1] + off[1]];
   }
 
   // swing rocks the layer around its own rotation.
   final baseRot = (evaluateTrack(project, layer.transform.rotation, clamped, layer) as double) +
-      (effectActiveAt(layer, 'swing', clamped) ? swingAngleAt(project, layer, clamped) : 0.0) +
+      (effectActiveAt(layer, 'swing', clamped, project) ? swingAngleAt(project, layer, clamped) : 0.0) +
       (layer.links.isEmpty ? 0.0 : linkOffset(project, layer, 'rotation', globalFrame));
   var scale = evaluateTrack(project, layer.transform.scale, clamped, layer) as List<double>;
-  if (layer.scaleWiggle.enabled && effectActiveAt(layer, 'scaleWiggle', clamped)) {
+  if (layer.scaleWiggle.enabled && effectActiveAt(layer, 'scaleWiggle', clamped, project)) {
     final k = evaluateScaleWiggle(layer, globalFrame.round());
     scale = [scale[0] * k[0], scale[1] * k[1]];
   }
@@ -304,7 +304,7 @@ LayerState _layerStateAt(Project project, String layerId, num globalFrame) {
 
   var finalMatrix = baseFinalMatrix;
   var rot = baseRot;
-  if (layer.pendulum.enabled && effectActiveAt(layer, 'pendulum', clamped)) {
+  if (layer.pendulum.enabled && effectActiveAt(layer, 'pendulum', clamped, project)) {
     // pendulum is a discrete-step simulation (walks frame-by-frame
     // internally) never designed for a fractional frame - rounds here,
     // same deliberate scope-limit as wiggle/path-follow above.
@@ -439,7 +439,7 @@ Layer? blurringAncestor(Project project, Layer layer, int globalFrame) {
     final p = findLayer(project, id);
     if (p == null) return null;
     final mb = p.motionBlur;
-    if (mb.enabled && mb.samples > 1 && effectActiveAt(p, 'motionBlur', globalFrame - p.startFrame)) return p;
+    if (mb.enabled && mb.samples > 1 && effectActiveAt(p, 'motionBlur', globalFrame - p.startFrame, project)) return p;
     id = p.parentId;
   }
   return null;

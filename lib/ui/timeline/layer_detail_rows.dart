@@ -187,8 +187,12 @@ const keyDetailColors = {
   'Line': Color(0xFF4FC3F7),
 };
 
+/// A filter part's / match's line (light, like the Filters keys).
+const filterSpanColor = Color(0xCCE0E0E0);
+
 /// An effect line's colour (its place in the Effects tab's list).
 Color effectSpanColor(Layer layer, String id) {
+  if (id.startsWith('filter.') || id.startsWith('match.')) return filterSpanColor;
   final i = effectSpans(layer).indexWhere((s) => s.id == id);
   return _effectColors[(i < 0 ? 0 : i) % _effectColors.length];
 }
@@ -220,10 +224,14 @@ class EffectSpanRows extends StatelessWidget {
       children: [
         for (var i = 0; i < spans.length; i++) ...() {
           final s = spans[i];
-          final color = _effectColors[i % _effectColors.length];
+          final color = s.filter ? filterSpanColor : _effectColors[i % _effectColors.length];
           final isEditing = editing == s.id;
           final dim = editing != null && !isEditing;
           final top = i * detailRowHeight;
+          // tied to another layer's time: bright only where that layer is.
+          final bound = boundSpan(app.project, layer, s.id);
+          final boundName = layer.effectBinds[s.id] == null ? null : findLayer(app.project, layer.effectBinds[s.id]!)?.name;
+          final bs = bound == null ? null : math.max(bound.$1, s.start), be = bound == null ? null : math.min(bound.$2, s.end);
           return [
             Positioned(
               key: ValueKey('effect-span-${s.id}'),
@@ -232,18 +240,18 @@ class EffectSpanRows extends StatelessWidget {
               width: math.max(4.0, x(s.end) - x(s.start)),
               height: detailRowHeight,
               child: Tooltip(
-                message: s.label,
+                message: boundName == null ? s.label : '${s.label} - only while $boundName is there',
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () {
                     app.setEditingEffect(s.id);
-                    if (app.editingEffectId != null) app.showTab('Effects');
+                    if (app.editingEffectId != null) app.showTab(s.filter ? 'Filters' : 'Effects');
                   },
                   child: Center(
                     child: Container(
                       height: isEditing ? 5 : 2,
                       decoration: BoxDecoration(
-                        color: color.withOpacity(dim ? 0.3 : 1),
+                        color: color.withOpacity(dim || bound != null || layer.effectBinds[s.id] != null ? 0.3 : 1),
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -251,6 +259,22 @@ class EffectSpanRows extends StatelessWidget {
                 ),
               ),
             ),
+            if (bs != null && be != null && be > bs)
+              Positioned(
+                key: ValueKey('effect-bound-${s.id}'),
+                left: x(bs),
+                top: top + detailRowHeight / 2 - (isEditing ? 2.5 : 1),
+                width: x(be) - x(bs),
+                height: isEditing ? 5 : 2,
+                child: IgnorePointer(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(dim ? 0.3 : 1),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              ),
           ];
         }(),
       ],

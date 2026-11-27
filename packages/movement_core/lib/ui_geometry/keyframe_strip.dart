@@ -75,6 +75,10 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
   fn('vignette', layer.filters.vignette);
   fn('mosaic', layer.filters.mosaic);
   fn('choke', layer.filters.choke);
+  for (var i = 0; i < layer.filters.matches.length; i++) {
+    fn('match ${i + 1} colour', layer.filters.matches[i].coeffs);
+    fn('match ${i + 1} strength', layer.filters.matches[i].strength);
+  }
   fn('edge fade', layer.filters.edgeFade);
   fn('shadow echo fade', layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
@@ -153,6 +157,10 @@ void visitLayerTracks(Layer layer, void Function(Track track) fn) {
   fn(layer.filters.vignette);
   fn(layer.filters.mosaic);
   fn(layer.filters.choke);
+  for (final m in layer.filters.matches) {
+    fn(m.coeffs);
+    fn(m.strength);
+  }
   fn(layer.filters.edgeFade);
   fn(layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;

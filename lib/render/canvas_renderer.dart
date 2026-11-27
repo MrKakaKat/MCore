@@ -384,7 +384,7 @@ class CanvasRenderer implements Renderer {
     final lf = math.min(layer.durationFrames, math.max(0, layerTimeFrame(layer, globalFrame) - layer.startFrame)).toDouble();
     final insts = [
       for (final i in layer.effectStack)
-        if (i.enabled && i.effectId == 'outline' && effectActiveAt(layer, i.id, lf)) i
+        if (i.enabled && i.effectId == 'outline' && effectActiveAt(layer, i.id, lf, project)) i
     ];
     for (final inst in behind ? insts.reversed : insts) {
       final prm = resolveEffectParams(inst, lf);
@@ -452,7 +452,7 @@ class CanvasRenderer implements Renderer {
   void _drawEdgeGlows(ui.Canvas canvas, Project project, Layer layer, int globalFrame, {required bool behind}) {
     final lf = math.min(layer.durationFrames, math.max(0, layerTimeFrame(layer, globalFrame) - layer.startFrame)).toDouble();
     for (final inst in layer.effectStack) {
-      if (!inst.enabled || inst.effectId != 'edge_glow' || !effectActiveAt(layer, inst.id, lf)) continue;
+      if (!inst.enabled || inst.effectId != 'edge_glow' || !effectActiveAt(layer, inst.id, lf, project)) continue;
       final prm = resolveEffectParams(inst, lf);
       // the object's own colours: drawn from its picture (see
       // _edgeColourGlows).
@@ -551,7 +551,7 @@ class CanvasRenderer implements Renderer {
   void _edgeBlur(ui.Canvas canvas, Project project, Layer layer, int globalFrame) {
     final lf = math.min(layer.durationFrames, math.max(0, layerTimeFrame(layer, globalFrame) - layer.startFrame)).toDouble();
     final inst = layer.effectStack
-        .where((i) => i.enabled && i.effectId == 'edge_blur' && effectActiveAt(layer, i.id, lf))
+        .where((i) => i.enabled && i.effectId == 'edge_blur' && effectActiveAt(layer, i.id, lf, project))
         .firstOrNull;
     if (inst == null) return;
     final prm = resolveEffectParams(inst, lf);
@@ -646,6 +646,17 @@ class CanvasRenderer implements Renderer {
   @override
   void renderFrame(dynamic projectArg, int frame, {bool clipToFrame = true, void Function(ui.Canvas canvas)? underlay}) {
     final project = projectArg as Project;
+    // effects / filters tied to another layer's time look it up here.
+    final boundBefore = bindingProject;
+    bindingProject = project;
+    try {
+      _renderFrameOf(project, frame, clipToFrame: clipToFrame, underlay: underlay);
+    } finally {
+      bindingProject = boundBefore;
+    }
+  }
+
+  void _renderFrameOf(Project project, int frame, {bool clipToFrame = true, void Function(ui.Canvas canvas)? underlay}) {
     // order on the stage keyed (a layer jumps above / below others): drawn
     // in that order this frame; the list itself stays as it is.
     // lengthened rects (keyed) laid out as at this frame.
@@ -1067,6 +1078,18 @@ class CanvasRenderer implements Renderer {
       ui.Canvas canvas, Project project, String layerId, int globalFrame) {
     final layer = findLayer(project, layerId);
     if (layer == null) return;
+    // filter parts out of their time left out this frame.
+    final active = activeFiltersAt(project, layer, globalFrame);
+    if (!identical(active, layer.filters)) {
+      final saved = layer.filters;
+      layer.filters = active;
+      try {
+        _drawLayer(canvas, project, layerId, globalFrame);
+      } finally {
+        layer.filters = saved;
+      }
+      return;
+    }
     // an effect layer shows only through its glass filters (its blur
     // acts on the layers under it).
     if (layer.adjustment && !(layer.filters.any && layer.filters.scope == 'glass')) return;
@@ -1094,7 +1117,7 @@ class CanvasRenderer implements Renderer {
     final blurs = mb.enabled &&
         mb.samples > 1 &&
         _sharpLayer != layerId &&
-        effectActiveAt(owner, 'motionBlur', globalFrame - owner.startFrame) &&
+        effectActiveAt(owner, 'motionBlur', globalFrame - owner.startFrame, project) &&
         movesAcrossShutter();
     // an effect matte on the blur: blurred where it is light, sharp where
     // it is dark - both drawn, mixed by it.
@@ -1211,7 +1234,7 @@ class CanvasRenderer implements Renderer {
   /// step (about its own anchor) toward the last one's.
   void _drawEcho(ui.Canvas canvas, Project project, Layer layer, int globalFrame) {
     final e = layer.echo;
-    if (!e.enabled || e.count < 1 || !effectActiveAt(layer, 'echo', globalFrame - layer.startFrame)) return;
+    if (!e.enabled || e.count < 1 || !effectActiveAt(layer, 'echo', globalFrame - layer.startFrame, project)) return;
     final delay = math.max(1, e.delay);
     for (var i = e.count; i >= 1; i--) {
       final f = globalFrame - i * delay;
@@ -2048,8 +2071,21 @@ class CanvasRenderer implements Renderer {
       p = _diffusePass(p, layer, f, mosaic) ?? p;
     }
     final paint = ui.Paint();
-    if (neg > 0 || f.graded) {
-      final lin = liftGainLinear(f);
+    if (neg > 0 || f.graded || f.matches.isNotEmpty) {
+      var lin = liftGainLinear(f);
+      // the matches over it, in order: each line mixed in by its strength.
+      for (final m in f.matches) {
+        final s = tv(m.strength).clamp(0.0, 1.0);
+        final c = evaluateTrack(project, m.coeffs, lf.toDouble(), layer);
+        if (s <= 0 || c is! List || c.length < 6) continue;
+        final a = <double>[], b = <double>[];
+        for (var i = 0; i < 3; i++) {
+          final ma = 1 - s + s * (c[i] as num).toDouble(), mb = s * (c[i + 3] as num).toDouble();
+          a.add(ma * lin.a[i]);
+          b.add(ma * lin.b[i] + mb);
+        }
+        lin = (a: a, b: b);
+      }
       final k = 1 - 2 * neg, o = 255 * neg;
       paint.colorFilter = ui.ColorFilter.matrix([
         k * lin.a[0], 0, 0, 0, k * lin.b[0] * 255 + o, //
@@ -2458,7 +2494,7 @@ class CanvasRenderer implements Renderer {
   /// 0..1) of the layer itself (no filters) and of what is under it,
   /// both weighed by the layer's own coverage. Null: nothing to compare.
   Future<({List<double> srcMean, List<double> srcDev, List<double> dstMean, List<double> dstDev})?> matchColorStats(
-      Project project, Layer layer, int frame) async {
+      Project project, Layer layer, int frame, {String? targetId}) async {
     final k = 256 / math.max(_width, _height);
     final w = math.max(1, (_width * k).round()), h = math.max(1, (_height * k).round());
     Future<ByteData?> grab(void Function(ui.Canvas c) draw) async {
@@ -2475,7 +2511,12 @@ class CanvasRenderer implements Renderer {
     layer.filters = LayerFilters();
     final own = await grab((c) => _drawLayer(c, project, layer.id, frame));
     layer.filters = saved;
-    final below = await grab((c) => _drawLayersBelow(c, project, project.layers.indexOf(layer), frame, 0, layer));
+    // another layer picked: that layer alone, all of it.
+    final target = targetId == null ? null : findLayer(project, targetId);
+    if (targetId != null && target == null) return null;
+    final below = await grab((c) => target != null
+        ? _drawLayer(c, project, target.id, frame)
+        : _drawLayersBelow(c, project, project.layers.indexOf(layer), frame, 0, layer));
     if (own == null || below == null) return null;
     ({List<double> mean, List<double> dev})? stats(ByteData b, {required bool weighOwn}) {
       final sum = [0.0, 0.0, 0.0], sq = [0.0, 0.0, 0.0];
@@ -2501,7 +2542,7 @@ class CanvasRenderer implements Renderer {
     final src = stats(own, weighOwn: true);
     // what is under the layer - or, if nothing is under it, the whole
     // scene below.
-    var dst = stats(below, weighOwn: false);
+    var dst = target != null ? null : stats(below, weighOwn: false);
     if (dst == null) {
       final sum = [0.0, 0.0, 0.0], sq = [0.0, 0.0, 0.0];
       var total = 0.0;
@@ -2535,7 +2576,13 @@ class CanvasRenderer implements Renderer {
       if (l.hidden || l.filters.scope != 'scene' || !l.filters.any) continue;
       if (!getLayerStateAt(project, l.id, globalFrame).inRange) continue;
       final rec = ui.PictureRecorder();
-      _drawFiltered(ui.Canvas(rec, cull), pic, project, l, layerLocalFrame(l, globalFrame), globalFrame);
+      final saved = l.filters;
+      l.filters = activeFiltersAt(project, l, globalFrame);
+      try {
+        _drawFiltered(ui.Canvas(rec, cull), pic, project, l, layerLocalFrame(l, globalFrame), globalFrame);
+      } finally {
+        l.filters = saved;
+      }
       pic = rec.endRecording();
     }
     return pic;
@@ -3397,7 +3444,7 @@ class CanvasRenderer implements Renderer {
       final frames = <int>{globalFrame};
       final owner = blurringEffectLayer(project, layer, globalFrame) ?? layer;
       final mb = owner.motionBlur;
-      if (mb.enabled && mb.samples > 1 && effectActiveAt(owner, 'motionBlur', globalFrame - owner.startFrame)) {
+      if (mb.enabled && mb.samples > 1 && effectActiveAt(owner, 'motionBlur', globalFrame - owner.startFrame, project)) {
         for (var s = 0; s < mb.samples; s++) {
           frames.add((globalFrame + ((s / (mb.samples - 1)) - 0.5) * motionBlurWindow(project, layer, globalFrame, using: mb)).round());
         }

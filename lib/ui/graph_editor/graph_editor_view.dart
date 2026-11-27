@@ -278,39 +278,45 @@ class _GraphEditorViewState extends State<GraphEditorView> {
               // a master key: all its parameters as one, or one by one.
               _paramChips(),
               const SizedBox(height: 4),
+              // what it does in the end: the curve and the swing together.
               Row(children: [
-                Expanded(child: _kindChips(t)),
-                if (!t.isOvershoot || t.shaped)
-                  toolIcon('ease-speed-view', speedView ? Icons.show_chart : Icons.speed,
-                      speedView ? 'edit as a curve' : 'edit as a speed graph', () => setState(() => speedView = !speedView)),
+                const Text('Result', style: small),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(_summary(t),
+                      key: const ValueKey('ease-summary'), style: small, textAlign: TextAlign.right, overflow: TextOverflow.ellipsis),
+                ),
               ]),
-              const SizedBox(height: 6),
-              if (t.isOvershoot) _overshootControls(t),
-              if (t.isOvershoot && t.shaped) const SizedBox(height: 6),
-              if (t.isOvershoot && !t.shaped)
-                const SizedBox.shrink()
-              else if (speedView)
-                _SpeedGraph(easing: t, onChanged: _updateEasing)
+              SizedBox(
+                height: 64,
+                child: CustomPaint(painter: _CurvePainter(_state.sampleCurve()), size: Size.infinite),
+              ),
+              const Divider(height: 14),
+              // the curve: how the time runs - always there, a swing or not.
+              Row(children: [
+                const Text('Curve', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 6),
+                Expanded(child: _curvePresets(t)),
+                toolIcon('ease-speed-view', speedView ? Icons.show_chart : Icons.speed,
+                    speedView ? 'edit as a curve' : 'edit as a speed graph', () => setState(() => speedView = !speedView)),
+              ]),
+              const SizedBox(height: 4),
+              if (speedView)
+                _SpeedGraph(easing: t, onChanged: _setCurve)
               else
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
-                      width: 170,
-                      height: 170,
-                      child: _claimFinger(_EasingSquare(easing: t, onChanged: _updateEasing)),
+                      width: 150,
+                      height: 150,
+                      child: _claimFinger(_EasingSquare(easing: t, onChanged: _setCurve)),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Result', style: small),
-                          SizedBox(
-                            height: 56,
-                            child: CustomPaint(painter: _CurvePainter(_state.sampleCurve()), size: Size.infinite),
-                          ),
-                          const SizedBox(height: 6),
                           for (final row in const [
                             [(0, 'x1'), (1, 'y1')],
                             [(2, 'x2'), (3, 'y2')],
@@ -324,7 +330,7 @@ class _GraphEditorViewState extends State<GraphEditorView> {
                                     child: _CoordField(
                                       label: name,
                                       value: [t.x1, t.y1, t.x2, t.y2][i],
-                                      onCommit: (v) => _updateEasing(switch (i) {
+                                      onCommit: (v) => _setCurve(switch (i) {
                                         0 => t.withBezier(GraphEditorState.clampX(v), t.y1, t.x2, t.y2),
                                         1 => t.withBezier(t.x1, GraphEditorState.clampY(v), t.x2, t.y2),
                                         2 => t.withBezier(t.x1, t.y1, GraphEditorState.clampX(v), t.y2),
@@ -335,19 +341,24 @@ class _GraphEditorViewState extends State<GraphEditorView> {
                                 ],
                               ]),
                             ),
+                          const Text('Drag the two points, or type them.', style: small),
                         ],
                       ),
                     ),
                   ],
                 ),
-              if (t.isOvershoot || speedView) ...[
-                const SizedBox(height: 4),
-                const Text('Result', style: small),
-                SizedBox(
-                  height: 48,
-                  child: CustomPaint(painter: _CurvePainter(_state.sampleCurve()), size: Size.infinite),
-                ),
-              ],
+              const Divider(height: 14),
+              // the swing: back before leaving, past the end - over the curve.
+              Row(children: [
+                const Text('Swing', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 6),
+                Expanded(child: _kindChips(t)),
+              ]),
+              if (t.isOvershoot) ...[
+                _overshootControls(t),
+                const Text('The curve sets the pace, the swing goes over it.', style: small),
+              ] else
+                const Text('Off: the value goes straight to the key.', style: small),
             ],
           ),
         ),
@@ -355,32 +366,63 @@ class _GraphEditorViewState extends State<GraphEditorView> {
     );
   }
 
-  /// The ease type: the bezier square, or an overshoot (passes the end
-  /// and settles back) and / or an anticipation (swings back before
-  /// leaving) - each switched on by itself, both together too.
+  static const _presetNames = {'linear': 'even', 'easeInOut': 'soft both', 'easeIn': 'soft start', 'easeOut': 'soft end'};
+
+  /// A curve edit: with a swing on, the curve goes under it (never off).
+  void _setCurve(Easing next) => _updateEasing(next.isOvershoot ? next.withShaped(true) : next);
+
+  /// In words: the curve and what swings.
+  String _summary(Easing t) {
+    final name = easingPresets.entries
+            .where((e) => (e.value.x1 - t.x1).abs() < 1e-3 && (e.value.y1 - t.y1).abs() < 1e-3 &&
+                (e.value.x2 - t.x2).abs() < 1e-3 && (e.value.y2 - t.y2).abs() < 1e-3)
+            .map((e) => _presetNames[e.key] ?? e.key)
+            .firstOrNull ??
+        'custom curve';
+    return [
+      name,
+      if (t.ant) 'anticipate',
+      if (t.over) 'overshoot',
+    ].join(' + ');
+  }
+
+  /// The usual curves in one tap (only the curve changes; a swing stays).
+  Widget _curvePresets(Easing t) => SingleChildScrollView(
+        key: const ValueKey('ease-curve-presets'),
+        scrollDirection: Axis.horizontal,
+        child: Row(children: [
+          for (final e in easingPresets.entries)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: ChoiceChip(
+                key: ValueKey('ease-preset-${e.key}'),
+                visualDensity: VisualDensity.compact,
+                labelStyle: const TextStyle(fontSize: 11),
+                label: Text(_presetNames[e.key] ?? e.key),
+                selected: (e.value.x1 - t.x1).abs() < 1e-3 && (e.value.y1 - t.y1).abs() < 1e-3 &&
+                    (e.value.x2 - t.x2).abs() < 1e-3 && (e.value.y2 - t.y2).abs() < 1e-3,
+                onSelected: (_) => _setCurve(t.withBezier(e.value.x1, e.value.y1, e.value.x2, e.value.y2)),
+              ),
+            ),
+        ]),
+      );
+
+  /// The swing: an anticipation (back before leaving) and / or an
+  /// overshoot (past the end, settling back) - each by itself, both
+  /// together too; the curve under them stays.
   Widget _kindChips(Easing t) {
+    // a swing switched on: over the curve it has.
+    Easing on(Easing e) => e.isOvershoot ? e.withShaped(true) : e;
     return Wrap(
       spacing: 4,
       children: [
-        ChoiceChip(
-          key: const ValueKey('ease-kind-bezier'),
-          visualDensity: VisualDensity.compact,
-          labelStyle: const TextStyle(fontSize: 12),
-          label: const Text('Bezier'),
-          // with a swing on: the curve is laid under it (the swing stays) -
-          // the swing itself goes off with its own chip.
-          selected: !t.isOvershoot || t.shaped,
-          onSelected: (_) {
-            if (t.isOvershoot) _updateEasing(t.withShaped(!t.shaped));
-          },
-        ),
         FilterChip(
           key: const ValueKey('ease-kind-anticipate'),
           visualDensity: VisualDensity.compact,
           labelStyle: const TextStyle(fontSize: 12),
           label: const Text('Anticipate'),
           selected: t.ant,
-          onSelected: (v) => _updateEasing(t.withAnticipate(on: v)),
+          onSelected: (v) => _updateEasing(on(t.withAnticipate(on: v))),
         ),
         FilterChip(
           key: const ValueKey('ease-kind-overshoot'),
@@ -388,7 +430,7 @@ class _GraphEditorViewState extends State<GraphEditorView> {
           labelStyle: const TextStyle(fontSize: 12),
           label: const Text('Overshoot'),
           selected: t.over,
-          onSelected: (v) => _updateEasing(t.withOver(on: v)),
+          onSelected: (v) => _updateEasing(on(t.withOver(on: v))),
         ),
       ],
     );
@@ -822,7 +864,7 @@ class _SpeedGraphState extends State<_SpeedGraph> {
               key: ValueKey('speed-${e.key}'),
               label: Text(e.key, style: const TextStyle(fontSize: 11)),
               visualDensity: VisualDensity.compact,
-              onPressed: () => widget.onChanged(e.value.withBezier(e.value.x1, e.value.y1, e.value.x2, e.value.y2)),
+              onPressed: () => widget.onChanged(widget.easing.withBezier(e.value.x1, e.value.y1, e.value.x2, e.value.y2)),
             ),
         ]),
       ],

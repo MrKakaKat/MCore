@@ -160,7 +160,7 @@ Grid applyEffectStack(Layer layer, Grid grid, int globalFrame, {Project? project
   var g = grid;
   final insts = [
     for (final i in layer.effectStack)
-      if (isDeformingEffect(i) && effectRegistry.containsKey(i.effectId) && effectActiveAt(layer, i.id, localFrame)) i
+      if (isDeformingEffect(i) && effectRegistry.containsKey(i.effectId) && effectActiveAt(layer, i.id, localFrame, project)) i
   ];
   var i = 0;
   while (i < insts.length) {
@@ -208,7 +208,7 @@ List<List<double>> applyEffectsAfter(Layer layer, String instId, List<List<doubl
   var g = [pts];
   for (final inst in layer.effectStack.skip(at + 1)) {
     if (!inst.enabled || !isDeformingEffect(inst) || !effectRegistry.containsKey(inst.effectId)) continue;
-    if (!effectActiveAt(layer, inst.id, localFrame)) continue;
+    if (!effectActiveAt(layer, inst.id, localFrame, project)) continue;
     if (inst.effectId != 'rotate_3d' && inst.effectId != 'origami_fold') continue; // point by point only
     final params = _withBox(layer, inst, resolveEffectParams(inst, localFrame));
     g = effectRegistry[inst.effectId]!.apply(g, params, localFrame);
@@ -232,7 +232,7 @@ Grid buildEffectGrid(Layer layer, Content content, int globalFrame, {Project? pr
   final hints = <GridHint>[];
   var others = false, fine = false;
   for (final inst in layer.effectStack) {
-    if (!inst.enabled || !effectActiveAt(layer, inst.id, localFrame)) continue;
+    if (!inst.enabled || !effectActiveAt(layer, inst.id, localFrame, project)) continue;
     final def = effectRegistry[inst.effectId];
     if (def == null) continue;
     final params =
@@ -329,7 +329,7 @@ List<Layer> deformingAncestors(Project project, Layer layer, int globalFrame) {
     final p = findLayer(project, id);
     if (p == null) break;
     final lf = math.min(p.durationFrames, math.max(0, layerTimeFrame(p, globalFrame) - p.startFrame));
-    if (p.effectStack.any((i) => isDeformingEffect(i) && effectRegistry.containsKey(i.effectId) && effectActiveAt(p, i.id, lf))) {
+    if (p.effectStack.any((i) => isDeformingEffect(i) && effectRegistry.containsKey(i.effectId) && effectActiveAt(p, i.id, lf, project))) {
       out.add(p);
     }
     id = p.parentId;

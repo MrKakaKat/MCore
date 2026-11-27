@@ -157,6 +157,10 @@ bool joinLayers(Project project, Layer a, Layer b) {
   return true;
 }
 
+/// Every tie of `l` to layer `from` (parent, masks, cuts, mattes, links,
+/// matches, effects tied to its time...) moved to layer `to`.
+void swapLayerRefs(Layer l, String from, String to) => _swapRefs(l, from, to);
+
 void _swapRefs(Layer l, String from, String to) {
   String? swap(String? id) => id == from ? to : id;
   l.parentId = swap(l.parentId);
@@ -177,6 +181,12 @@ void _swapRefs(Layer l, String from, String to) {
   }
   for (final k in l.links) {
     k.sourceId = swap(k.sourceId);
+  }
+  for (final m in l.filters.matches) {
+    m.targetLayerId = swap(m.targetLayerId);
+  }
+  for (final e in l.effectBinds.entries.toList()) {
+    if (e.value == from) l.effectBinds[e.key] = to;
   }
 }
 

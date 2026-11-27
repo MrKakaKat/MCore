@@ -18,6 +18,7 @@ import '../geometry/shapes.dart';
 import '../ui_geometry/keyframe_strip.dart' show visitLayerTracks;
 import 'project.dart';
 import 'project_json.dart';
+import 'layer_edit.dart' show swapLayerRefs;
 
 /// Nested references deeper than this draw a placeholder.
 const int maxRefDepth = 4;
@@ -237,4 +238,97 @@ List<Layer> refInstances(Project host, String sourceId) => [
   final f = instance.startFrame + refHostLocalFrame(sourceFrame, s, hostFps);
   final first = instance.startFrame, last = instance.startFrame + instance.durationFrames;
   return (frame: f.clamp(first, last), outside: f < first || f > last);
+}
+
+
+/// Decompose: the placed project's layers put into the host itself, as
+/// they show in it - `ref` becomes their parent (a null layer with the
+/// reference's place, size and moves), the layers inside it copies with
+/// ids of their own (`newId`), placed in the reference's box, their time
+/// from the reference's start (at the host's rate), all in a folder
+/// named after it. The copies, in drawing order (null: not a reference
+/// with a source).
+List<Layer>? decomposeProjectRef(Project host, Layer ref, RefSource s,
+    {required int hostFps, required double hostW, required double hostH, required String Function() newId}) {
+  if (ref.content.shape != 'projectRef') return null;
+  final at = host.layers.indexOf(ref);
+  if (at < 0) return null;
+  final c = ref.content;
+  // the box: source px -> the reference's own px.
+  final kx = c.size[0] / s.width, ky = c.size[1] / s.height;
+  final ox = c.offset[0] - c.size[0] / 2, oy = c.offset[1] - c.size[1] / 2;
+  final rate = hostFps / s.fps;
+  int t(num f) => (f * rate).round();
+  final ids = <String, String>{};
+  final copies = <Layer>[];
+  for (final src in s.project.layers) {
+    final l = cloneLayer(src)..id = newId();
+    ids[src.id] = l.id;
+    copies.add(l);
+  }
+  final folder = ref.folder ?? ref.name;
+  for (final l in copies) {
+    for (final e in ids.entries) {
+      swapLayerRefs(l, e.key, e.value);
+    }
+    final top = l.parentId == null || !ids.containsValue(l.parentId);
+    // where it is: in the box under the reference (its top layers), or
+    // under its own parent (the same distances, in host units).
+    List<double> place(List v) => top
+        ? [(ox + kx * (v[0] as num) * s.width) / hostW, (oy + ky * (v[1] as num) * s.height) / hostH]
+        : [(v[0] as num) * s.width / hostW, (v[1] as num) * s.height / hostH];
+    List<double> stretch(List v) => top
+        ? [(v[0] as num) * kx * s.width / hostW, (v[1] as num) * ky * s.height / hostH]
+        : [(v[0] as num) * s.width / hostW, (v[1] as num) * s.height / hostH];
+    final a = l.transform.anchor;
+    if (a.defaultValue is List) a.defaultValue = place(a.defaultValue as List);
+    for (final k in a.keyframes) {
+      if (k.value is List) k.value = place(k.value as List);
+      k.spatialTangent = SpatialTangent(inTan: stretch(k.spatialTangent.inTan), outTan: stretch(k.spatialTangent.outTan));
+    }
+    for (final al in a.animLayers) {
+      if (al.track.defaultValue is List) al.track.defaultValue = stretch(al.track.defaultValue as List);
+      for (final k in al.track.keyframes) {
+        if (k.value is List) k.value = stretch(k.value as List);
+      }
+    }
+    if (top) {
+      l.parentId = ref.id;
+      final sc = l.transform.scale;
+      List<double> grow(List v) => [(v[0] as num) * kx, (v[1] as num) * ky];
+      if (sc.defaultValue is List) sc.defaultValue = grow(sc.defaultValue as List);
+      for (final k in sc.keyframes) {
+        if (k.value is List) k.value = grow(k.value as List);
+      }
+      for (final al in sc.animLayers) {
+        if (al.multiply) continue;
+        if (al.track.defaultValue is List) al.track.defaultValue = grow(al.track.defaultValue as List);
+        for (final k in al.track.keyframes) {
+          if (k.value is List) k.value = grow(k.value as List);
+        }
+      }
+    }
+    // its time: from the reference's start, at the host's rate.
+    l.startFrame = ref.startFrame + t(l.startFrame);
+    l.durationFrames = math.max(1, t(l.durationFrames));
+    if (rate != 1) {
+      visitLayerTracks(l, (trk) {
+        for (final k in trk.keyframes) {
+          k.frame = t(k.frame);
+        }
+      });
+      l.effectRanges = {for (final e in l.effectRanges.entries) e.key: [t(e.value[0]), t(e.value[1])]};
+    }
+    // not past the reference's end.
+    final end = ref.startFrame + ref.durationFrames;
+    if (l.startFrame + l.durationFrames > end) l.durationFrames = math.max(1, end - l.startFrame);
+    l.folder = folder;
+    l.rowId = null;
+  }
+  copies.removeWhere((l) => l.startFrame >= ref.startFrame + ref.durationFrames);
+  // the reference itself: their parent, not drawn.
+  ref.content = Content(shape: 'null', offset: [...c.offset], size: [...c.size]);
+  ref.folder = folder;
+  host.layers.insertAll(at + 1, copies);
+  return copies;
 }

@@ -8,13 +8,16 @@ import 'dart:math' as math;
 import '../core/interpolation.dart' show loopStopFrame, loopStartKey;
 import '../ui_geometry/keyframe_strip.dart' show visitLayerTracksNamed;
 import 'effect_panel.dart';
+import 'filter_units.dart';
 import 'project.dart';
 
-/// One effect's time range (local frames, inclusive).
+/// One effect's time range (local frames, inclusive). `filter`: a
+/// filter part or a match (the Filters tab's), not an effect.
 class EffectSpan {
   final String id, label;
   final int start, end;
-  const EffectSpan(this.id, this.label, this.start, this.end);
+  final bool filter;
+  const EffectSpan(this.id, this.label, this.start, this.end, {this.filter = false});
 }
 
 const _motionLabels = {
@@ -35,8 +38,32 @@ List<EffectSpan> effectSpans(Layer layer) => [
               layer.effectStack.where((i) => i.id == id).map((i) => i.effectId.replaceAll('_', ' ')).firstOrNull ??
               id;
           return EffectSpan(id, label, r?[0] ?? 0, r?[1] ?? layer.durationFrames);
-        }()
+        }(),
+      // the filters switched on: each part its own line, the whole layer
+      // until its edges are moved.
+      for (final (id, label) in filterEntries(layer))
+        EffectSpan(id, label, layer.effectRanges[id]?[0] ?? 0, layer.effectRanges[id]?[1] ?? layer.durationFrames,
+            filter: true),
     ];
+
+/// Where the layer an entry is tied to runs, in this layer's own frames
+/// (null: not tied, or that layer is gone).
+(int, int)? boundSpan(Project project, Layer layer, String id) {
+  final b = layer.effectBinds[id];
+  if (b == null) return null;
+  final o = findLayer(project, b);
+  if (o == null) return null;
+  return (o.startFrame - layer.startFrame, o.startFrame + o.durationFrames - layer.startFrame);
+}
+
+/// Ties an entry to another layer's time (null: unties it).
+void setEffectBind(Layer layer, String id, String? otherId) {
+  if (otherId == null || otherId == layer.id) {
+    layer.effectBinds.remove(id);
+  } else {
+    layer.effectBinds[id] = otherId;
+  }
+}
 
 /// Sets an effect's range (clamped to the layer, at least one frame);
 /// a range covering the whole layer is stored as none.
@@ -92,6 +119,7 @@ String keyDetailTabOf(String trackName) {
   if (trackName == 'volume') return 'Audio';
   if (trackName == 'lens angle') return 'Masks';
   if (trackName == 'trail drawing') return 'Drawing';
+  if (trackName.startsWith('match ') || trackName == 'choke' || trackName == 'edge fade' || trackName == 'mosaic') return 'Filters';
   if (trackName == 'negative' || trackName == 'filter blur' || trackName == 'fractal warp' || trackName == 'vignette') {
     return 'Filters';
   }

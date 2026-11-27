@@ -657,28 +657,15 @@ class FiltersView extends StatelessWidget {
             number('filter-warp-scale', 'Size', f.warpScale, 4, 400, (v) => f.warpScale = v, suffix: ' px'),
             number('filter-warp-speed', 'Evolution', f.warpSpeed, 0, 5, (v) => f.warpSpeed = v, suffix: '/s', decimals: 2),
             section('Colour'),
+            ..._matchRows(context, layer),
             Row(children: [
-              FilledButton.tonalIcon(
-                key: const ValueKey('filter-match-color'),
-                onPressed: () async {
-                  final ok = await app.matchColor(layer.id);
-                  if (!ok && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Nothing under the layer to match')));
-                  }
-                },
-                icon: const Icon(Icons.auto_fix_high, size: 18),
-                label: const Text('Match Color'),
-              ),
-              const Spacer(),
+              const Expanded(child: Text('Colour wheels', style: TextStyle(fontSize: 13))),
               ResetIconButton(onPressed: () => edit(() {
                     f.lift = [0, 0, 0];
                     f.gamma = [0, 0, 0];
                     f.gain = [0, 0, 0];
                   })),
             ]),
-            const Hint('Match Color: the layer takes on the colours of what is under it (its average and '
-                'contrast per channel) - set into the wheels below.'),
             const SizedBox(height: 6),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -702,6 +689,139 @@ class FiltersView extends StatelessWidget {
 }
 
 /// A keyable filter value: slider, reset, key at the playhead.
+/// Match Color's target picked for the next match (null: what is under
+/// the layer) and whether it acts only while that layer runs.
+String? _matchTarget;
+bool _matchWhileTarget = true;
+
+extension _MatchRows on FiltersView {
+  /// Match Color: a list of matches, each onto its own layer (or what is
+  /// under it), with its strength (keyable), measured again at a frame (a
+  /// key there), acting only while its layer runs if set.
+  List<Widget> _matchRows(BuildContext context, Layer layer) {
+    final others = [for (final l in app.project.layers) if (l.id != layer.id && !isAudioShape(l.content.shape)) l];
+    if (_matchTarget != null && !others.any((l) => l.id == _matchTarget)) _matchTarget = null;
+    String nameOf(String? id) => id == null ? 'what is under it' : (findLayer(app.project, id)?.name ?? '(gone)');
+    void nothing() => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nothing to match there')));
+    return [
+      Row(children: [
+        const Text('Match onto ', style: TextStyle(fontSize: 13)),
+        Expanded(
+          child: DropdownButton<String?>(
+            key: const ValueKey('match-target'),
+            isExpanded: true,
+            value: _matchTarget,
+            items: [
+              const DropdownMenuItem<String?>(value: null, child: Text('What is under it')),
+              for (final l in others) DropdownMenuItem<String?>(value: l.id, child: Text(l.name, overflow: TextOverflow.ellipsis)),
+            ],
+            onChanged: (v) {
+              _matchTarget = v;
+              app.notifyListeners();
+            },
+          ),
+        ),
+      ]),
+      if (_matchTarget != null)
+        SwitchListTile(
+          key: const ValueKey('match-while-target'),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Only while that layer is there'),
+          subtitle: hint('Where it ends, the match is gone (the colours as they were)'),
+          value: _matchWhileTarget,
+          onChanged: (v) {
+            _matchWhileTarget = v;
+            app.notifyListeners();
+          },
+        ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: FilledButton.tonalIcon(
+          key: const ValueKey('filter-match-color'),
+          onPressed: () async {
+            final m = await app.addColorMatch(layer.id, targetId: _matchTarget, whileTarget: _matchWhileTarget);
+            if (m == null && context.mounted) nothing();
+          },
+          icon: const Icon(Icons.auto_fix_high, size: 18),
+          label: const Text('Add a match'),
+        ),
+      ),
+      const Hint('Match Color: the layer takes on the colours (average and contrast per channel) of the layer '
+          'picked, measured here. Several matches add up, each with its own time on the timeline.'),
+      for (var i = 0; i < layer.filters.matches.length; i++)
+        () {
+          final m = layer.filters.matches[i];
+          final bound = layer.effectBinds[m.entryId];
+          final frame = layerLocalFrame(layer, app.currentFrame).round();
+          final keyed = m.coeffs.keyframes.any((k) => k.frame == frame);
+          return Card(
+            key: ValueKey('match-${m.id}'),
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 2, 0, 4),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(
+                    child: Text('Match ${i + 1}: onto ${nameOf(m.targetLayerId)}',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
+                  ),
+                  IconButton(
+                    key: ValueKey('match-again-${m.id}'),
+                    icon: const Icon(Icons.refresh, size: 18),
+                    tooltip: 'match again here',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () async {
+                      if (!await app.rematchColor(layer.id, m.id) && context.mounted) nothing();
+                    },
+                  ),
+                  IconButton(
+                    key: ValueKey('match-key-${m.id}'),
+                    icon: Icon(keyed ? Icons.diamond : Icons.diamond_outlined, size: 16),
+                    tooltip: 'match here as a key (its colours change over time)',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () async {
+                      if (!await app.rematchColor(layer.id, m.id, key: true) && context.mounted) nothing();
+                    },
+                  ),
+                  IconButton(
+                    key: ValueKey('match-delete-${m.id}'),
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    tooltip: 'remove this match',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => app.removeColorMatch(layer.id, m.id),
+                  ),
+                ]),
+                FilterTrackRow(
+                    app: app,
+                    layer: layer,
+                    track: m.strength,
+                    keyName: 'match-strength-${m.id}',
+                    label: 'Strength',
+                    min: 0,
+                    max: 100,
+                    factor: 100,
+                    suffix: ' %',
+                    resetTo: 1),
+                if (m.targetLayerId != null)
+                  SwitchListTile(
+                    key: ValueKey('match-bind-${m.id}'),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('Only while ${nameOf(m.targetLayerId)} is there'),
+                    value: bound == m.targetLayerId,
+                    onChanged: (v) => app.bindEffect(layer.id, m.entryId, v ? m.targetLayerId : null),
+                  )
+                else if (bound != null)
+                  Text('Only while ${nameOf(bound)} is there (Timeline tab)', style: const TextStyle(fontSize: 11)),
+              ]),
+            ),
+          );
+        }(),
+    ];
+  }
+}
+
 class FilterTrackRow extends StatelessWidget {
   final AppState app;
   final Layer layer;

@@ -817,6 +817,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.mirrorY) 'mirrorY': true,
       if (l.effectPanelOrder.isNotEmpty) 'effectPanelOrder': l.effectPanelOrder,
       if (l.effectRanges.isNotEmpty) 'effectRanges': l.effectRanges,
+      if (l.effectBinds.isNotEmpty) 'effectBinds': l.effectBinds,
       if (l.parentFrom != null) 'parentFrom': l.parentFrom,
       if (l.parentUntil != null) 'parentUntil': l.parentUntil,
       if (l.mirrorSourceId != null) 'mirror': {'source': l.mirrorSourceId, 'axis': l.mirrorAxis},
@@ -1048,6 +1049,11 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
           : null,
     )
       ..effectRanges = effectRangesFromJson(j['effectRanges'])
+      ..effectBinds = {
+        if (j['effectBinds'] is Map)
+          for (final e in (j['effectBinds'] as Map).entries)
+            if (e.value is String) '${e.key}': e.value as String
+      }
       ..parentFrom = (j['parentFrom'] as num?)?.toInt()
       ..parentUntil = (j['parentUntil'] as num?)?.toInt()
       ..mirrorProbe = j['mirrorProbe'] == true

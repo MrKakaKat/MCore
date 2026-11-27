@@ -66,6 +66,11 @@ List<PopupMenuEntry<String>> projectRefMenuItems(AppState app, Layer layer) {
     if (linked) PopupMenuItem(value: 'ref-open', enabled: app.onOpenProject != null, child: const Text('Open source')),
     const PopupMenuItem(value: 'ref-relink', child: Text('Relink...')),
     if (linked) const PopupMenuItem(value: 'ref-unlink', child: Text('Unlink (embed copy)')),
+    // its layers into this project, as they show.
+    PopupMenuItem(
+        value: 'ref-decompose',
+        enabled: refSourceOf(layer.content, app.refSources) != null,
+        child: const Text('Decompose into layers')),
   ];
 }
 
@@ -92,6 +97,11 @@ Future<bool> runProjectRefAction(BuildContext context, AppState app, Layer layer
       return true;
     case 'ref-unlink':
       await app.unlinkProjectRefLayer(layer.id);
+      return true;
+    case 'ref-decompose':
+      if (!app.decomposeProjectRefLayer(layer.id) && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Its project is not loaded')));
+      }
       return true;
   }
   return false;

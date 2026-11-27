@@ -1339,6 +1339,8 @@ class AppState extends ChangeNotifier {
   }
 
   void _render() {
+    // effects tied to another layer's time: looked up in this project.
+    bindingProject = project;
     // getting ready: the stage is covered, its frames come once it's done.
     if (preparing) return;
     // drawn for another reason: pictures are listened to again.
@@ -4237,6 +4239,79 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// Match Color: a new match of the layer's colours onto `targetId`'s
+  /// (null: what is under it), measured at the playhead. `whileTarget`:
+  /// it acts only while that layer runs (gone with it). One undo step.
+  /// Null: nothing to match.
+  Future<ColorMatch?> addColorMatch(String layerId, {String? targetId, bool whileTarget = false}) async {
+    final layer = findLayer(project, layerId);
+    if (layer == null) return null;
+    final c = await _matchCoeffsNow(layer, targetId);
+    if (c == null) return null;
+    undo.pushUndoState(project);
+    final m = ColorMatch(id: 'm${DateTime.now().microsecondsSinceEpoch}', targetLayerId: targetId)
+      ..coeffs = Track(c, false);
+    layer.filters.matches.add(m);
+    if (whileTarget && targetId != null) setEffectBind(layer, m.entryId, targetId);
+    commitEdit();
+    return m;
+  }
+
+  /// The match measured again at the playhead: a key there when it has
+  /// keys or `key` is set (its colours change over time), else its one
+  /// value. False: nothing to match.
+  Future<bool> rematchColor(String layerId, String matchId, {bool key = false}) async {
+    final layer = findLayer(project, layerId);
+    final m = layer?.filters.matches.where((m) => m.id == matchId).firstOrNull;
+    if (layer == null || m == null) return false;
+    final c = await _matchCoeffsNow(layer, m.targetLayerId, skip: m);
+    if (c == null) return false;
+    undo.pushUndoState(project);
+    final f = layerLocalFrame(layer, currentFrame).round();
+    if (key) {
+      // the value it had stays as it was before this frame.
+      if (m.coeffs.keyframes.isEmpty && f > 0) {
+        m.coeffs.keyframes.add(Keyframe(frame: 0, value: List<double>.from(m.coeffs.defaultValue as List), temporal: newKeyEasing()));
+      }
+      m.coeffs.keyframes
+        ..removeWhere((k) => k.frame == f)
+        ..add(Keyframe(frame: f, value: c, temporal: newKeyEasing()))
+        ..sort((a, b) => a.frame.compareTo(b.frame));
+    } else {
+      setTrackValueAt(m.coeffs, f, c);
+    }
+    commitEdit();
+    return true;
+  }
+
+  /// The match's line now: the layer's colours (its other matches and
+  /// filters left out) onto the target's.
+  Future<List<double>?> _matchCoeffsNow(Layer layer, String? targetId, {ColorMatch? skip}) async {
+    final st = await renderer.matchColorStats(project, layer, currentFrame, targetId: targetId);
+    if (st == null) return null;
+    return matchCoeffs(st.srcMean, st.srcDev, st.dstMean, st.dstDev);
+  }
+
+  void removeColorMatch(String layerId, String matchId) {
+    final layer = findLayer(project, layerId);
+    if (layer == null) return;
+    undo.pushUndoState(project);
+    layer.filters.matches.removeWhere((m) => m.id == matchId);
+    layer.effectRanges.remove('match.$matchId');
+    layer.effectBinds.remove('match.$matchId');
+    commitEdit();
+  }
+
+  /// Ties an effect / filter part / match of the layer to another
+  /// layer's time (null: always). One undo step.
+  void bindEffect(String layerId, String entryId, String? otherId) {
+    final layer = findLayer(project, layerId);
+    if (layer == null) return;
+    undo.pushUndoState(project);
+    setEffectBind(layer, entryId, otherId);
+    commitEdit();
+  }
+
   /// The new layer showing the stage's Fill button (gone once another
   /// layer, or none, is selected - it never comes back).
   String? freshFillLayerId;
@@ -5546,6 +5621,7 @@ class AppState extends ChangeNotifier {
         projectId = data.id ?? newProjectId();
         projectRevision = data.revision;
         project = data.project;
+        bindingProject = project;
         fps = data.fps > 0 ? data.fps : 60;
         project.fps = fps;
         // (a length under two frames is no length: everything added got
@@ -6400,6 +6476,27 @@ class AppState extends ChangeNotifier {
     _render();
     notifyListeners();
     return null;
+  }
+
+  /// Decompose: the placed project's layers put into this project as
+  /// they show (see movement_core's decomposeProjectRef) - the reference
+  /// becomes their parent. One undo step. False: no source to take them from.
+  bool decomposeProjectRefLayer(String layerId) {
+    final l = findLayer(project, layerId);
+    if (l == null || l.content.shape != 'projectRef') return false;
+    final s = refSourceOf(l.content, refSources);
+    if (s == null) return false;
+    undo.pushUndoState(project);
+    final copies = decomposeProjectRef(project, l, s, hostFps: fps, hostW: frameWidth, hostH: frameHeight, newId: _newLayerId);
+    if (copies == null) return false;
+    ensureUniqueLayerNames(project);
+    normalizeTimelineRows(project);
+    clearStateCaches();
+    renderer.clearRefFrames();
+    _fitTimeline();
+    _render();
+    notifyListeners();
+    return true;
   }
 
   /// Unlink (embed copy): the reference keeps a copy of the source as it

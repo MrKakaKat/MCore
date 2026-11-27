@@ -143,28 +143,37 @@ void main() {
     expect(t.y2, equals(1));
   });
 
-  testWidgets('the ease type: overshoot replaces the square with its own controls, Bezier brings the curve back', (tester) async {
+  testWidgets('the ease window: curve and swing together - neither switches the other off', (tester) async {
     await pump(tester, GraphEditorView(app: app, track: spatialTrack, componentCount: 2));
     await tester.tap(find.byKey(const ValueKey('ease-kind-overshoot')));
     await tester.pump();
     var t = spatialTrack.keyframes[2].temporal;
-    expect(t.kind, 'overshoot');
+    expect([t.kind, t.shaped], ['overshoot', true], reason: 'the swing goes over the curve');
     expect(find.byKey(const ValueKey('ease-overshoot-amount')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('ease-bounces-plus')));
     await tester.pump();
     expect(spatialTrack.keyframes[2].temporal.bounces, 1);
-    // Bezier with the swing on: the curve goes under the swing, the swing stays.
-    await tester.tap(find.byKey(const ValueKey('ease-kind-bezier')));
+    // the curve stays editable with the swing on: a preset changes only the curve.
+    await tester.ensureVisible(find.byKey(const ValueKey('ease-preset-easeIn')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('ease-preset-easeIn')));
     await tester.pump();
     t = spatialTrack.keyframes[2].temporal;
-    expect([t.kind, t.shaped], ['overshoot', true]);
-    expect(find.byKey(const ValueKey('ease-overshoot-amount')), findsOneWidget);
-    expect(find.byKey(const ValueKey('ease-speed-view')), findsOneWidget, reason: 'the curve can be edited too');
-    // the swing off with its own chip: the bezier it had is kept.
+    expect([t.kind, t.x1, t.x2, t.bounces], ['overshoot', 0.42, 1, 1]);
+    expect(find.text('soft start + overshoot'), findsOneWidget);
+    // the speed graph's presets keep it too.
+    await tester.tap(find.byKey(const ValueKey('ease-speed-view')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('speed-soft end')));
+    await tester.pump();
+    expect(spatialTrack.keyframes[2].temporal.over, isTrue);
+    await tester.tap(find.byKey(const ValueKey('ease-speed-view')));
+    await tester.pump();
+    // the swing off with its own chip: the curve it had is kept.
     await tester.tap(find.byKey(const ValueKey('ease-kind-overshoot')));
     await tester.pump();
     t = spatialTrack.keyframes[2].temporal;
-    expect([t.kind, t.x1, t.x2], ['bezier', 0, 1], reason: 'the bezier it had is kept');
+    expect([t.kind, t.x1, t.x2], ['bezier', 0, 0.5]);
   });
 
   test('a shaped swing follows the curve in time, still lands on 1', () {

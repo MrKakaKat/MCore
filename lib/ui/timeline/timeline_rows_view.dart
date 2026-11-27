@@ -188,6 +188,38 @@ class _TimelineRowsViewState extends State<TimelineRowsView> {
 
   /// The tab's settings for the whole timeline, shown with or without a
   /// selected layer.
+  /// Its effects, filter parts and matches, each acting always or only
+  /// while another layer runs (its time on the timeline, the rest off).
+  List<Widget> _bindRows(Layer layer) {
+    final entries = bindableEntries(layer);
+    if (entries.isEmpty) return const [];
+    final others = [for (final l in app.project.layers) if (l.id != layer.id) l];
+    return [
+      const Divider(height: 24),
+      const Text('Works only while another layer is there', style: TextStyle(fontWeight: FontWeight.bold)),
+      const Hint('An effect, a filter or a match of this layer acts only where the layer picked runs on the '
+          'timeline - the rest of the time it is off. Its own range (the lines under the layer) counts too.'),
+      for (final (id, label) in entries)
+        Row(children: [
+          Expanded(child: Text(label, overflow: TextOverflow.ellipsis)),
+          SizedBox(
+            width: 170,
+            child: DropdownButton<String?>(
+              key: ValueKey('bind-$id'),
+              isExpanded: true,
+              value: others.any((l) => l.id == layer.effectBinds[id]) ? layer.effectBinds[id] : null,
+              items: [
+                const DropdownMenuItem<String?>(value: null, child: Text('Always')),
+                for (final l in others)
+                  DropdownMenuItem<String?>(value: l.id, child: Text('While ${l.name}', overflow: TextOverflow.ellipsis)),
+              ],
+              onChanged: (v) => app.bindEffect(layer.id, id, v),
+            ),
+          ),
+        ]),
+    ];
+  }
+
   List<Widget> _general() => [
             // the selected layer's start (any frame) and the whole clip's
             // length.
@@ -361,6 +393,7 @@ class _TimelineRowsViewState extends State<TimelineRowsView> {
               'handle on the right onto the middle of another row to put the layer into it, '
               'or between rows to give it a row of its own. In a shared row a layer stops at '
               'its neighbours when moved or trimmed.'),
+            ..._bindRows(layer),
             const Divider(height: 24),
             SwitchListTile(
               key: const ValueKey('loop-switch'),

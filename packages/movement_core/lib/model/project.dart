@@ -2063,6 +2063,53 @@ double lensSourceRadius(double rn, double fovDeg, double zoom) {
   return math.tan(theta) / math.tan(ref) / math.max(zoom, 0.01);
 }
 
+/// One Match Color on a layer: its colours moved onto those of another
+/// layer (`targetLayerId`; null: what is under it). `coeffs` holds the
+/// per-channel line out = a x + b as [a r, a g, a b, b r, b g, b b]
+/// (keyable: matched again at a frame, a key there); `strength` mixes it
+/// in (keyable). Several matches add up, in list order. Its time is its
+/// own (an entry 'match.<id>' in the layer's effect ranges / binds).
+class ColorMatch {
+  String id;
+  String? targetLayerId;
+  Track coeffs;
+  Track strength;
+  ColorMatch({required this.id, this.targetLayerId, Track? coeffs, Track? strength})
+      : coeffs = coeffs ?? Track(<double>[1, 1, 1, 0, 0, 0], false),
+        strength = strength ?? Track(1.0, false);
+
+  String get entryId => 'match.$id';
+
+  ColorMatch copy() =>
+      ColorMatch(id: id, targetLayerId: targetLayerId, coeffs: cloneTrack(coeffs), strength: cloneTrack(strength));
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        if (targetLayerId != null) 'target': targetLayerId,
+        'coeffs': trackToJson(coeffs),
+        'strength': trackToJson(strength),
+      };
+
+  static ColorMatch fromJson(Map<String, dynamic> j) => ColorMatch(
+        id: j['id'] as String? ?? 'm',
+        targetLayerId: j['target'] as String?,
+        coeffs: j['coeffs'] is Map ? trackFromJson(j['coeffs'] as Map<String, dynamic>) : null,
+        strength: j['strength'] is Map ? trackFromJson(j['strength'] as Map<String, dynamic>) : null,
+      );
+}
+
+/// The line (out = a x + b per channel) that moves colours with
+/// statistics `src` (mean, deviation per channel, 0..1) onto `dst`'s.
+List<double> matchCoeffs(List<double> srcMean, List<double> srcDev, List<double> dstMean, List<double> dstDev) {
+  final a = <double>[], b = <double>[];
+  for (var i = 0; i < 3; i++) {
+    final k = srcDev[i] < 1e-4 ? 1.0 : (dstDev[i] / srcDev[i]).clamp(0.25, 4.0);
+    a.add(k);
+    b.add(dstMean[i] - k * srcMean[i]);
+  }
+  return [...a, ...b];
+}
+
 /// Colour filters on a layer.
 ///
 /// `scope`: what they act on - 'self' (the layer's own picture), 'scene'
@@ -2274,7 +2321,18 @@ class LayerFilters {
   bool matteBlur = true;
 
   bool get any =>
-      _on(negative) || _on(blur) || _on(warp) || graded || lightWrap > 0 || _on(vignette) || _on(mosaic) || dither;
+      _on(negative) ||
+      _on(blur) ||
+      _on(warp) ||
+      graded ||
+      lightWrap > 0 ||
+      _on(vignette) ||
+      _on(mosaic) ||
+      dither ||
+      matches.isNotEmpty;
+
+  /// Match Color, each its own (see ColorMatch).
+  List<ColorMatch> matches = [];
 
   /// The mosaic or the dither is on (drawn by the filters' shader).
   bool get pixelated => _on(mosaic) || dither;
@@ -2340,9 +2398,11 @@ class LayerFilters {
         ..matteLayerId = matteLayerId
         ..matteInvert = matteInvert
         ..matteFilters = matteFilters
-        ..matteBlur = matteBlur;
+        ..matteBlur = matteBlur
+        ..matches = [for (final m in matches) m.copy()];
 
   Map<String, dynamic> toJson() => {
+        if (matches.isNotEmpty) 'matches': [for (final m in matches) m.toJson()],
         'negative': trackToJson(negative),
         if (scope != 'self') 'scope': scope,
         if (_on(blur)) 'blur': trackToJson(blur),
@@ -2464,7 +2524,11 @@ class LayerFilters {
       ..matteLayerId = j['matteLayerId'] as String?
       ..matteInvert = j['matteInvert'] as bool? ?? false
       ..matteFilters = j['matteFilters'] as bool? ?? true
-      ..matteBlur = j['matteBlur'] as bool? ?? true;
+      ..matteBlur = j['matteBlur'] as bool? ?? true
+      ..matches = [
+        for (final m in (j['matches'] as List? ?? const []))
+          if (m is Map) ColorMatch.fromJson(Map<String, dynamic>.from(m))
+      ];
   }
 }
 
@@ -2586,10 +2650,23 @@ double layerLocalFrame(Layer layer, num globalFrame) =>
 /// falls in, counted from the layer's own start.
 /// Whether the Effects-tab entry `id` acts at `localFrame` (its own time
 /// range, if it has one).
-bool effectActiveAt(Layer layer, String id, num localFrame) {
+bool effectActiveAt(Layer layer, String id, num localFrame, [Project? project]) {
   final r = layer.effectRanges[id];
-  return r == null || (localFrame >= r[0] && localFrame <= r[1]);
+  if (r != null && (localFrame < r[0] || localFrame > r[1])) return false;
+  final b = layer.effectBinds[id];
+  if (b == null) return true;
+  final p = project ?? bindingProject;
+  if (p == null) return true;
+  final other = findLayer(p, b);
+  // the layer it is tied to gone: it never acts.
+  if (other == null) return false;
+  final g = layer.startFrame + localFrame;
+  return g >= other.startFrame && g <= other.startFrame + other.durationFrames;
 }
+
+/// The project whose layers effect binds look up when a caller has none
+/// at hand (set by whoever draws / evaluates it).
+Project? bindingProject;
 
 num layerTimeFrame(Layer layer, num globalFrame) {
   globalFrame = loopedFrame(layer, globalFrame);
@@ -2661,6 +2738,11 @@ class Layer {
   /// -> [start, end] local frames it is active in. Missing: the whole
   /// layer.
   Map<String, List<int>> effectRanges = {};
+
+  /// Effects, filters and matches tied to another layer's time: an entry
+  /// id (as in effectRanges) -> that layer's id. It acts only while that
+  /// layer runs (and within its own range).
+  Map<String, String> effectBinds = {};
 
   /// Parenting for a time only (global frames, null: open-ended): before
   /// `parentFrom` and after `parentUntil` the parent counts as it was at
@@ -3172,6 +3254,7 @@ Layer cloneLayer(Layer src) {
     ..echo = src.echo.copy()
     ..glitch = src.glitch?.copy()
     ..effectRanges = {for (final e in src.effectRanges.entries) e.key: [...e.value]}
+    ..effectBinds = {...src.effectBinds}
     ..content.playReversed = src.content.playReversed
     ..content.mediaSpeed = src.content.mediaSpeed
     ..content.contourColors = src.content.contourColors == null ? null : [...src.content.contourColors!]
