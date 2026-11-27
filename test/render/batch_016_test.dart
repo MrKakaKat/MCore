@@ -134,7 +134,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: KeyframesEditorView(app: app))));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('master-key-ease')), findsOneWidget);
-    expect(find.byKey(const ValueKey('key-edit-all')), findsOneWidget);
+    expect(find.byKey(const ValueKey('key-edit-all')), findsNothing, reason: 'in Movement now, at the top');
     expect(find.byKey(const ValueKey('loop-all')), findsOneWidget);
     // free move: in the Movement tab now.
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: SingleChildScrollView(child: FreeMoveField(app: app)))));

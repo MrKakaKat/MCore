@@ -103,7 +103,9 @@ class _GraphEditorViewState extends State<GraphEditorView> {
     final layer = findLayer(widget.app.project, widget.app.selection.selectedLayer);
     if (layer == null) return null;
     final frame = _onlyParam == null ? _state.currentSegmentKeyframes().$2.frame : _pickedFrame;
-    if (frame == null || !(masterKeysShareEase || widget.shared) || !allTracksKeyedAt(layer, frame)) return null;
+    // other parameters keyed on the same frame (a rotation and a scale
+    // with the move): one ease for them all, or each its own.
+    if (frame == null || !(masterKeysShareEase || widget.shared) || _keyedParams(layer, frame).length < 2) return null;
     return (layer: layer, frame: frame);
   }
 
@@ -141,17 +143,18 @@ class _GraphEditorViewState extends State<GraphEditorView> {
   Widget _paramChips() {
     final mk = _masterKey;
     if (mk == null) return const SizedBox.shrink();
-    return SingleChildScrollView(
+    // all of them in sight (a row that wraps, not one that scrolls away).
+    return Wrap(
       key: const ValueKey('ease-params'),
-      scrollDirection: Axis.horizontal,
-      child: Row(children: [
+      runSpacing: 2,
+      children: [
         Padding(
           padding: const EdgeInsets.only(right: 4),
           child: ChoiceChip(
             key: const ValueKey('ease-param-all'),
             visualDensity: VisualDensity.compact,
             labelStyle: const TextStyle(fontSize: 12),
-            label: const Text('All'),
+            label: const Text('All keyed here'),
             selected: _onlyParam == null,
             onSelected: (_) => _pickParam(null),
           ),
@@ -169,7 +172,7 @@ class _GraphEditorViewState extends State<GraphEditorView> {
                 onSelected: (_) => _pickParam(n),
               ),
             ),
-      ]),
+      ],
     );
   }
 
@@ -205,7 +208,14 @@ class _GraphEditorViewState extends State<GraphEditorView> {
     if (!_state.wholePath && _onlyParam == null && (masterKeysShareEase || widget.shared)) {
       final layer = findLayer(widget.app.project, widget.app.selection.selectedLayer);
       final (_, k1) = _state.currentSegmentKeyframes();
-      if (layer != null && allTracksKeyedAt(layer, k1.frame)) shareEaseAtFrame(layer, k1.frame, next);
+      // every parameter keyed on that frame takes it (each key there).
+      if (layer != null) {
+        for (final (_, t) in _keyedParams(layer, k1.frame)) {
+          for (final k in t.keyframes) {
+            if (k.frame == k1.frame && t.keyframes.indexOf(k) > 0) k.temporal = next;
+          }
+        }
+      }
     }
     widget.app.commitEdit();
   }

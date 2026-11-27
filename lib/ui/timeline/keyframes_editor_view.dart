@@ -58,22 +58,6 @@ class KeyframesEditorView extends StatelessWidget {
           children: [
             _keyframeActionsRow(context, layer),
             if (kfSelectedFrames.isNotEmpty) _selectedKeysRow(context, layer),
-            SwitchListTile(
-              key: const ValueKey('key-edit-all'),
-              dense: true,
-              visualDensity: VisualDensity.compact,
-              contentPadding: const EdgeInsets.only(left: 4),
-              title: const Text('Edit the whole object', style: TextStyle(fontSize: 13)),
-              subtitle: const Text(
-                  'any change (scale, place, an effect...) goes to all its keys alike - the animation stays as it is',
-                  style: TextStyle(fontSize: 11)),
-              value: layer.editAll,
-              onChanged: (v) {
-                app.pushUndo();
-                layer.editAll = v;
-                app.commitEdit();
-              },
-            ),
             _loopRow(layer),
             _marksRow(),
             const Divider(height: 16),
@@ -418,6 +402,7 @@ class KeyframesEditorView extends StatelessWidget {
               onPressed: app.project.layers.length < 2 ? null : () => _pickKeysTarget(context, layer),
             ),
           ]),
+          ..._pickedKeyTools(context, layer),
           const SizedBox(height: 4),
           Wrap(
             spacing: 6,
@@ -445,6 +430,79 @@ class KeyframesEditorView extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// How many more passes Repeat makes.
+  static int _repeatTimes = 1;
+
+  /// The picked keys' own loop: for real to the layer's end (when they
+  /// are the last keys), or repeated as keys a number of times; and the
+  /// base keys moved into a key layer.
+  List<Widget> _pickedKeyTools(BuildContext context, Layer layer) {
+    final local = {for (final f in kfSelectedFrames) f - layer.startFrame};
+    final canLoop = local.length >= 2 && pickedKeysEndLast(layer, local);
+    final canRepeat = local.length >= 2 && tracksKeyedOn(layer, local).isNotEmpty;
+    final layers = layer.transform.anchor.animLayers.length;
+    void say(String t) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
+    return [
+      Wrap(spacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+        OutlinedButton.icon(
+          key: const ValueKey('picked-keys-loop'),
+          icon: const Icon(Icons.repeat, size: 16),
+          label: const Text('Loop them'),
+          onPressed: canLoop ? () => app.loopSelectedKeys() : null,
+        ),
+        OutlinedButton.icon(
+          key: const ValueKey('picked-keys-repeat'),
+          icon: const Icon(Icons.control_point_duplicate, size: 16),
+          label: Text('Repeat ×$_repeatTimes'),
+          onPressed: canRepeat ? () => app.repeatSelectedKeys(_repeatTimes) : null,
+        ),
+        IconButton(
+          key: const ValueKey('picked-keys-repeat-minus'),
+          icon: const Icon(Icons.remove, size: 16),
+          visualDensity: VisualDensity.compact,
+          onPressed: _repeatTimes > 1 ? () {
+            _repeatTimes--;
+            app.notifyListeners();
+          } : null,
+        ),
+        IconButton(
+          key: const ValueKey('picked-keys-repeat-plus'),
+          icon: const Icon(Icons.add, size: 16),
+          visualDensity: VisualDensity.compact,
+          onPressed: _repeatTimes < 50 ? () {
+            _repeatTimes++;
+            app.notifyListeners();
+          } : null,
+        ),
+        PopupMenuButton<int>(
+          key: const ValueKey('picked-keys-to-layer'),
+          tooltip: 'move these base keys into a key layer',
+          onSelected: (n) {
+            final into = app.moveSelectedKeysToAnimLayer(n == 0 ? null : n);
+            say(into == null ? 'No move / turn / size / opacity keys there' : 'Moved into key layer $into');
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(value: 0, child: Text('Into a new key layer')),
+            for (var n = 1; n <= layers; n++) PopupMenuItem(value: n, child: Text('Into key layer $n')),
+          ],
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.layers_outlined, size: 16),
+              SizedBox(width: 4),
+              Text('Base → key layer'),
+            ]),
+          ),
+        ),
+      ]),
+      Text(
+          canLoop
+              ? 'Loop: from the first picked key to the end, over and over. Repeat: as keys, what comes after moves later.'
+              : 'Loop works when they are the last keys; Repeat plays them again right after themselves (as keys).',
+          style: const TextStyle(fontSize: 11, color: Colors.grey)),
+    ];
   }
 
   /// The segment (key index from) the playhead is in, or the first.

@@ -372,6 +372,23 @@ class _TimelineRowsViewState extends State<TimelineRowsView> {
                     label: Text(next == null ? 'Join with the next piece' : 'Join with ${next.name}'),
                   );
                 }),
+                // the layer under it: its parameters and keys added in.
+                Builder(builder: (context) {
+                  final below = app.layerBelow(layer.id);
+                  return OutlinedButton.icon(
+                    key: const ValueKey('take-from-below'),
+                    onPressed: below == null
+                        ? null
+                        : () {
+                            if (!app.takeFromLayerBelow(layer.id)) {
+                              ScaffoldMessenger.of(context)
+                                  .showSnackBar(SnackBar(content: Text('Nothing new to take from ${below.name}')));
+                            }
+                          },
+                    icon: const Icon(Icons.download_for_offline_outlined, size: 18),
+                    label: Text(below == null ? 'Take from the layer below' : 'Take params and keys from ${below.name}'),
+                  );
+                }),
                 OutlinedButton.icon(
                   onPressed: fits(own - 1) ? () => app.joinNeighbourRow(layer.id, up: true) : null,
                   icon: const Icon(Icons.vertical_align_top, size: 18),
@@ -389,6 +406,8 @@ class _TimelineRowsViewState extends State<TimelineRowsView> {
                 ),
               ],
             ),
+            const Hint('Take from the layer below: every parameter and key of the layer drawn under this one is added '
+                'in - keys on frames this one has none, values it has not set, effects it lacks. Nothing it has goes.'),
             const Hint('A row takes a layer only where it has free time. On the timeline, drag the '
               'handle on the right onto the middle of another row to put the layer into it, '
               'or between rows to give it a row of its own. In a shared row a layer stops at '

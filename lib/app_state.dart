@@ -5410,6 +5410,74 @@ class AppState extends ChangeNotifier {
     commitEdit();
   }
 
+  /// The picked keys, local frames of the selected layer.
+  Set<int> _pickedLocal(Layer layer) => {for (final f in kfSelectedFrames) f - layer.startFrame};
+
+  /// The picked keys loop from the first of them to the layer's end (they
+  /// are their parameters' last keys). False: they are not. One undo step.
+  bool loopSelectedKeys({String mode = 'repeat'}) {
+    final layer = findLayer(project, selection.selectedLayer);
+    if (layer == null || kfSelectedFrames.length < 2 || !pickedKeysEndLast(layer, _pickedLocal(layer))) return false;
+    pushUndo();
+    loopPickedKeys(layer, _pickedLocal(layer), mode: mode);
+    commitEdit();
+    return true;
+  }
+
+  /// The picked keys played `times` more times right after themselves
+  /// (as keys; what comes after moves later). One undo step.
+  bool repeatSelectedKeys(int times) {
+    final layer = findLayer(project, selection.selectedLayer);
+    if (layer == null || kfSelectedFrames.length < 2 || tracksKeyedOn(layer, _pickedLocal(layer)).isEmpty) return false;
+    pushUndo();
+    repeatPickedKeys(layer, _pickedLocal(layer), times);
+    _fitTimeline();
+    commitEdit();
+    return true;
+  }
+
+  /// The picked keys of the move / turn / size / opacity from the base
+  /// into key layer `n` (null: a new one) - nothing moves on the stage.
+  /// One undo step. The layer they went into (null: nothing moved).
+  int? moveSelectedKeysToAnimLayer(int? n) {
+    final layer = findLayer(project, selection.selectedLayer);
+    if (layer == null || kfSelectedFrames.isEmpty) return null;
+    final local = _pickedLocal(layer);
+    final t = layer.transform;
+    if (![t.anchor, t.rotation, t.scale, t.opacity].any((trk) => trk.keyframes.any((k) => local.contains(k.frame)))) return null;
+    pushUndo();
+    final into = movePickedKeysToAnimLayer(project, layer, local, n);
+    clearStateCaches();
+    commitEdit();
+    return into;
+  }
+
+  /// The layer drawn right under `id` (null: none).
+  Layer? layerBelow(String id) {
+    final i = project.layers.indexWhere((l) => l.id == id);
+    for (var j = i - 1; j >= 0; j--) {
+      final l = project.layers[j];
+      if (!isAudioShape(l.content.shape)) return l;
+    }
+    return null;
+  }
+
+  /// Takes every parameter and key of the layer under `id` into it,
+  /// keeping all it has (see movement_core's takeParamsFrom). One undo
+  /// step. False: nothing to take.
+  bool takeFromLayerBelow(String id) {
+    final layer = findLayer(project, id), below = layerBelow(id);
+    if (layer == null || below == null) return false;
+    pushUndo();
+    if (takeParamsFrom(layer, below, newId: () => 'fx_${_newLayerId()}') == 0) {
+      undo.undo(project, selection);
+      return false;
+    }
+    clearStateCaches();
+    commitEdit();
+    return true;
+  }
+
   void copySelectedKfs() {
     final layer = findLayer(project, selection.selectedLayer);
     if (layer == null) return;

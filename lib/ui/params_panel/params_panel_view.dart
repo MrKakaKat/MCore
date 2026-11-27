@@ -73,6 +73,23 @@ class ParamsPanelView extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(8),
           children: [
+            // first: any change goes to every key alike.
+            SwitchListTile(
+              key: const ValueKey('key-edit-all'),
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              contentPadding: const EdgeInsets.only(left: 4),
+              title: const Text('Edit the whole object', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              subtitle: const Text(
+                  'any change (scale, place, an effect...) goes to all its keys alike - the animation stays as it is',
+                  style: TextStyle(fontSize: 11)),
+              value: layer.editAll,
+              onChanged: (v) {
+                app.pushUndo();
+                layer.editAll = v;
+                app.commitEdit();
+              },
+            ),
             _pickSeveral(context),
             // the box drawn in to what shows (a picture's empty margins go).
             Align(

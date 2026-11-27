@@ -176,6 +176,30 @@ void main() {
     expect([t.kind, t.x1, t.x2], ['bezier', 0, 0.5]);
   });
 
+  testWidgets('overshoot set on the move goes to the rotation and scale keyed on the same frame too', (tester) async {
+    app.project.layers.clear();
+    final l = createLayer('rect')..id = 'r';
+    l.transform.anchor.keyframes.addAll([Keyframe(frame: 0, value: [0.2, 0.5]), Keyframe(frame: 30, value: [0.8, 0.5])]);
+    l.transform.rotation.keyframes.addAll([Keyframe(frame: 0, value: 0.0), Keyframe(frame: 30, value: 90.0)]);
+    l.transform.scale.keyframes.addAll([Keyframe(frame: 0, value: [1.0, 1.0]), Keyframe(frame: 30, value: [2.0, 2.0])]);
+    app.project.layers.add(l);
+    app.selectLayer('r');
+    await pump(tester, GraphEditorView(app: app, track: l.transform.anchor, componentCount: 2));
+    expect(find.byKey(const ValueKey('ease-param-all')), findsOneWidget, reason: 'not every parameter is keyed - still offered');
+    await tester.tap(find.byKey(const ValueKey('ease-kind-overshoot')));
+    await tester.pump();
+    expect([l.transform.anchor.keyframes[1].temporal.over, l.transform.rotation.keyframes[1].temporal.over,
+        l.transform.scale.keyframes[1].temporal.over], [true, true, true]);
+    final rot = [for (var f = 0; f <= 30; f++) (evaluateTrack(app.project, l.transform.rotation, f.toDouble(), l) as num).toDouble()];
+    expect(rot.reduce((a, b) => a > b ? a : b), greaterThan(95), reason: 'the turn passes its key and comes back');
+    // one of them alone: only its key.
+    await tester.tap(find.byKey(const ValueKey('ease-param-rotation')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('ease-kind-anticipate')));
+    await tester.pump();
+    expect([l.transform.rotation.keyframes[1].temporal.ant, l.transform.anchor.keyframes[1].temporal.ant], [true, false]);
+  });
+
   test('a shaped swing follows the curve in time, still lands on 1', () {
     const plain = Easing(0.9, 0, 1, 0.1, over: true, amount: 0.3);
     const shaped = Easing(0.9, 0, 1, 0.1, over: true, amount: 0.3, shaped: true);

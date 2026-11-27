@@ -667,16 +667,9 @@ class FiltersView extends StatelessWidget {
                   })),
             ]),
             const SizedBox(height: 6),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _Wheel(app: app, label: 'Lift', values: f.lift, span: 0.3, onSet: (v) => f.lift = v),
-                _Wheel(app: app, label: 'Gamma', values: f.gamma, span: 1, onSet: (v) => f.gamma = v),
-                _Wheel(app: app, label: 'Gain', values: f.gain, span: 1, onSet: (v) => f.gain = v),
-              ],
-            ),
-            const Hint('Lift: the shadows, gamma: the midtones, gain: the highlights. Drag a wheel toward a '
-                'colour, the line under it for brighter / darker.'),
+            _WheelsPanel(app: app, f: f),
+            const Hint('Lift: the shadows, gamma: the midtones, gain: the highlights. Tick the ones to change in the '
+                'list - the wheel moves them all at once. Drag toward a colour, the line under it for brighter / darker.'),
             section('Light wrap'),
             number('filter-wrap', 'Strength', f.lightWrap * 100, 0, 100, (v) => f.lightWrap = v / 100, suffix: '%'),
             number('filter-wrap-width', 'Width', f.lightWrapWidth, 1, 100, (v) => f.lightWrapWidth = v, suffix: ' px'),
@@ -897,15 +890,109 @@ class FilterTrackRow extends StatelessWidget {
 /// A colour wheel: the dot's direction is the colour pushed in, its
 /// distance from the middle how much; the bar under it the master
 /// (brighter / darker). `span`: the per-channel offset at the rim.
+/// The colour wheels picked for the wheel (several at once).
+Set<String> _pickedWheels = {'Gamma'};
+
+/// The colour wheels: one wheel (and brightness line) for every wheel
+/// ticked in the list under it - they move together, each by its own
+/// span; the list shows each one's colour and value, with its reset.
+class _WheelsPanel extends StatelessWidget {
+  final AppState app;
+  final LayerFilters f;
+  const _WheelsPanel({required this.app, required this.f});
+
+  @override
+  Widget build(BuildContext context) {
+    final wheels = <(String, double, List<double> Function(), void Function(List<double>))>[
+      ('Lift', 0.3, () => f.lift, (v) => f.lift = v),
+      ('Gamma', 1.0, () => f.gamma, (v) => f.gamma = v),
+      ('Gain', 1.0, () => f.gain, (v) => f.gain = v),
+    ];
+    final picked = [for (final w in wheels) if (_pickedWheels.contains(w.$1)) w];
+    // the wheel shows the first ticked one; a move goes to every ticked
+    // one by as much (in its own span).
+    final lead = picked.isEmpty ? null : picked.first;
+    Widget wheel() {
+      if (lead == null) {
+        return const SizedBox(
+            height: 60, child: Center(child: Text('Tick a wheel below', style: TextStyle(color: Colors.grey))));
+      }
+      return _Wheel(
+        app: app,
+        label: picked.map((w) => w.$1).join(' + '),
+        keyName: 'wheel',
+        values: lead.$3(),
+        span: lead.$2,
+        onSet: (v) {
+          final before = rgbToWheel(lead.$3()), after = rgbToWheel(v);
+          for (final w in picked) {
+            final k = w.$2 / lead.$2;
+            final cur = rgbToWheel(w.$3());
+            w.$4(wheelToRgb(cur[0] + (after[0] - before[0]) * k, cur[1] + (after[1] - before[1]) * k,
+                cur[2] + (after[2] - before[2]) * k));
+          }
+        },
+      );
+    }
+
+    Color swatch(List<double> v, double span) => Color.fromARGB(
+        255,
+        ((0.5 + v[0] / span / 2).clamp(0.0, 1.0) * 255).round(),
+        ((0.5 + v[1] / span / 2).clamp(0.0, 1.0) * 255).round(),
+        ((0.5 + v[2] / span / 2).clamp(0.0, 1.0) * 255).round());
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Center(child: wheel()),
+      const SizedBox(height: 6),
+      for (final w in wheels)
+        Row(key: ValueKey('wheel-row-${w.$1.toLowerCase()}'), children: [
+          Checkbox(
+            key: ValueKey('wheel-pick-${w.$1.toLowerCase()}'),
+            visualDensity: VisualDensity.compact,
+            value: _pickedWheels.contains(w.$1),
+            onChanged: (v) {
+              v == true ? _pickedWheels.add(w.$1) : _pickedWheels.remove(w.$1);
+              app.notifyListeners();
+            },
+          ),
+          Container(
+            width: 16,
+            height: 16,
+            decoration: BoxDecoration(color: swatch(w.$3(), w.$2), shape: BoxShape.circle, border: Border.all(color: Colors.white24)),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(width: 52, child: Text(w.$1, style: const TextStyle(fontSize: 13))),
+          Expanded(
+            child: Text(
+                () {
+                  final c = rgbToWheel(w.$3());
+                  return 'colour ${(math.sqrt(c[0] * c[0] + c[1] * c[1]) / w.$2 * 100).round()}%  ·  '
+                      'bright ${(c[2] / w.$2 * 100).round()}%';
+                }(),
+                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          ),
+          ResetIconButton(
+              key: ValueKey('wheel-reset-${w.$1.toLowerCase()}'),
+              onPressed: () {
+                app.pushUndo();
+                w.$4([0, 0, 0]);
+                app.commitEdit();
+              }),
+        ]),
+    ]);
+  }
+}
+
 class _Wheel extends StatelessWidget {
   final AppState app;
   final String label;
   final List<double> values;
   final double span;
   final ValueChanged<List<double>> onSet;
-  const _Wheel({required this.app, required this.label, required this.values, required this.span, required this.onSet});
+  final String? keyName;
+  const _Wheel(
+      {required this.app, required this.label, required this.values, required this.span, required this.onSet, this.keyName});
 
-  static const double _size = 78;
+  static const double _size = 150;
 
   @override
   Widget build(BuildContext context) {
@@ -935,7 +1022,7 @@ class _Wheel extends StatelessWidget {
       Text(label, style: const TextStyle(fontSize: 12)),
       const SizedBox(height: 4),
       eager(Listener(
-        key: ValueKey('wheel-${label.toLowerCase()}'),
+        key: ValueKey(keyName ?? 'wheel-${label.toLowerCase()}'),
         onPointerDown: (e) {
           app.pushUndo();
           wheelAt(e.localPosition);
@@ -951,7 +1038,7 @@ class _Wheel extends StatelessWidget {
       )),
       const SizedBox(height: 6),
       eager(Listener(
-        key: ValueKey('wheel-${label.toLowerCase()}-master'),
+        key: ValueKey('${keyName ?? 'wheel-${label.toLowerCase()}'}-master'),
         onPointerDown: (e) {
           app.pushUndo();
           setFrom(dot.dx, -dot.dy, ((e.localPosition.dx / _size) * 2 - 1).clamp(-1.0, 1.0) * span);

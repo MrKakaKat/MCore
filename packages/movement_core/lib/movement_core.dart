@@ -64,6 +64,7 @@ export 'text/text_split.dart';
 export 'model/effect_panel.dart';
 export 'model/layer_detail.dart';
 export 'model/filter_units.dart';
+export 'model/key_tools.dart';
 export 'model/reverse.dart';
 export 'model/merge_layers.dart';
 export 'model/fill_region.dart';
