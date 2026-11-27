@@ -35,11 +35,11 @@ void main() {
 
   Future<void> pump(WidgetTester tester) async {
     // tall: the shape style rows (corners, shadow) sit above the glows.
-    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.physicalSize = const Size(800, 2000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
-        MaterialApp(home: Scaffold(body: SizedBox(width: 420, height: 1200, child: FillView(app: app)))));
+        MaterialApp(home: Scaffold(body: SizedBox(width: 420, height: 1600, child: FillView(app: app)))));
     await tester.pumpAndSettle();
   }
 
@@ -78,6 +78,43 @@ void main() {
 
     await tester.pumpWidget(const SizedBox());
     expect(glowHandlesVisible, isFalse, reason: 'closing the tab hides them');
+  });
+
+  testWidgets('see-through off brings back the colour it had', (tester) async {
+    addGlow(l, 'point', color: '#ff0000');
+    await pump(tester);
+    final chip = find.byKey(ValueKey('glow-transparent-${l.fill.glows.single.id}'));
+    await tester.ensureVisible(chip);
+    await tester.tap(chip);
+    await tester.pump();
+    expect(l.fill.glows.single.color, 'transparent');
+    await tester.tap(chip);
+    await tester.pump();
+    expect(l.fill.glows.single.color, '#ff0000');
+    final j = layerFromJson(layerToJson(l));
+    expect(j.fill.glows.single.colorBefore, '#ff0000');
+  });
+
+  test('the whole glow moves with its ring handle; the axis lock holds', () {
+    final g = addGlow(l, 'line');
+    final before = evaluateGlows(app.project, l, 0).single;
+    final m = getGlowHandles(app.project, l, 0).firstWhere((h) => h.end == 'm');
+    final op = GlowDragOp.grab(app.project, l, m, 0, m.screen);
+    op.apply(app.project, 0, [m.screen[0] + 10, m.screen[1] + 20]);
+    final after = evaluateGlows(app.project, l, 0).single;
+    expect(after.a[0] - before.a[0], closeTo(10, 1e-6));
+    expect(after.b[1] - before.b[1], closeTo(20, 1e-6), reason: 'both ends go together');
+    expect((g.position.defaultValue as List)[0], 0.2, reason: 'its own points stay');
+    expect(after.b[0], closeTo(before.b[0] + 10, 1e-6));
+
+    // an end dragged with the lock on x: only sideways.
+    final a = getGlowHandles(app.project, l, 0).firstWhere((h) => h.end == 'a');
+    dragAxisLock = 'x';
+    addTearDown(() => dragAxisLock = null);
+    GlowDragOp.grab(app.project, l, a, 0, a.screen).apply(app.project, 0, [a.screen[0] + 5, a.screen[1] + 30]);
+    final locked = evaluateGlows(app.project, l, 0).single;
+    expect(locked.a[0], closeTo(after.a[0] + 5, 1e-6));
+    expect(locked.a[1], closeTo(after.a[1], 1e-6));
   });
 
   testWidgets('images and text get an explanation instead', (tester) async {

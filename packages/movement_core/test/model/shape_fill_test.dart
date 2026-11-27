@@ -76,7 +76,7 @@ void main() {
     final l = square();
     final p = Project(layers: [l]);
     final g = addGlow(l, 'point');
-    final h = getGlowHandles(p, l, 0).single;
+    final h = getGlowHandles(p, l, 0).firstWhere((h) => h.end == 'a');
     expect(h.screen, [100.0, 100.0]); // box middle at the frame centre
     final op = GlowDragOp.grab(p, l, h, 0, [102, 100]);
     op.apply(p, 0, [152, 125]);
@@ -84,7 +84,7 @@ void main() {
 
     g.position.keyframes = [Keyframe(frame: 0, value: [0.5, 0.5]), Keyframe(frame: 100, value: [0.5, 0.5])];
     clearStateCaches();
-    GlowDragOp.grab(p, l, getGlowHandles(p, l, 0).single, 0, [100, 100]).apply(p, 0, [75, 100]);
+    GlowDragOp.grab(p, l, getGlowHandles(p, l, 0).first, 0, [100, 100]).apply(p, 0, [75, 100]);
     expect(g.position.keyframes.first.value, [0.25, 0.5]);
     expect(g.position.keyframes.last.value, [0.5, 0.5]);
   });
@@ -94,7 +94,7 @@ void main() {
     final p = Project(layers: [l]);
     addGlow(l, 'line');
     final hs = getGlowHandles(p, l, 0);
-    expect(hs.map((h) => h.end), ['a', 'b']);
+    expect(hs.map((h) => h.end), ['a', 'b', 'm'], reason: 'its ends, and the whole glow');
     expect(hs[1].screen, [130.0, 100.0]);
   });
 
@@ -112,7 +112,7 @@ void main() {
     expect(s.a, [closeTo(0, 1.5), closeTo(0, 1.5)]);
     final p = Project(layers: [l]);
     final hs = getGlowHandles(p, l, 0);
-    expect(hs.map((h) => h.end), ['a', 'b', 'c']);
+    expect(hs.map((h) => h.end), ['a', 'b', 'c', 'm']);
     // dragging the point off its line: it stays on it.
     final op = GlowDragOp.grab(p, l, hs[2], 0, hs[2].screen);
     op.apply(p, 0, [hs[2].screen[0] + 25, hs[2].screen[1] + 40]);

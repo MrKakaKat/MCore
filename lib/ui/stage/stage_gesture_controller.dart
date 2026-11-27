@@ -919,7 +919,7 @@ class StageGestureController {
     };
     // top first as drawn now (order on the stage may be keyed).
     for (final layer in stackOrderAt(app.project, app.currentFrame).reversed) {
-      if (unseen.contains(layer.id) || layer.mirrorProbe) continue;
+      if (unseen.contains(layer.id) || layer.mirrorProbe || layer.adjustment) continue; // an effect layer: from the layers list
       if (layer.hidden || layer.locked || isCameraShape(layer.content.shape)) continue; // the camera: from the Stage tab; locked: not here
       if (layer.content.size[0] <= 0 && layer.content.size[1] <= 0) continue;
       final state = getLayerStateAt(app.project, layer.id, app.currentFrame);

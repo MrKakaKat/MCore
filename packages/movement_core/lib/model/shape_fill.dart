@@ -55,11 +55,13 @@ List<GlowSample> evaluateGlows(Project? project, Layer layer, num globalFrame) {
   final box = shapeBoundingBox(layer.content);
   final w = box.maxX - box.minX, h = box.maxY - box.minY;
   final side = math.max(w, h);
-  List<double> place(List<double> f) => [box.minX + f[0] * w, box.minY + f[1] * h];
   return [
     for (final g in layer.fill.glows)
       if (g.enabled)
         () {
+          // the whole glow moved: added to each of its points.
+          final o = _vec(project, g.offset, frame, layer);
+          List<double> place(List<double> f) => [box.minX + (f[0] + o[0]) * w, box.minY + (f[1] + o[1]) * h];
           final a = place(_vec(project, g.position, frame, layer));
           final r = (evaluateTrack(project, g.radius, frame, layer) as double) * side;
           final s = (evaluateTrack(project, g.strength, frame, layer) as double).clamp(0.0, 1.0);
@@ -165,7 +167,7 @@ List<double> _nearestOnEdge(List<List<double>> outline, List<double> local) {
 class GlowHandle {
   final GlowEmitter glow;
   final String key;
-  final String end; // 'a' | 'b'
+  final String end; // 'a' | 'b' | 'c' (a guided point) | 'm' (the whole glow)
   final List<double> screen;
   GlowHandle(this.glow, this.end, this.screen) : key = '${glow.id}:$end';
 }
@@ -173,7 +175,7 @@ class GlowHandle {
 List<GlowHandle> getGlowHandles(Project project, Layer layer, int globalFrame) {
   final m = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
   return [
-    for (final s in evaluateGlows(project, layer, globalFrame))
+    for (final s in evaluateGlows(project, layer, globalFrame)) ...[
       if (s.glow.kind == 'guided') ...[
         GlowHandle(s.glow, 'a', applyAffine(m, s.guideA!)),
         GlowHandle(s.glow, 'b', applyAffine(m, s.guideB!)),
@@ -181,8 +183,22 @@ List<GlowHandle> getGlowHandles(Project project, Layer layer, int globalFrame) {
       ] else ...[
         GlowHandle(s.glow, 'a', applyAffine(m, s.a)),
         if (s.glow.kind == 'line') GlowHandle(s.glow, 'b', applyAffine(m, s.b)),
-      ]
+      ],
+      // the whole glow: a handle on its ring, below its middle (last: its
+      // own points win a tap near both).
+      GlowHandle(s.glow, 'm', applyAffine(m, glowMoveHandleLocal(layer, s))),
+    ]
   ];
+}
+
+/// Where the whole-glow handle sits (content space): on the glow's ring
+/// below its middle - never on top of its own points.
+List<double> glowMoveHandleLocal(Layer layer, GlowSample s) {
+  final ca = s.guideA ?? s.a, cb = s.guideB ?? s.b;
+  final box = shapeBoundingBox(layer.content);
+  final side = math.max(box.maxX - box.minX, box.maxY - box.minY);
+  final down = math.max(s.radius, side * 0.12);
+  return [(ca[0] + cb[0]) / 2, (ca[1] + cb[1]) / 2 + down];
 }
 
 /// The glow's radius drawn on the stage: the content-space circle (point)
@@ -208,24 +224,40 @@ class GlowDragOp implements DragOp {
   final GlowEmitter glow;
   final String end;
   final List<double> grabDelta; // content-space grab point minus the handle
-  GlowDragOp({required this.layer, required this.glow, required this.end, required this.grabDelta});
+  // where the finger went down (frame space): the stage's axis lock
+  // keeps the move along x or y from there.
+  final List<double>? grabFrame;
+  GlowDragOp({required this.layer, required this.glow, required this.end, required this.grabDelta, this.grabFrame});
 
   @override
   List<SnapGuideLine> get snapGuides => const [];
 
+  List<double>? _offsetStart;
+
   @override
   void apply(Project project, int globalFrame, List<double> framePoint) {
+    final g0 = grabFrame;
+    if (g0 != null && dragAxisLock == 'x') framePoint = [framePoint[0], g0[1]];
+    if (g0 != null && dragAxisLock == 'y') framePoint = [g0[0], framePoint[1]];
     final m = toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix);
     final local = applyAffine(invertAffine(m), framePoint);
     final box = shapeBoundingBox(layer.content);
     final w = box.maxX - box.minX, h = box.maxY - box.minY;
     if (w <= 0 || h <= 0) return;
     final lf = localFrameOf(layer, globalFrame);
+    final o = _vec(project, glow.offset, lf.toDouble(), layer);
+    if (end == 'm') {
+      // the whole glow: its offset follows the finger.
+      final local0 = applyAffine(invertAffine(m), g0 ?? framePoint);
+      final s0 = _offsetStart ??= o;
+      setTrackValueAt(glow.offset, lf, [s0[0] + (local[0] - local0[0]) / w, s0[1] + (local[1] - local0[1]) / h]);
+      return;
+    }
     if (glow.kind == 'guided') {
       final p = [local[0] - grabDelta[0], local[1] - grabDelta[1]];
       final ga = evaluateTrack(project, glow.position, lf.toDouble(), layer) as List, gb = evaluateTrack(project, glow.end, lf.toDouble(), layer) as List;
-      final a = [box.minX + (ga[0] as num) * w, box.minY + (ga[1] as num) * h];
-      final b = [box.minX + (gb[0] as num) * w, box.minY + (gb[1] as num) * h];
+      final a = [box.minX + ((ga[0] as num) + o[0]) * w, box.minY + ((ga[1] as num) + o[1]) * h];
+      final b = [box.minX + ((gb[0] as num) + o[0]) * w, box.minY + ((gb[1] as num) + o[1]) * h];
       if (end == 'c') {
         // the point: only along its line.
         final dx = b[0] - a[0], dy = b[1] - a[1];
@@ -236,12 +268,12 @@ class GlowDragOp implements DragOp {
       }
       // an end: stays on the shape's edge.
       final q = _nearestOnEdge(_shapeEdge(layer).outline, p);
-      setTrackValueAt(end == 'b' ? glow.end : glow.position, lf, [(q[0] - box.minX) / w, (q[1] - box.minY) / h]);
+      setTrackValueAt(end == 'b' ? glow.end : glow.position, lf, [(q[0] - box.minX) / w - o[0], (q[1] - box.minY) / h - o[1]]);
       return;
     }
     setTrackValueAt(end == 'b' ? glow.end : glow.position, lf, [
-      (local[0] - grabDelta[0] - box.minX) / w,
-      (local[1] - grabDelta[1] - box.minY) / h,
+      (local[0] - grabDelta[0] - box.minX) / w - o[0],
+      (local[1] - grabDelta[1] - box.minY) / h - o[1],
     ]);
   }
 
@@ -249,6 +281,7 @@ class GlowDragOp implements DragOp {
     final inv = invertAffine(toFrameMatrix(getLayerStateAt(project, layer.id, globalFrame).matrix));
     final grab = applyAffine(inv, grabFramePoint);
     final at = applyAffine(inv, handle.screen);
-    return GlowDragOp(layer: layer, glow: handle.glow, end: handle.end, grabDelta: [grab[0] - at[0], grab[1] - at[1]]);
+    return GlowDragOp(
+        layer: layer, glow: handle.glow, end: handle.end, grabDelta: [grab[0] - at[0], grab[1] - at[1]], grabFrame: grabFramePoint);
   }
 }

@@ -185,7 +185,15 @@ class _FillViewState extends State<FillView> {
               key: ValueKey('glow-transparent-${g.id}'),
               label: const Text('See-through (fades the shape out)'),
               selected: g.color == 'transparent',
-              onSelected: (v) => _edit(() => g.color = v ? 'transparent' : '#ffffff'),
+              // off: back to the colour it had before.
+              onSelected: (v) => _edit(() {
+                if (v) {
+                  if (g.color != 'transparent') g.colorBefore = g.color;
+                  g.color = 'transparent';
+                } else {
+                  g.color = g.colorBefore ?? '#ffffff';
+                }
+              }),
             ),
             if (g.kind == 'guided') ...[
               const Hint('The line lies on the shape - drag its ends (white squares) along the edge; the glow '
@@ -198,6 +206,9 @@ class _FillViewState extends State<FillView> {
             if (g.kind == 'line')
               _trackRow(context, 'glow.end', 'end', g.end, localFrame, [0.8, 0.5],
                   const ParamScale.ruler(unitsPerPixel: 0.005, minorTick: 0.05, majorTick: 0.25, decimals: 2)),
+            // the whole glow at once (its ring handle on the stage).
+            _trackRow(context, 'glow.offset', 'move all', g.offset, localFrame, [0.0, 0.0],
+                const ParamScale.ruler(unitsPerPixel: 0.005, minorTick: 0.05, majorTick: 0.25, decimals: 2)),
             _trackRow(context, 'glow.radius', 'radius', g.radius, localFrame, g.kind == 'line' ? 0.25 : 0.5,
                 const ParamScale.slider(0, 2, decimals: 2)),
             _trackRow(context, 'glow.strength', 'strength', g.strength, localFrame, 1.0,

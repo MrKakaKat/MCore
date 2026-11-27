@@ -56,4 +56,15 @@ void main() {
     expect(projectFileLayerCount(await f.readAsString()), 2);
     expect((await store.versionsOf(f)).any((v) => v.label.startsWith('Before the last restore') && v.layers == 0), isTrue);
   });
+
+  test('folders stay when other projects are listed, deleted', () async {
+    final a = await store.create('A', 100, 100);
+    final b = await store.create('B', 100, 100);
+    final ids = {for (final m in await store.list()) m.file.path: m.id};
+    await store.setFolder([ids[a.path]!], 'Keep');
+    await store.moveToTrash(b);
+    final listed = await store.list();
+    expect(listed.length, 1, reason: 'the folders file is no project');
+    expect(await store.folders(), {ids[a.path]!: 'Keep'});
+  });
 }

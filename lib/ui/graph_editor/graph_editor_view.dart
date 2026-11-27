@@ -280,13 +280,15 @@ class _GraphEditorViewState extends State<GraphEditorView> {
               const SizedBox(height: 4),
               Row(children: [
                 Expanded(child: _kindChips(t)),
-                if (!t.isOvershoot)
+                if (!t.isOvershoot || t.shaped)
                   toolIcon('ease-speed-view', speedView ? Icons.show_chart : Icons.speed,
                       speedView ? 'edit as a curve' : 'edit as a speed graph', () => setState(() => speedView = !speedView)),
               ]),
               const SizedBox(height: 6),
-              if (t.isOvershoot)
-                _overshootControls(t)
+              if (t.isOvershoot) _overshootControls(t),
+              if (t.isOvershoot && t.shaped) const SizedBox(height: 6),
+              if (t.isOvershoot && !t.shaped)
+                const SizedBox.shrink()
               else if (speedView)
                 _SpeedGraph(easing: t, onChanged: _updateEasing)
               else
@@ -365,8 +367,12 @@ class _GraphEditorViewState extends State<GraphEditorView> {
           visualDensity: VisualDensity.compact,
           labelStyle: const TextStyle(fontSize: 12),
           label: const Text('Bezier'),
-          selected: !t.isOvershoot,
-          onSelected: (_) => _updateEasing(t.withOver(on: false).withAnticipate(on: false)),
+          // with a swing on: the curve is laid under it (the swing stays) -
+          // the swing itself goes off with its own chip.
+          selected: !t.isOvershoot || t.shaped,
+          onSelected: (_) {
+            if (t.isOvershoot) _updateEasing(t.withShaped(!t.shaped));
+          },
         ),
         FilterChip(
           key: const ValueKey('ease-kind-anticipate'),

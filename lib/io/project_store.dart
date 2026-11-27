@@ -138,6 +138,7 @@ class ProjectStore {
     if (dir.path == _dir.path) await _recoverOrphans(dir);
     await for (final entity in dir.list()) {
       if (entity is! File || !entity.path.endsWith('.json')) continue;
+      if (entity.uri.pathSegments.last == 'folders.json') continue;
       try {
         final data = await _readOrRecover(entity);
         if (data is! Map<String, dynamic>) {
@@ -313,12 +314,28 @@ class ProjectStore {
 
   // ---- folders of projects (the projects list) ----
 
-  File get _foldersFile => File('${_dir.path}/folders.json');
+  // (not .json: the projects list reads every .json beside them as a
+  // project - it took the folders for one, "repaired" it, and they went)
+  File get _foldersFile => File('${_dir.path}/project_folders.idx');
 
   /// Project id -> its folder's name (projects not in one: absent).
   Future<Map<String, String>> folders() async {
     try {
       final f = _foldersFile;
+      // the earlier file: what is left of it taken over.
+      final old = File('${_dir.path}/folders.json');
+      if (!await f.exists() && await old.exists()) {
+        try {
+          final j = jsonDecode(await old.readAsString());
+          if (j is Map) {
+            await _saveFolders({
+              for (final e in j.entries)
+                if (e.value is String && e.key != 'id') '${e.key}': e.value as String
+            });
+          }
+        } catch (_) {}
+        await old.delete();
+      }
       if (!await f.exists()) return {};
       final j = jsonDecode(await f.readAsString());
       if (j is! Map) return {};

@@ -4,6 +4,7 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import '../common/color_row.dart';
 import '../common/hint.dart';
+import '../filters/filters_view.dart' show FilterTrackRow;
 import '../../io/freeze_watch.dart';
 
 /// Drawing: tools that paint new layers on the stage. Fill: a tap fills
@@ -75,6 +76,36 @@ class DrawingView extends StatelessWidget {
                 'carried by a parent it is attached to.'),
             if (findLayer(app.project, app.selection.selectedLayer) case final t? when isTrailShape(t.content.shape))
               ..._trailRows(context, t),
+            const Divider(height: 24),
+            // a card: how see-through it is and how its edges fade -
+            // the selected layer itself, or a new layer of its own.
+            Row(children: [
+              const Expanded(child: Text('Card', style: TextStyle(fontWeight: FontWeight.bold))),
+              OutlinedButton.icon(
+                key: const ValueKey('draw-add-card'),
+                onPressed: app.addCard,
+                icon: const Icon(Icons.crop_portrait, size: 18),
+                label: const Text('As its own layer'),
+              ),
+            ]),
+            const Hint('Opacity over all and edges fading out - for the selected layer within its own bounds, or '
+                'as a layer of its own (the fill colour, over the whole frame).'),
+            if (findLayer(app.project, app.selection.selectedLayer) case final l?
+                when !isAudioShape(l.content.shape) && !isCameraShape(l.content.shape)) ...[
+              FilterTrackRow(
+                  app: app,
+                  layer: l,
+                  track: l.transform.opacity,
+                  keyName: 'card-opacity',
+                  label: 'Opacity',
+                  min: 0,
+                  max: 100,
+                  factor: 100,
+                  suffix: ' %',
+                  resetTo: 1),
+              FilterTrackRow(
+                  app: app, layer: l, track: l.filters.edgeFade, keyName: 'card-edge-fade', label: 'Edge fade', min: 0, max: 200, suffix: ' px'),
+            ],
           ],
         );
       },

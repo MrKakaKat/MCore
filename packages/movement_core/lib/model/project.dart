@@ -240,6 +240,11 @@ class Easing {
   /// jumps to the key's on its frame (the curve kept for when it is off).
   final bool hold;
 
+  /// The swing (overshoot / anticipation) also follows the bezier: the
+  /// curve sets how time runs, the swing is laid over it (off: the swing
+  /// alone, as before).
+  final bool shaped;
+
   /// `kind` ('bezier', 'overshoot', 'anticipate') reads the older
   /// single choice.
   const Easing(this.x1, this.y1, this.x2, this.y2,
@@ -252,7 +257,8 @@ class Easing {
       int? antBounces,
       this.damping = 1,
       this.antDamping = 1,
-      this.hold = false})
+      this.hold = false,
+      this.shaped = false})
       : over = over ?? kind == 'overshoot',
         ant = ant ?? kind == 'anticipate',
         antAmount = antAmount ?? amount,
@@ -282,9 +288,11 @@ class Easing {
           double? antAmount,
           int? antBounces,
           double? antDamping,
-          bool? hold}) =>
+          bool? hold,
+          bool? shaped}) =>
       Easing(x1 ?? this.x1, y1 ?? this.y1, x2 ?? this.x2, y2 ?? this.y2,
           hold: hold ?? this.hold,
+          shaped: shaped ?? this.shaped,
           over: over ?? this.over,
           amount: amount ?? this.amount,
           bounces: bounces ?? this.bounces,
@@ -307,6 +315,7 @@ class Easing {
   Easing withOver({bool? on, double? amount, int? bounces, double? damping}) =>
       _with(over: on, amount: amount, bounces: bounces, damping: damping);
   Easing withHold(bool on) => _with(hold: on);
+  Easing withShaped(bool on) => _with(shaped: on);
 }
 
 const easingPresets = <String, Easing>{
@@ -1659,17 +1668,28 @@ class GlowEmitter {
   Track end; // the line's second end (unused for a point)
   Track radius;
   Track strength;
+
+  /// The whole glow moved (box fractions, added to its points) - keyed
+  /// on its own, so a glow can travel without keying each end.
+  Track offset;
+
+  /// The colour it had before it was made see-through (brought back
+  /// when see-through goes off).
+  String? colorBefore;
   GlowEmitter({
     required this.id,
     this.kind = 'point',
     this.color = '#ffffff',
     this.enabled = true,
+    this.colorBefore,
     Track? position,
     Track? end,
     Track? radius,
     Track? strength,
     Track? along,
+    Track? offset,
   })  : along = along ?? track(0.5),
+        offset = offset ?? track([0.0, 0.0], true),
         position = position ?? track([0.5, 0.5], true),
         end = end ?? track([0.8, 0.5], true),
         radius = radius ?? track(0.5),
@@ -1680,11 +1700,13 @@ class GlowEmitter {
         kind: kind,
         color: color,
         enabled: enabled,
+        colorBefore: colorBefore,
         position: cloneTrack(position),
         end: cloneTrack(end),
         radius: cloneTrack(radius),
         strength: cloneTrack(strength),
         along: cloneTrack(along),
+        offset: cloneTrack(offset),
       );
 }
 
@@ -2230,6 +2252,10 @@ class LayerFilters {
   /// spread out).
   Track choke = Track(0.0, false);
 
+  /// Edge fade: the layer fades out toward its own edge over this many
+  /// px (keyable; 0: a sharp edge).
+  Track edgeFade = Track(0.0, false);
+
   /// Dissolve: the layer's opacity as a share of its pixels shown whole
   /// (the rest left out, at random) instead of a blend - 'none',
   /// 'dissolve' (the same pixels every frame) or 'dancing' (other ones
@@ -2254,7 +2280,7 @@ class LayerFilters {
   bool get pixelated => _on(mosaic) || dither;
 
   /// Settings that differ from a fresh one (saved even with nothing on).
-  bool get changed => any || _on(choke) || dissolve != 'none' || matteLayerId != null || scope != 'self' || blurKind != 'gaussian' || blurAngle != 0 ||
+  bool get changed => any || _on(choke) || _on(edgeFade) || dissolve != 'none' || matteLayerId != null || scope != 'self' || blurKind != 'gaussian' || blurAngle != 0 ||
       !blurCentered || blurFocus != 'none' ||
       warpScale != 60 || warpSpeed != 0.5 || lightWrapWidth != 12 ||
       vignetteSize != 0.5 || vignetteSoft != 0.5 || vignetteColor != '#000000';
@@ -2309,6 +2335,7 @@ class LayerFilters {
         ..ditherSqueeze = ditherSqueeze
         ..ditherHold = ditherHold
         ..choke = cloneTrack(choke)
+        ..edgeFade = cloneTrack(edgeFade)
         ..dissolve = dissolve
         ..matteLayerId = matteLayerId
         ..matteInvert = matteInvert
@@ -2342,6 +2369,7 @@ class LayerFilters {
         if (vignetteColor != '#000000') 'vignetteColor': vignetteColor,
         if (_on(mosaic)) 'mosaic': trackToJson(mosaic),
         if (_on(choke)) 'choke': trackToJson(choke),
+        if (_on(edgeFade)) 'edgeFade': trackToJson(edgeFade),
         if (dissolve != 'none') 'dissolve': dissolve,
         if (matteLayerId != null) ...{
           'matteLayerId': matteLayerId,
@@ -2431,6 +2459,7 @@ class LayerFilters {
       ..ditherSqueeze = n(j['ditherSqueeze'], 0)
       ..ditherHold = n(j['ditherHold'], 0)
       ..choke = j['choke'] is Map ? trackFromJson(j['choke'] as Map<String, dynamic>) : Track(0.0, false)
+      ..edgeFade = j['edgeFade'] is Map ? trackFromJson(j['edgeFade'] as Map<String, dynamic>) : Track(0.0, false)
       ..dissolve = j['dissolve'] as String? ?? 'none'
       ..matteLayerId = j['matteLayerId'] as String?
       ..matteInvert = j['matteInvert'] as bool? ?? false
@@ -2650,6 +2679,11 @@ class Layer {
   /// only its outline on the stage. What lies under it shows in the
   /// mirror.
   bool mirrorProbe = false;
+
+  /// An effect layer: not drawn itself - its filters act on what is
+  /// under it (as glass, inside its shape), its motion blur blurs the
+  /// layers under it while it runs.
+  bool adjustment = false;
 
   /// Dig: the layer's shape cuts a hole through every layer under it
   /// (down to the background); the layer itself isn't drawn.
@@ -3146,6 +3180,7 @@ Layer cloneLayer(Layer src) {
     ..parentUntil = src.parentUntil
     ..mirrorSourceId = src.mirrorSourceId
     ..mirrorProbe = src.mirrorProbe
+    ..adjustment = src.adjustment
     ..dig = src.dig
     ..lens = src.lens.copy()
     ..stackKeys = [for (final k in src.stackKeys) StackKey(k.frame, k.position, hidden: k.hidden)]

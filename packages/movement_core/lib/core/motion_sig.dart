@@ -49,7 +49,7 @@ int projectMotionSig(Project project) {
         add(k.frame);
         addValue(k.value);
         final e = k.temporal;
-        add(Object.hash(e.x1, e.y1, e.x2, e.y2, e.over, e.ant, e.amount, e.bounces));
+        add(Object.hash(e.x1, e.y1, e.x2, e.y2, e.over, e.ant, e.amount, e.bounces, e.shaped, e.hold));
         add(Object.hash(Object.hashAll(k.spatialTangent.inTan), Object.hashAll(k.spatialTangent.outTan)));
       }
     });

@@ -28,6 +28,7 @@ Map<String, dynamic> easingToJson(Easing e) => {
       'x2': e.x2,
       'y2': e.y2,
       if (e.hold) 'hold': true,
+      if (e.shaped) 'shaped': true,
       if (e.isOvershoot)
         'overshoot': {
           'kind': e.kind,
@@ -50,7 +51,8 @@ Easing easingFromJson(Map<String, dynamic> j) {
       antAmount: (o?['antAmount'] as num?)?.toDouble(),
       antBounces: (o?['antBounces'] as num?)?.toInt(),
       antDamping: (o?['antDamping'] as num?)?.toDouble() ?? 1,
-      hold: j['hold'] == true);
+      hold: j['hold'] == true,
+      shaped: j['shaped'] == true);
 }
 
 Map<String, dynamic> spatialTangentToJson(SpatialTangent t) =>
@@ -647,6 +649,11 @@ ChromaKey chromaKeyFromJson(Map<String, dynamic> j) => ChromaKey(
       ..invert = j['invert'] == true
       ..feather = (j['feather'] as num?)?.toDouble() ?? 0;
 
+bool _offsetMoved(Track t) {
+  final v = t.defaultValue;
+  return v is List && v.any((x) => (x as num) != 0);
+}
+
 Map<String, dynamic> shapeFillToJson(ShapeFill f) => {
       'gradient': f.gradient,
       'glows': [
@@ -661,6 +668,8 @@ Map<String, dynamic> shapeFillToJson(ShapeFill f) => {
             'radius': trackToJson(g.radius),
             'strength': trackToJson(g.strength),
             if (g.kind == 'guided') 'along': trackToJson(g.along),
+            if (g.offset.keyframes.isNotEmpty || _offsetMoved(g.offset)) 'offset': trackToJson(g.offset),
+            if (g.colorBefore != null) 'colorBefore': g.colorBefore,
           }
       ],
       if (f.cornerRadius > 0) 'cornerRadius': f.cornerRadius,
@@ -759,6 +768,8 @@ ShapeFill shapeFillFromJson(Map<String, dynamic> j) {
           radius: t(g, 'radius'),
           strength: t(g, 'strength'),
           along: t(g, 'along'),
+          offset: t(g, 'offset'),
+          colorBefore: g['colorBefore'] as String?,
         )
     ],
     cornerRadius: (j['cornerRadius'] as num?)?.toDouble() ?? 0,
@@ -810,6 +821,7 @@ Map<String, dynamic> layerToJson(Layer l) => {
       if (l.parentUntil != null) 'parentUntil': l.parentUntil,
       if (l.mirrorSourceId != null) 'mirror': {'source': l.mirrorSourceId, 'axis': l.mirrorAxis},
       if (l.mirrorProbe) 'mirrorProbe': true,
+      if (l.adjustment) 'adjustment': true,
       if (l.dig) 'dig': true,
       if (l.lens.enabled) 'lens': l.lens.toJson(),
       if (l.stackKeys.isNotEmpty) 'stackKeys': [for (final k in l.stackKeys) [k.frame, k.position, if (k.hidden) 1]],
@@ -1039,6 +1051,7 @@ Layer _layerFromJson(Map<String, dynamic> j) => Layer(
       ..parentFrom = (j['parentFrom'] as num?)?.toInt()
       ..parentUntil = (j['parentUntil'] as num?)?.toInt()
       ..mirrorProbe = j['mirrorProbe'] == true
+      ..adjustment = j['adjustment'] == true
       ..dig = j['dig'] == true
       ..lens = j['lens'] is Map ? LensSettings.fromJson(j['lens'] as Map<String, dynamic>) : LensSettings()
       ..scaleOrigin = j['scaleOrigin'] is List ? [for (final v in j['scaleOrigin'] as List) (v as num).toDouble()] : null

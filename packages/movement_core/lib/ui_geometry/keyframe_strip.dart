@@ -75,6 +75,7 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
   fn('vignette', layer.filters.vignette);
   fn('mosaic', layer.filters.mosaic);
   fn('choke', layer.filters.choke);
+  fn('edge fade', layer.filters.edgeFade);
   fn('shadow echo fade', layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
   if (ts != null) fn('text shadow echo fade', ts.echoFade);
@@ -85,6 +86,7 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
     if (g.kind == 'guided') fn('glow ${i + 1} along', g.along);
     fn('glow ${i + 1} radius', g.radius);
     fn('glow ${i + 1} strength', g.strength);
+    fn('glow ${i + 1} move', g.offset);
   }
   final text = layer.content.text;
   if (text != null) {
@@ -151,6 +153,7 @@ void visitLayerTracks(Layer layer, void Function(Track track) fn) {
   fn(layer.filters.vignette);
   fn(layer.filters.mosaic);
   fn(layer.filters.choke);
+  fn(layer.filters.edgeFade);
   fn(layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
   if (ts != null) fn(ts.echoFade);
@@ -160,6 +163,7 @@ void visitLayerTracks(Layer layer, void Function(Track track) fn) {
     if (g.kind == 'guided') fn(g.along);
     fn(g.radius);
     fn(g.strength);
+    fn(g.offset);
   }
   final text = layer.content.text;
   if (text != null) {

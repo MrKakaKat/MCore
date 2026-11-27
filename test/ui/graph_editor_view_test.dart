@@ -153,10 +153,26 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('ease-bounces-plus')));
     await tester.pump();
     expect(spatialTrack.keyframes[2].temporal.bounces, 1);
+    // Bezier with the swing on: the curve goes under the swing, the swing stays.
     await tester.tap(find.byKey(const ValueKey('ease-kind-bezier')));
     await tester.pump();
     t = spatialTrack.keyframes[2].temporal;
+    expect([t.kind, t.shaped], ['overshoot', true]);
+    expect(find.byKey(const ValueKey('ease-overshoot-amount')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ease-speed-view')), findsOneWidget, reason: 'the curve can be edited too');
+    // the swing off with its own chip: the bezier it had is kept.
+    await tester.tap(find.byKey(const ValueKey('ease-kind-overshoot')));
+    await tester.pump();
+    t = spatialTrack.keyframes[2].temporal;
     expect([t.kind, t.x1, t.x2], ['bezier', 0, 1], reason: 'the bezier it had is kept');
+  });
+
+  test('a shaped swing follows the curve in time, still lands on 1', () {
+    const plain = Easing(0.9, 0, 1, 0.1, over: true, amount: 0.3);
+    const shaped = Easing(0.9, 0, 1, 0.1, over: true, amount: 0.3, shaped: true);
+    expect(easeProgress(shaped, 0.2), lessThan(easeProgress(plain, 0.2)), reason: 'a slow start holds the swing back');
+    expect(easeProgress(shaped, 1), 1);
+    expect(easingFromJson(easingToJson(shaped)).shaped, isTrue);
   });
 
   testWidgets('speed graph switch: presets and dragging set the bezier', (tester) async {

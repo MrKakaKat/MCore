@@ -1067,11 +1067,17 @@ class CanvasRenderer implements Renderer {
       ui.Canvas canvas, Project project, String layerId, int globalFrame) {
     final layer = findLayer(project, layerId);
     if (layer == null) return;
-    final mb = layer.motionBlur;
+    // an effect layer shows only through its glass filters (its blur
+    // acts on the layers under it).
+    if (layer.adjustment && !(layer.filters.any && layer.filters.scope == 'glass')) return;
+    // no blur of its own: an effect layer above may blur it.
+    final above = blurringEffectLayer(project, layer, globalFrame);
+    final owner = above ?? layer;
+    final mb = owner.motionBlur;
 
     // motion blur only where the layer moves across the shutter (a still
     // one would be drawn `samples` times for nothing).
-    final window = mb.enabled ? motionBlurWindow(project, layer, globalFrame) : 0.0;
+    final window = mb.enabled ? motionBlurWindow(project, layer, globalFrame, using: mb) : 0.0;
     bool movesAcrossShutter() {
       final half = window / 2;
       // its ends and middle (a turn back at a key looks the same at both ends).
@@ -1088,12 +1094,12 @@ class CanvasRenderer implements Renderer {
     final blurs = mb.enabled &&
         mb.samples > 1 &&
         _sharpLayer != layerId &&
-        effectActiveAt(layer, 'motionBlur', globalFrame - layer.startFrame) &&
+        effectActiveAt(owner, 'motionBlur', globalFrame - owner.startFrame) &&
         movesAcrossShutter();
     // an effect matte on the blur: blurred where it is light, sharp where
     // it is dark - both drawn, mixed by it.
-    if (blurs && _blurOnly != layerId && layer.filters.matteBlur && layer.filters.matteLayerId != null) {
-      final matte = _mattePicture(project, layer, globalFrame);
+    if (blurs && _blurOnly != layerId && owner.filters.matteBlur && owner.filters.matteLayerId != null) {
+      final matte = _mattePicture(project, owner, globalFrame);
       if (matte != null) {
         final sharp = ui.PictureRecorder();
         _sharpLayer = layerId;
@@ -1109,7 +1115,7 @@ class CanvasRenderer implements Renderer {
         } finally {
           _blurOnly = null;
         }
-        _mixByMatte(canvas, sharp.endRecording(), blurred.endRecording(), matte, layer.filters.matteInvert);
+        _mixByMatte(canvas, sharp.endRecording(), blurred.endRecording(), matte, owner.filters.matteInvert);
         return;
       }
     }
@@ -1492,6 +1498,11 @@ class CanvasRenderer implements Renderer {
             ? _backImage(project, layer, backLayer, sourceImage, baseM, flipAbout, globalFrame, depth)
             : null;
         _drawWarpedGrid(contentCanvas, sourceImage, srcGrid, dstGrid, back: back, flipped: flipped);
+        // made for this frame only: let go now (the picture keeps its own
+        // hold) - a gradient-filled shape under a bend made a full-frame
+        // picture every frame, and they piled up to a gigabyte.
+        if (back != null && !identical(back, sourceImage)) back.dispose();
+        sourceImage.dispose();
       }
     } else if (layer.content.shape == 'rect' || layer.content.shape == 'line') {
       _withGlows(contentCanvas, project, layer, globalFrame, deviceScale, () {
@@ -1699,6 +1710,9 @@ class CanvasRenderer implements Renderer {
     // Simple Choker: the edge pulled in (or spread out).
     final choke = (evaluateTrack(project, layer.filters.choke, localFrameOp, layer) as num).toDouble() * _width / stageSize.width;
     if (choke.abs() > 0.05) contentPicture = _choked(contentPicture, choke);
+    // Edge fade: soft toward its own edge.
+    final fade = (evaluateTrack(project, layer.filters.edgeFade, localFrameOp, layer) as num).toDouble() * _width / stageSize.width;
+    if (fade > 0.05) contentPicture = _edgeFaded(contentPicture, fade);
     // Dissolve: the opacity as a share of whole pixels, not a blend.
     if (layer.filters.dissolve != 'none' && opacity < 1) {
       final keep = opacity.clamp(0.0, 1.0).toDouble();
@@ -1775,6 +1789,25 @@ class CanvasRenderer implements Renderer {
       _lightWrap(destCanvas, project, layer, contentPicture, globalFrame);
     }
     destCanvas.restore();
+  }
+
+  /// `pic` fading out toward its edge over `px` (canvas px): its alpha
+  /// worn in by half of it, then blurred back out to the edge.
+  ui.Picture _edgeFaded(ui.Picture pic, double px) {
+    final rec = ui.PictureRecorder();
+    final c = ui.Canvas(rec);
+    c.drawPicture(pic);
+    final sigma = px / 4;
+    c.saveLayer(
+        null,
+        ui.Paint()
+          ..blendMode = ui.BlendMode.dstIn
+          ..imageFilter = ui.ImageFilter.compose(
+              outer: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma, tileMode: ui.TileMode.decal),
+              inner: ui.ImageFilter.erode(radiusX: px / 2, radiusY: px / 2)));
+    c.drawPicture(pic);
+    c.restore();
+    return rec.endRecording();
   }
 
   /// `pic` with its edge pulled in by `px` (canvas px; below 0: spread).
@@ -1983,6 +2016,10 @@ class CanvasRenderer implements Renderer {
       }
     }
     canvas.drawImage(img, ui.Offset.zero, ui.Paint()..color = ui.Color.fromRGBO(0, 0, 0, opacity));
+    // (the picture being recorded keeps its own hold on the pixels: ours
+    // goes now, not when the memory cleaner gets to it - every frame made
+    // one, and the graphics memory ran out)
+    img.dispose();
     if (clip != null) canvas.restore();
   }
 
@@ -2266,6 +2303,7 @@ class CanvasRenderer implements Renderer {
     shader.dispose();
     final rec2 = ui.PictureRecorder();
     ui.Canvas(rec2).drawImage(out, ui.Offset.zero, ui.Paint());
+    out.dispose(); // (the picture keeps its own hold on it)
     return rec2.endRecording();
   }
 
@@ -3357,10 +3395,11 @@ class CanvasRenderer implements Renderer {
     for (final layer in project.layers) {
       if (layer.content.shape != 'video' || layer.hidden) continue;
       final frames = <int>{globalFrame};
-      final mb = layer.motionBlur;
-      if (mb.enabled && mb.samples > 1 && effectActiveAt(layer, 'motionBlur', globalFrame - layer.startFrame)) {
+      final owner = blurringEffectLayer(project, layer, globalFrame) ?? layer;
+      final mb = owner.motionBlur;
+      if (mb.enabled && mb.samples > 1 && effectActiveAt(owner, 'motionBlur', globalFrame - owner.startFrame)) {
         for (var s = 0; s < mb.samples; s++) {
-          frames.add((globalFrame + ((s / (mb.samples - 1)) - 0.5) * motionBlurWindow(project, layer, globalFrame)).round());
+          frames.add((globalFrame + ((s / (mb.samples - 1)) - 0.5) * motionBlurWindow(project, layer, globalFrame, using: mb)).round());
         }
       }
       for (final f in frames) {
@@ -4216,7 +4255,11 @@ class CanvasRenderer implements Renderer {
       draw();
       return;
     }
-    canvas.saveLayer(null, ui.Paint());
+    // only around the shape (not the whole screen: a drag redraws it
+    // every move) - room kept for its outline and soft edge.
+    final box = shapeBoundingBox(layer.content);
+    final pad = math.max(box.maxX - box.minX, box.maxY - box.minY) * 0.25 + layer.content.lineWidth * 2 + 64;
+    canvas.saveLayer(ui.Rect.fromLTRB(box.minX - pad, box.minY - pad, box.maxX + pad, box.maxY + pad), ui.Paint());
     draw();
     // a paint gradient takes the shape's colour (its alpha kept).
     if (paintG != null) {

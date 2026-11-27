@@ -1834,6 +1834,23 @@ class EffectsView extends StatelessWidget {
           }),
         ],
       ),
+      // the blur on its own layer: every layer under it blurred by its move.
+      if (layer.adjustment)
+        const Align(
+          alignment: Alignment.centerLeft,
+          child: Text('An effect layer: every layer under it that moves is blurred while it runs.',
+              style: TextStyle(fontSize: 11, color: Colors.grey)),
+        )
+      else if (mb.enabled)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: const ValueKey('motion-blur-detach'),
+            icon: const Icon(Icons.layers_outlined, size: 18),
+            label: const Text('Make into its own layer'),
+            onPressed: () => app.detachToEffectLayer(layer.id, 'motionBlur'),
+          ),
+        ),
     ]);
   }
 

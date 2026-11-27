@@ -61,6 +61,8 @@ double overshootCurve(double amount, int bounces, double x, {double damping = 1}
 double easeProgress(Easing e, double x) {
   // a border: still until the key, then its value at once.
   if (e.hold) return x >= 1 ? 1 : 0;
+  // the curve sets how time runs, the swing is laid over it.
+  if (e.shaped && e.isOvershoot && x > 0 && x < 1) x = solveCubicBezierY(e.x1, e.y1, e.x2, e.y2, x).clamp(0.0, 1.0);
   double over(double u, {double scale = 1}) =>
       overshootCurve((e.amount * scale).clamp(0.001, 1.0), e.bounces, u, damping: e.damping);
   double ant(double u, {double scale = 1}) =>

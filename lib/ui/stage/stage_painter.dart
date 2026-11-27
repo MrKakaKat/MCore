@@ -1599,6 +1599,8 @@ void _paintBendHandles(
 /// on each point / line end.
 void _paintGlowHandles(ui.Canvas canvas, Project project, Layer layer, int globalFrame, ActiveDragInfo? activeDrag,
     double inv) {
+  // the handles once for all glows (each glow takes its own below).
+  final all = getGlowHandles(project, layer, globalFrame);
   for (final s in evaluateGlows(project, layer, globalFrame)) {
     final hex = s.glow.color.replaceFirst('#', '');
     final color = ui.Color(0xFF000000 | (int.tryParse(hex, radix: 16) ?? 0xFFFFFF));
@@ -1609,9 +1611,10 @@ void _paintGlowHandles(ui.Canvas canvas, Project project, Layer layer, int globa
           ..style = ui.PaintingStyle.stroke
           ..strokeWidth = 1 * inv
           ..color = const ui.Color(0x99FFFFFF));
-    final hs = getGlowHandles(project, layer, globalFrame).where((h) => h.glow == s.glow).toList();
+    final hs = all.where((h) => h.glow == s.glow).toList();
     // a line glow's segment, or a guided glow's guide (end to end).
-    final ends = hs.where((h) => h.end != 'c').toList();
+    final ends = hs.where((h) => h.end == 'a' || h.end == 'b').toList();
+    if (s.glow.kind == 'point') ends.clear();
     if (ends.length == 2) {
       canvas.drawLine(ui.Offset(ends[0].screen[0], ends[0].screen[1]), ui.Offset(ends[1].screen[0], ends[1].screen[1]),
           ui.Paint()
@@ -1621,6 +1624,19 @@ void _paintGlowHandles(ui.Canvas canvas, Project project, Layer layer, int globa
     for (final h in hs) {
       final p = ui.Offset(h.screen[0], h.screen[1]);
       final active = activeDrag?.family == 'glow' && activeDrag?.activeKey == h.key;
+      // the whole glow: a white ring with a cross (move all).
+      if (h.end == 'm') {
+        final r = (active ? 9 : 7) * inv;
+        final line = ui.Paint()
+          ..style = ui.PaintingStyle.stroke
+          ..strokeWidth = 1.5 * inv
+          ..color = const ui.Color(0xFFFFFFFF);
+        canvas.drawCircle(p, r, ui.Paint()..color = const ui.Color(0x99000000));
+        canvas.drawCircle(p, r, line);
+        canvas.drawLine(p - ui.Offset(r * 0.6, 0), p + ui.Offset(r * 0.6, 0), line);
+        canvas.drawLine(p - ui.Offset(0, r * 0.6), p + ui.Offset(0, r * 0.6), line);
+        continue;
+      }
       // a guided glow's ends: small white squares on the shape's edge.
       if (s.glow.kind == 'guided' && h.end != 'c') {
         canvas.drawRect(ui.Rect.fromCenter(center: p, width: 9 * inv, height: 9 * inv), ui.Paint()..color = const ui.Color(0xFFFFFFFF));

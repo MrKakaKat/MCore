@@ -127,6 +127,20 @@ class FiltersView extends StatelessWidget {
                   'glass (a negative glass over another one cancels out).',
               _ => 'Only this layer goes through the filters.',
             }),
+            // an effect layer: over the layers under it, as long as it runs.
+            if (layer.adjustment)
+              const Hint('An effect layer: its filters act on every layer under it while it runs '
+                  '(it is not drawn itself; pick it from the layers list).')
+            else if (f.changed)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const ValueKey('filters-detach'),
+                  icon: const Icon(Icons.layers_outlined, size: 18),
+                  label: const Text('Make into its own layer'),
+                  onPressed: () => app.detachToEffectLayer(layer.id, 'filters'),
+                ),
+              ),
             section('Effect matte'),
             DropdownButton<String?>(
               key: const ValueKey('filter-matte-layer'),
@@ -169,7 +183,7 @@ class FiltersView extends StatelessWidget {
                 '(grey: partly). Any layer can be one - hide it and it still works; a black-and-white filter on it '
                 'shapes it further.'),
             section('Edge and dissolve'),
-            _TrackRow(app: app, layer: layer, track: f.choke, keyName: 'filter-choke', label: 'Simple Choker',
+            FilterTrackRow(app: app, layer: layer, track: f.choke, keyName: 'filter-choke', label: 'Simple Choker',
                 min: -50, max: 50, suffix: ' px'),
             const Hint('Simple Choker: the layer\'s edge pulled in (or, below 0, spread out) - keyable.'),
             const SizedBox(height: 4),
@@ -312,10 +326,10 @@ class FiltersView extends StatelessWidget {
               ];
             }(),
             section('Negative'),
-            _TrackRow(app: app, layer: layer, track: f.negative, keyName: 'filter-negative', label: 'Negative',
+            FilterTrackRow(app: app, layer: layer, track: f.negative, keyName: 'filter-negative', label: 'Negative',
                 min: 0, max: 100, factor: 100, suffix: '%'),
             section('Blur'),
-            _TrackRow(app: app, layer: layer, track: f.blur, keyName: 'filter-blur', label: 'Amount',
+            FilterTrackRow(app: app, layer: layer, track: f.blur, keyName: 'filter-blur', label: 'Amount',
                 min: 0, max: 100, suffix: ' px'),
             SingleChildScrollView(scrollDirection: Axis.horizontal, child: Wrap(spacing: 6, children: [
               for (final (k, name) in const [
@@ -378,7 +392,7 @@ class FiltersView extends StatelessWidget {
                   suffix: '%'),
             ],
             section('Pixels'),
-            _TrackRow(app: app, layer: layer, track: f.mosaic, keyName: 'filter-mosaic', label: 'Mosaic',
+            FilterTrackRow(app: app, layer: layer, track: f.mosaic, keyName: 'filter-mosaic', label: 'Mosaic',
                 min: 0, max: 200, suffix: ' px'),
             const Hint('Mosaic: the picture in square cells this wide (0: off) - keyable.'),
             SwitchListTile(
@@ -630,7 +644,7 @@ class FiltersView extends StatelessWidget {
               ],
             ],
             section('Vignette'),
-            _TrackRow(app: app, layer: layer, track: f.vignette, keyName: 'filter-vignette', label: 'Amount',
+            FilterTrackRow(app: app, layer: layer, track: f.vignette, keyName: 'filter-vignette', label: 'Amount',
                 min: 0, max: 100, factor: 100, suffix: '%'),
             number('filter-vignette-size', 'Starts at', f.vignetteSize * 100, 0, 100, (v) => f.vignetteSize = v / 100,
                 suffix: '%'),
@@ -638,7 +652,7 @@ class FiltersView extends StatelessWidget {
                 suffix: '%'),
             ColorRow(label: 'Colour', hex: f.vignetteColor, onPick: (c) => edit(() => f.vignetteColor = c)),
             section('Fractal warp'),
-            _TrackRow(app: app, layer: layer, track: f.warp, keyName: 'filter-warp', label: 'Amount',
+            FilterTrackRow(app: app, layer: layer, track: f.warp, keyName: 'filter-warp', label: 'Amount',
                 min: 0, max: 100, suffix: ' px'),
             number('filter-warp-scale', 'Size', f.warpScale, 4, 400, (v) => f.warpScale = v, suffix: ' px'),
             number('filter-warp-speed', 'Evolution', f.warpSpeed, 0, 5, (v) => f.warpSpeed = v, suffix: '/s', decimals: 2),
@@ -688,7 +702,7 @@ class FiltersView extends StatelessWidget {
 }
 
 /// A keyable filter value: slider, reset, key at the playhead.
-class _TrackRow extends StatelessWidget {
+class FilterTrackRow extends StatelessWidget {
   final AppState app;
   final Layer layer;
   final Track track;
@@ -696,8 +710,10 @@ class _TrackRow extends StatelessWidget {
   final String label;
   final double min, max, factor;
   final String suffix;
-  const _TrackRow(
-      {required this.app,
+  final double resetTo;
+  const FilterTrackRow(
+      {super.key,
+      required this.app,
       required this.layer,
       required this.track,
       required this.keyName,
@@ -705,7 +721,8 @@ class _TrackRow extends StatelessWidget {
       required this.min,
       required this.max,
       this.factor = 1,
-      this.suffix = ''});
+      this.suffix = '',
+      this.resetTo = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -734,7 +751,7 @@ class _TrackRow extends StatelessWidget {
       trailing: [
         ResetIconButton(onPressed: () {
           app.pushUndo();
-          setTrackValueAt(track, frame, 0.0);
+          setTrackValueAt(track, frame, resetTo);
           app.commitEdit();
         }),
         IconButton(

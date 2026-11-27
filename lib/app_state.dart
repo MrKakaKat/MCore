@@ -2778,6 +2778,40 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Takes the layer's filters ('filters') or motion blur ('motionBlur')
+  /// off it into an effect layer of their own, right above it, as long
+  /// as it: the filters then act on everything under that layer (as
+  /// glass over the whole frame), the blur blurs the layers under it.
+  /// One undo step; the new layer is picked.
+  Layer? detachToEffectLayer(String id, String what) {
+    final layer = findLayer(project, id);
+    if (layer == null) return null;
+    pushUndo();
+    final fx = createLayer('rect', size: 46 * _resolutionScale)
+      ..id = _newLayerId()
+      ..adjustment = true
+      ..color = '#ffffff'
+      ..startFrame = layer.startFrame
+      ..durationFrames = layer.durationFrames
+      ..content.size = [frameWidth, frameHeight];
+    fx.name = '${layer.name} ${what == 'filters' ? 'filters' : 'motion blur'}';
+    if (what == 'filters') {
+      fx.filters = layer.filters.copy()..scope = 'glass';
+      layer.filters = LayerFilters();
+    } else {
+      final mb = layer.motionBlur;
+      fx.motionBlur = MotionBlur(enabled: true, shutterAngle: mb.shutterAngle, samples: mb.samples, sensitivity: mb.sensitivity);
+      mb.enabled = false;
+    }
+    ensureUniqueLayerNames(project);
+    project.layers.insert(project.layers.indexOf(layer) + 1, fx);
+    selectLayer(fx.id);
+    clearStateCaches();
+    _render();
+    notifyListeners();
+    return fx;
+  }
+
   /// Moves the layer so it starts at the playhead.
   void moveLayerStartToPlayhead(String id) {
     final layer = findLayer(project, id);
@@ -3898,6 +3932,27 @@ class AppState extends ChangeNotifier {
     drawTool = t;
     cropLine = null;
     notifyListeners();
+  }
+
+  /// Drawing, Card: a new layer of its own - a card over the whole frame
+  /// in the fill colour, its edges fading out (`fade` px). Picked; one
+  /// undo step.
+  Layer addCard({double fade = 24}) {
+    pushUndo();
+    final l = createLayer('rect', size: 46 * _resolutionScale)
+      ..id = _newLayerId()
+      ..color = fillColor
+      ..content.size = [frameWidth, frameHeight];
+    l.name = 'card';
+    l.filters.edgeFade = Track(fade * _resolutionScale, false);
+    _fitNewLayerToLength(l);
+    project.layers.add(l);
+    ensureUniqueLayerNames(project);
+    focusNewLayer(l.id);
+    _fitTimeline();
+    _render();
+    notifyListeners();
+    return l;
   }
 
   void setFillOptions({bool? onlySelected, String? color, bool? dig}) {

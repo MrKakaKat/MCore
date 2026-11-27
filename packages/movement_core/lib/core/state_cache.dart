@@ -469,8 +469,24 @@ List<double> inheritedBlurMatrix(Project project, Layer layer, num sampleFrame, 
 /// `globalFrame` - its shutter angle, or longer for a slow move with
 /// sensitivity on (its streak at least `sensitivity` × 40 px long, open at
 /// most 8 frames).
-double motionBlurWindow(Project project, Layer layer, num globalFrame) {
-  final mb = layer.motionBlur;
+/// The effect layer whose motion blur reaches `layer` at `globalFrame`:
+/// the nearest one above it that runs then (null: none, or the layer
+/// blurs on its own).
+Layer? blurringEffectLayer(Project project, Layer layer, num globalFrame) {
+  if (layer.adjustment || layer.motionBlur.enabled) return null;
+  final i = project.layers.indexOf(layer);
+  if (i < 0) return null;
+  for (var j = i + 1; j < project.layers.length; j++) {
+    final a = project.layers[j];
+    if (!a.adjustment || a.hidden || !a.motionBlur.enabled || a.motionBlur.samples < 2) continue;
+    if (globalFrame < a.startFrame || globalFrame > a.startFrame + a.durationFrames) continue;
+    return a;
+  }
+  return null;
+}
+
+double motionBlurWindow(Project project, Layer layer, num globalFrame, {MotionBlur? using}) {
+  final mb = using ?? layer.motionBlur;
   final shutter = mb.shutterAngle / 360;
   if (mb.sensitivity <= 0) return shutter;
   final a = getLayerStateAt(project, layer.id, globalFrame - 0.5).matrix,
