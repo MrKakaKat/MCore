@@ -5417,9 +5417,18 @@ class AppState extends ChangeNotifier {
   /// are their parameters' last keys). False: they are not. One undo step.
   bool loopSelectedKeys({String mode = 'repeat'}) {
     final layer = findLayer(project, selection.selectedLayer);
-    if (layer == null || kfSelectedFrames.length < 2 || !pickedKeysEndLast(layer, _pickedLocal(layer))) return false;
+    if (layer == null || kfSelectedFrames.length < 2) return false;
+    final local = _pickedLocal(layer);
+    if (tracksKeyedOn(layer, local).isEmpty) return false;
     pushUndo();
-    loopPickedKeys(layer, _pickedLocal(layer), mode: mode);
+    // their parameters' last keys: a loop for real; in the middle: passes
+    // up to the next key.
+    if (pickedKeysEndLast(layer, local)) {
+      loopPickedKeys(layer, local, mode: mode);
+    } else if (fillLoopPickedKeys(layer, local) == 0) {
+      undo.undo(project, selection);
+      return false;
+    }
     commitEdit();
     return true;
   }
@@ -5436,17 +5445,18 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
-  /// The picked keys of the move / turn / size / opacity from the base
-  /// into key layer `n` (null: a new one) - nothing moves on the stage.
+  /// The picked keys of the move / turn / size / opacity from where they
+  /// are into `n` (0 the base, a key layer, null a new one) - nothing moves
+  /// on the stage.
   /// One undo step. The layer they went into (null: nothing moved).
   int? moveSelectedKeysToAnimLayer(int? n) {
     final layer = findLayer(project, selection.selectedLayer);
     if (layer == null || kfSelectedFrames.isEmpty) return null;
     final local = _pickedLocal(layer);
-    final t = layer.transform;
-    if (![t.anchor, t.rotation, t.scale, t.opacity].any((trk) => trk.keyframes.any((k) => local.contains(k.frame)))) return null;
+    final from = pickedKeysLayer(layer, local);
+    if (from < 0) return null;
     pushUndo();
-    final into = movePickedKeysToAnimLayer(project, layer, local, n);
+    final into = movePickedKeysBetween(project, layer, local, from, n);
     clearStateCaches();
     commitEdit();
     return into;

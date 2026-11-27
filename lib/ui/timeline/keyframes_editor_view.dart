@@ -402,7 +402,6 @@ class KeyframesEditorView extends StatelessWidget {
               onPressed: app.project.layers.length < 2 ? null : () => _pickKeysTarget(context, layer),
             ),
           ]),
-          ..._pickedKeyTools(context, layer),
           const SizedBox(height: 4),
           Wrap(
             spacing: 6,
@@ -427,6 +426,8 @@ class KeyframesEditorView extends StatelessWidget {
                 ),
             ],
           ),
+          const SizedBox(height: 6),
+          ..._pickedKeyTools(context, layer),
         ],
       ),
     );
@@ -443,6 +444,7 @@ class KeyframesEditorView extends StatelessWidget {
     final canLoop = local.length >= 2 && pickedKeysEndLast(layer, local);
     final canRepeat = local.length >= 2 && tracksKeyedOn(layer, local).isNotEmpty;
     final layers = layer.transform.anchor.animLayers.length;
+    final at = pickedKeysLayer(layer, local);
     void say(String t) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(t)));
     return [
       Wrap(spacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -450,7 +452,11 @@ class KeyframesEditorView extends StatelessWidget {
           key: const ValueKey('picked-keys-loop'),
           icon: const Icon(Icons.repeat, size: 16),
           label: const Text('Loop them'),
-          onPressed: canLoop ? () => app.loopSelectedKeys() : null,
+          onPressed: canRepeat
+              ? () {
+                  if (!app.loopSelectedKeys()) say('No room for a pass before the next key');
+                }
+              : null,
         ),
         OutlinedButton.icon(
           key: const ValueKey('picked-keys-repeat'),
@@ -476,32 +482,42 @@ class KeyframesEditorView extends StatelessWidget {
             app.notifyListeners();
           } : null,
         ),
-        PopupMenuButton<int>(
-          key: const ValueKey('picked-keys-to-layer'),
-          tooltip: 'move these base keys into a key layer',
-          onSelected: (n) {
-            final into = app.moveSelectedKeysToAnimLayer(n == 0 ? null : n);
-            say(into == null ? 'No move / turn / size / opacity keys there' : 'Moved into key layer $into');
-          },
-          itemBuilder: (_) => [
-            const PopupMenuItem(value: 0, child: Text('Into a new key layer')),
-            for (var n = 1; n <= layers; n++) PopupMenuItem(value: n, child: Text('Into key layer $n')),
-          ],
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.layers_outlined, size: 16),
-              SizedBox(width: 4),
-              Text('Base → key layer'),
-            ]),
-          ),
-        ),
       ]),
       Text(
           canLoop
-              ? 'Loop: from the first picked key to the end, over and over. Repeat: as keys, what comes after moves later.'
-              : 'Loop works when they are the last keys; Repeat plays them again right after themselves (as keys).',
+              ? 'Loop: they are the last keys - over and over to the end. Repeat ×N: again right after themselves, what comes after moves later.'
+              : 'Loop: over and over up to the next key. Repeat ×N: again right after themselves, what comes after moves later.',
           style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      // which keys they are in: the base or a key layer - a tap moves them.
+      if (at >= 0)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            const Text('Keys in', style: TextStyle(fontSize: 12)),
+            for (var n = 0; n <= layers; n++)
+              ChoiceChip(
+                key: ValueKey('picked-keys-in-$n'),
+                label: Text(n == 0 ? 'Base' : 'Layer $n'),
+                selected: at == n,
+                showCheckmark: false,
+                visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                labelStyle: const TextStyle(fontSize: 12),
+                onSelected: (_) {
+                  if (at != n) app.moveSelectedKeysToAnimLayer(n);
+                },
+              ),
+            ActionChip(
+              key: const ValueKey('picked-keys-in-new'),
+              avatar: const Icon(Icons.add, size: 14),
+              label: const Text('New layer'),
+              visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              labelStyle: const TextStyle(fontSize: 12),
+              onPressed: () => app.moveSelectedKeysToAnimLayer(null),
+            ),
+          ]),
+        ),
     ];
   }
 

@@ -149,10 +149,12 @@ class _GraphEditorViewState extends State<GraphEditorView> {
       runSpacing: 2,
       children: [
         Padding(
-          padding: const EdgeInsets.only(right: 4),
+          padding: const EdgeInsets.only(right: 6, top: 4),
           child: ChoiceChip(
             key: const ValueKey('ease-param-all'),
-            visualDensity: VisualDensity.compact,
+            showCheckmark: false,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
             labelStyle: const TextStyle(fontSize: 12),
             label: const Text('All keyed here'),
             selected: _onlyParam == null,
@@ -162,10 +164,12 @@ class _GraphEditorViewState extends State<GraphEditorView> {
         for (final (n, t) in _keyedParams(mk.layer, mk.frame))
           if (t.keyframes.indexWhere((k) => k.frame == mk.frame) >= 1)
             Padding(
-              padding: const EdgeInsets.only(right: 4),
+              padding: const EdgeInsets.only(right: 6, top: 4),
               child: ChoiceChip(
                 key: ValueKey('ease-param-$n'),
-                visualDensity: VisualDensity.compact,
+                showCheckmark: false,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
                 labelStyle: const TextStyle(fontSize: 12),
                 label: Text(n),
                 selected: _onlyParam == n,
@@ -252,129 +256,156 @@ class _GraphEditorViewState extends State<GraphEditorView> {
     final embedded = widget.onClose != null;
     Widget frame(Widget body) => embedded
         ? Align(alignment: Alignment.topCenter, child: SingleChildScrollView(child: body))
-        : Dialog(insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24), child: body);
-    return frame(
-      SizedBox(
-        width: 340,
+        : Dialog(insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24), child: SingleChildScrollView(child: body));
+    final scheme = Theme.of(context).colorScheme;
+    // a small chip: no tick, tight - several fit on a line.
+    Widget chip(String key, String text, bool on, VoidCallback tap) => ChoiceChip(
+          key: ValueKey(key),
+          label: Text(text),
+          selected: on,
+          showCheckmark: false,
+          visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 6),
+          labelStyle: const TextStyle(fontSize: 12),
+          onSelected: (_) => tap(),
+        );
+    Widget heading(String text, {Widget? trailing}) => Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 4),
+          child: Row(children: [
+            Text(text.toUpperCase(),
+                style: TextStyle(fontSize: 11, letterSpacing: 0.8, fontWeight: FontWeight.w600, color: scheme.primary)),
+            const Spacer(),
+            if (trailing != null) trailing,
+          ]),
+        );
+    final labels = _state.wholePath ? const <String>[] : _state.segmentLabels();
+    return frame(LayoutBuilder(builder: (context, box) {
+      final width = embedded && box.maxWidth.isFinite ? box.maxWidth : 340.0;
+      final square = math.min(170.0, (width - 24) * 0.5);
+      return SizedBox(
+        width: width,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+          padding: const EdgeInsets.fromLTRB(12, 4, 8, 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // what is eased, and the curve tools (copy, paste, reset, close).
+              // what is eased (which keys), and the curve tools.
               Row(children: [
-                Expanded(
-                  child: Text(_state.wholePath ? 'Ease - whole path' : 'Ease',
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                Flexible(
+                  child: Text(_state.wholePath ? 'Ease · whole path' : 'Ease',
+                      overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
-                toolIcon('ease-copy', Icons.copy, 'copy this curve',
+                const SizedBox(width: 8),
+                if (labels.length == 1)
+                  Flexible(child: Text('keys ${labels.first}', style: small, overflow: TextOverflow.ellipsis))
+                else if (labels.length > 1)
+                  Flexible(child: DropdownButton<int>(
+                    isExpanded: true,
+                    key: const ValueKey('ease-segment'),
+                    value: _state.segmentIndex.clamp(0, labels.length - 1),
+                    isDense: true,
+                    underline: const SizedBox.shrink(),
+                    style: TextStyle(fontSize: 13, color: scheme.onSurface),
+                    items: [for (var i = 0; i < labels.length; i++) DropdownMenuItem(value: i, child: Text('keys ${labels[i]}'))],
+                    onChanged: (i) => setState(() => _state.segmentIndex = i ?? _state.segmentIndex),
+                  )),
+                const Spacer(),
+                toolIcon('ease-copy', Icons.copy, 'copy this ease',
                     () => setState(() => widget.app.copiedEasing = _state.getEditingTemporal())),
-                toolIcon('ease-paste', Icons.paste, 'paste the copied curve',
+                toolIcon('ease-paste', Icons.paste, 'paste the copied ease',
                     widget.app.copiedEasing == null ? null : () => _updateEasing(widget.app.copiedEasing!)),
-                toolIcon('ease-reset', Icons.restart_alt, 'back to the default curve', _reset),
+                toolIcon('ease-reset', Icons.restart_alt, 'back to the default ease', _reset),
                 toolIcon('ease-close', Icons.close, 'close', widget.onClose ?? () => Navigator.pop(context)),
               ]),
-              // which transition (one line, sideways) and X / Y.
-              if (!_state.wholePath || _state.componentCount > 1)
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(children: [
-                    if (_state.componentCount > 1) ...[_componentTabs(), const SizedBox(width: 8)],
-                    if (!_state.wholePath) _segmentTabs(),
-                  ]),
-                ),
               // a master key: all its parameters as one, or one by one.
               _paramChips(),
-              const SizedBox(height: 4),
-              // what it does in the end: the curve and the swing together.
-              Row(children: [
-                const Text('Result', style: small),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(_summary(t),
-                      key: const ValueKey('ease-summary'), style: small, textAlign: TextAlign.right, overflow: TextOverflow.ellipsis),
+              // what it does: from the start (0) to the key (1), past it with a swing.
+              Container(
+                key: const ValueKey('ease-result'),
+                height: 92,
+                margin: const EdgeInsets.only(top: 6),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest.withOpacity(0.35),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-              ]),
-              SizedBox(
-                height: 64,
-                child: CustomPaint(painter: _CurvePainter(_state.sampleCurve()), size: Size.infinite),
+                child: Stack(children: [
+                  Positioned.fill(
+                    child: CustomPaint(painter: _ProgressPainter(t, line: scheme.primary, guide: scheme.outlineVariant)),
+                  ),
+                  Positioned(
+                    right: 8,
+                    top: 6,
+                    child: Text(_summary(t), key: const ValueKey('ease-summary'), style: small),
+                  ),
+                ]),
               ),
-              const Divider(height: 14),
               // the curve: how the time runs - always there, a swing or not.
-              Row(children: [
-                const Text('Curve', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(width: 6),
-                Expanded(child: _curvePresets(t)),
-                toolIcon('ease-speed-view', speedView ? Icons.show_chart : Icons.speed,
-                    speedView ? 'edit as a curve' : 'edit as a speed graph', () => setState(() => speedView = !speedView)),
+              heading('Curve',
+                  trailing: toolIcon('ease-speed-view', speedView ? Icons.show_chart : Icons.speed,
+                      speedView ? 'edit as a curve' : 'edit as a speed graph', () => setState(() => speedView = !speedView))),
+              Wrap(spacing: 6, runSpacing: 6, children: [
+                for (final e in easingPresets.entries)
+                  chip('ease-preset-${e.key}', _presetNames[e.key] ?? e.key, _isPreset(t, e.value),
+                      () => _setCurve(t.withBezier(e.value.x1, e.value.y1, e.value.x2, e.value.y2))),
               ]),
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
               if (speedView)
                 _SpeedGraph(easing: t, onChanged: _setCurve)
               else
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 150,
-                      height: 150,
-                      child: _claimFinger(_EasingSquare(easing: t, onChanged: _setCurve)),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          for (final row in const [
-                            [(0, 'x1'), (1, 'y1')],
-                            [(2, 'x2'), (3, 'y2')],
-                          ])
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
-                              child: Row(children: [
-                                for (final (i, name) in row) ...[
-                                  if (i.isOdd) const SizedBox(width: 6),
-                                  Expanded(
-                                    child: _CoordField(
-                                      label: name,
-                                      value: [t.x1, t.y1, t.x2, t.y2][i],
-                                      onCommit: (v) => _setCurve(switch (i) {
-                                        0 => t.withBezier(GraphEditorState.clampX(v), t.y1, t.x2, t.y2),
-                                        1 => t.withBezier(t.x1, GraphEditorState.clampY(v), t.x2, t.y2),
-                                        2 => t.withBezier(t.x1, t.y1, GraphEditorState.clampX(v), t.y2),
-                                        _ => t.withBezier(t.x1, t.y1, t.x2, GraphEditorState.clampY(v)),
-                                      }),
-                                    ),
-                                  ),
-                                ],
-                              ]),
-                            ),
-                          const Text('Drag the two points, or type them.', style: small),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              const Divider(height: 14),
-              // the swing: back before leaving, past the end - over the curve.
-              Row(children: [
-                const Text('Swing', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(width: 6),
-                Expanded(child: _kindChips(t)),
-              ]),
-              if (t.isOvershoot) ...[
-                _overshootControls(t),
-                const Text('The curve sets the pace, the swing goes over it.', style: small),
-              ] else
-                const Text('Off: the value goes straight to the key.', style: small),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SizedBox(
+                    width: square,
+                    height: square,
+                    child: _claimFinger(_EasingSquare(easing: t, onChanged: _setCurve)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('Point 1 · point 2', style: small),
+                      const SizedBox(height: 4),
+                      for (final row in const [
+                        [(0, 'x1'), (1, 'y1')],
+                        [(2, 'x2'), (3, 'y2')],
+                      ])
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(children: [
+                            for (final (i, name) in row) ...[
+                              if (i.isOdd) const SizedBox(width: 8),
+                              Expanded(
+                                child: _CoordField(
+                            label: name,
+                            value: [t.x1, t.y1, t.x2, t.y2][i],
+                            onCommit: (v) => _setCurve(switch (i) {
+                              0 => t.withBezier(GraphEditorState.clampX(v), t.y1, t.x2, t.y2),
+                              1 => t.withBezier(t.x1, GraphEditorState.clampY(v), t.x2, t.y2),
+                              2 => t.withBezier(t.x1, t.y1, GraphEditorState.clampX(v), t.y2),
+                              _ => t.withBezier(t.x1, t.y1, t.x2, GraphEditorState.clampY(v)),
+                            }),
+                                ),
+                              ),
+                            ],
+                          ]),
+                        ),
+                      const Text('Drag the points on the square, or type them.', style: small),
+                    ]),
+                  ),
+                ]),
+              // the swing: back before leaving, past the key - over the curve.
+              heading('Swing'),
+              _kindChips(t),
+              if (t.isOvershoot) _overshootControls(t),
             ],
           ),
         ),
-      ),
-    );
+      );
+    }));
   }
+
+  static bool _isPreset(Easing t, Easing e) =>
+      (e.x1 - t.x1).abs() < 1e-3 && (e.y1 - t.y1).abs() < 1e-3 && (e.x2 - t.x2).abs() < 1e-3 && (e.y2 - t.y2).abs() < 1e-3;
 
   static const _presetNames = {'linear': 'even', 'easeInOut': 'soft both', 'easeIn': 'soft start', 'easeOut': 'soft end'};
 
@@ -396,59 +427,35 @@ class _GraphEditorViewState extends State<GraphEditorView> {
     ].join(' + ');
   }
 
-  /// The usual curves in one tap (only the curve changes; a swing stays).
-  Widget _curvePresets(Easing t) => SingleChildScrollView(
-        key: const ValueKey('ease-curve-presets'),
-        scrollDirection: Axis.horizontal,
-        child: Row(children: [
-          for (final e in easingPresets.entries)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: ChoiceChip(
-                key: ValueKey('ease-preset-${e.key}'),
-                visualDensity: VisualDensity.compact,
-                labelStyle: const TextStyle(fontSize: 11),
-                label: Text(_presetNames[e.key] ?? e.key),
-                selected: (e.value.x1 - t.x1).abs() < 1e-3 && (e.value.y1 - t.y1).abs() < 1e-3 &&
-                    (e.value.x2 - t.x2).abs() < 1e-3 && (e.value.y2 - t.y2).abs() < 1e-3,
-                onSelected: (_) => _setCurve(t.withBezier(e.value.x1, e.value.y1, e.value.x2, e.value.y2)),
-              ),
-            ),
-        ]),
-      );
-
   /// The swing: an anticipation (back before leaving) and / or an
-  /// overshoot (past the end, settling back) - each by itself, both
+  /// overshoot (past the key, settling back) - each by itself, both
   /// together too; the curve under them stays.
   Widget _kindChips(Easing t) {
     // a swing switched on: over the curve it has.
     Easing on(Easing e) => e.isOvershoot ? e.withShaped(true) : e;
-    return Wrap(
-      spacing: 4,
-      children: [
-        FilterChip(
-          key: const ValueKey('ease-kind-anticipate'),
-          visualDensity: VisualDensity.compact,
+    Widget c(String key, String label, String tip, bool v, Easing Function(bool) set) => FilterChip(
+          key: ValueKey(key),
+          label: Text(label),
+          tooltip: tip,
+          selected: v,
+          showCheckmark: false,
+          visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           labelStyle: const TextStyle(fontSize: 12),
-          label: const Text('Anticipate'),
-          selected: t.ant,
-          onSelected: (v) => _updateEasing(on(t.withAnticipate(on: v))),
-        ),
-        FilterChip(
-          key: const ValueKey('ease-kind-overshoot'),
-          visualDensity: VisualDensity.compact,
-          labelStyle: const TextStyle(fontSize: 12),
-          label: const Text('Overshoot'),
-          selected: t.over,
-          onSelected: (v) => _updateEasing(on(t.withOver(on: v))),
-        ),
-      ],
-    );
+          onSelected: (x) => _updateEasing(on(set(x))),
+        );
+    return Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      c('ease-kind-anticipate', 'Anticipate', 'a swing back before it leaves', t.ant, (v) => t.withAnticipate(on: v)),
+      c('ease-kind-overshoot', 'Overshoot', 'past the key, then back', t.over, (v) => t.withOver(on: v)),
+      if (!t.isOvershoot)
+        const Text('off: straight to the key', style: TextStyle(fontSize: 11, color: Colors.grey)),
+    ]);
   }
 
   /// How far, how many swings, how fast they die out - for the swing
   /// back (anticipation) and the overshoot, each its own.
   Widget _overshootControls(Easing t) {
+    const small = TextStyle(fontSize: 12);
     Widget section(
         {required String prefix,
         required String title,
@@ -456,46 +463,58 @@ class _GraphEditorViewState extends State<GraphEditorView> {
         required int bounces,
         required double damping,
         required Easing Function({double? amount, int? bounces, double? damping}) set}) {
-      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: const TextStyle(fontSize: 12)),
-        Row(children: [
-          Expanded(
-            child: Slider(
-              key: ValueKey('$prefix-amount'),
-              value: amount.clamp(0.02, 0.6),
-              min: 0.02,
-              max: 0.6,
-              onChanged: (v) => _updateEasing(set(amount: v)),
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          Row(children: [
+            const SizedBox(width: 56, child: Text('How far', style: small)),
+            Expanded(
+              child: SliderTheme(
+                data: const SliderThemeData(trackHeight: 3, overlayShape: RoundSliderOverlayShape(overlayRadius: 14)),
+                child: Slider(
+                  key: ValueKey('$prefix-amount'),
+                  value: amount.clamp(0.02, 0.6),
+                  min: 0.02,
+                  max: 0.6,
+                  onChanged: (v) => _updateEasing(set(amount: v)),
+                ),
+              ),
             ),
-          ),
-          SizedBox(width: 40, child: Text('${(amount * 100).round()}%', style: const TextStyle(fontSize: 12))),
-        ]),
-        Row(children: [
-          const Text('Swings', style: TextStyle(fontSize: 12)),
-          IconButton(
-            key: ValueKey(prefix == 'ease-overshoot' ? 'ease-bounces-minus' : '$prefix-bounces-minus'),
-            icon: const Icon(Icons.remove, size: 18),
-            onPressed: bounces <= 0 ? null : () => _updateEasing(set(bounces: bounces - 1)),
-          ),
-          Text('$bounces'),
-          IconButton(
-            key: ValueKey(prefix == 'ease-overshoot' ? 'ease-bounces-plus' : '$prefix-bounces-plus'),
-            icon: const Icon(Icons.add, size: 18),
-            onPressed: bounces >= 8 ? null : () => _updateEasing(set(bounces: bounces + 1)),
-          ),
-          const SizedBox(width: 8),
-          const Text('Fading', style: TextStyle(fontSize: 12)),
-          Expanded(
-            child: Slider(
-              key: ValueKey('$prefix-damping'),
-              value: damping.clamp(0.3, 3.0),
-              min: 0.3,
-              max: 3,
-              onChanged: bounces == 0 ? null : (v) => _updateEasing(set(damping: v)),
+            SizedBox(width: 38, child: Text('${(amount * 100).round()}%', style: small, textAlign: TextAlign.right)),
+          ]),
+          Row(children: [
+            const SizedBox(width: 56, child: Text('Swings', style: small)),
+            IconButton(
+              key: ValueKey(prefix == 'ease-overshoot' ? 'ease-bounces-minus' : '$prefix-bounces-minus'),
+              icon: const Icon(Icons.remove, size: 16),
+              visualDensity: VisualDensity.compact,
+              onPressed: bounces <= 0 ? null : () => _updateEasing(set(bounces: bounces - 1)),
             ),
-          ),
+            SizedBox(width: 16, child: Text('$bounces', textAlign: TextAlign.center)),
+            IconButton(
+              key: ValueKey(prefix == 'ease-overshoot' ? 'ease-bounces-plus' : '$prefix-bounces-plus'),
+              icon: const Icon(Icons.add, size: 16),
+              visualDensity: VisualDensity.compact,
+              onPressed: bounces >= 8 ? null : () => _updateEasing(set(bounces: bounces + 1)),
+            ),
+            const SizedBox(width: 6),
+            Text('Fading', style: bounces == 0 ? small.copyWith(color: Colors.grey) : small),
+            Expanded(
+              child: SliderTheme(
+                data: const SliderThemeData(trackHeight: 3, overlayShape: RoundSliderOverlayShape(overlayRadius: 14)),
+                child: Slider(
+                  key: ValueKey('$prefix-damping'),
+                  value: damping.clamp(0.3, 3.0),
+                  min: 0.3,
+                  max: 3,
+                  onChanged: bounces == 0 ? null : (v) => _updateEasing(set(damping: v)),
+                ),
+              ),
+            ),
+          ]),
         ]),
-      ]);
+      );
     }
 
     return Column(
@@ -504,7 +523,7 @@ class _GraphEditorViewState extends State<GraphEditorView> {
         if (t.ant)
           section(
               prefix: 'ease-ant',
-              title: 'Anticipate: how far back before leaving',
+              title: 'Anticipate - back before leaving',
               amount: t.antAmount,
               bounces: t.antBounces,
               damping: t.antDamping,
@@ -512,7 +531,7 @@ class _GraphEditorViewState extends State<GraphEditorView> {
         if (t.over)
           section(
               prefix: 'ease-overshoot',
-              title: 'Overshoot: how far past the end',
+              title: 'Overshoot - past the key',
               amount: t.amount,
               bounces: t.bounces,
               damping: t.damping,
@@ -520,39 +539,6 @@ class _GraphEditorViewState extends State<GraphEditorView> {
       ],
     );
   }
-
-  Widget _segmentTabs() {
-    final labels = _state.segmentLabels();
-    return Wrap(
-      spacing: 4,
-      children: [
-        for (var i = 0; i < labels.length; i++)
-          ChoiceChip(
-            label: Text(labels[i]),
-            selected: _state.segmentIndex == i,
-            onSelected: (_) => setState(() => _state.segmentIndex = i),
-          ),
-      ],
-    );
-  }
-
-  Widget _componentTabs() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var i = 0; i < 2; i++)
-          Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: ChoiceChip(
-              label: Text(i == 0 ? 'X' : 'Y'),
-              selected: _state.component == i,
-              onSelected: (_) => setState(() => _state.component = i),
-            ),
-          ),
-      ],
-    );
-  }
-
 
 }
 
@@ -943,50 +929,47 @@ class _SpeedPainter extends CustomPainter {
   bool shouldRepaint(_SpeedPainter old) => true;
 }
 
-class _CurvePainter extends CustomPainter {
-  final List<double> samples;
-  _CurvePainter(this.samples);
-
-  static const _pad = 10.0;
+/// The ease itself: from the start (0, bottom guide) to the key (1, top
+/// guide) over its time - past them where it swings.
+class _ProgressPainter extends CustomPainter {
+  final Easing e;
+  final Color line, guide;
+  _ProgressPainter(this.e, {required this.line, required this.guide});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final axisPaint = Paint()
-      ..color = const Color(0xFF2B2B2B)
+    const n = 80;
+    final ys = [for (var i = 0; i <= n; i++) easeProgress(e, i / n)];
+    final lo = math.min(0.0, ys.reduce(math.min)), hi = math.max(1.0, ys.reduce(math.max));
+    const padX = 10.0, padTop = 22.0, padBottom = 8.0;
+    final w = size.width - 2 * padX, h = size.height - padTop - padBottom;
+    double py(double v) => padTop + (hi - v) / (hi - lo) * h;
+    final g = Paint()
+      ..color = guide
       ..strokeWidth = 1;
-    canvas.drawLine(Offset(_pad, size.height - _pad), Offset(size.width - _pad, size.height - _pad), axisPaint);
-
-    if (samples.isEmpty) return;
-    final minV = samples.reduce(math.min);
-    final maxV = samples.reduce(math.max);
-    final range = (maxV - minV) == 0 ? 1.0 : (maxV - minV);
-    final steps = samples.length - 1;
-
-    final curvePaint = Paint()
-      ..color = const Color(0xFFD8D8D8)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    final path = Path();
-    for (var i = 0; i < samples.length; i++) {
-      final x = _pad + (size.width - 2 * _pad) * i / (steps == 0 ? 1 : steps);
-      final y = (size.height - _pad) - ((samples[i] - minV) / range) * (size.height - 2 * _pad);
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
+    for (final v in [0.0, 1.0]) {
+      final y = py(v);
+      for (var x = padX; x < padX + w; x += 8) {
+        canvas.drawLine(Offset(x, y), Offset(math.min(x + 4, padX + w), y), g);
       }
     }
-    canvas.drawPath(path, curvePaint);
+    final path = Path();
+    for (var i = 0; i <= n; i++) {
+      final p = Offset(padX + w * i / n, py(ys[i]));
+      i == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
+    }
+    canvas.drawPath(
+        path,
+        Paint()
+          ..color = line
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.2
+          ..strokeCap = StrokeCap.round);
+    canvas.drawCircle(Offset(padX, py(ys.first)), 3, Paint()..color = line);
+    canvas.drawCircle(Offset(padX + w, py(ys.last)), 3, Paint()..color = line);
   }
 
   @override
-  bool shouldRepaint(covariant _CurvePainter oldDelegate) => !_listEquals(oldDelegate.samples, samples);
-
-  static bool _listEquals(List<double> a, List<double> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
-  }
+  bool shouldRepaint(_ProgressPainter old) => old.e != e || old.line != line;
 }
+

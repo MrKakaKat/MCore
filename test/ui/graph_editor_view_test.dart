@@ -32,22 +32,21 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('per-segment mode: shows one tab per keyframe transition, defaulting to the LAST segment', (tester) async {
+  testWidgets('per-segment mode: a list of the key transitions, the LAST one by default', (tester) async {
     await pump(tester, GraphEditorView(app: app, track: spatialTrack, componentCount: 2));
-
-    expect(find.text('0→30'), findsOneWidget);
-    expect(find.text('30→60'), findsOneWidget);
-    // last segment's tab (30->60) is selected by default (segmentIndex
-    // == keyframes.length - 2), matching openGraphEditor's own default.
-    final lastTab = tester.widget<ChoiceChip>(find.ancestor(of: find.text('30→60'), matching: find.byType(ChoiceChip)));
-    expect(lastTab.selected, isTrue);
+    expect(find.text('keys 30→60'), findsOneWidget, reason: 'the last transition shown');
+    await tester.tap(find.byKey(const ValueKey('ease-segment')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('keys 0→30').last);
+    await tester.pumpAndSettle();
+    expect(find.text('keys 0→30'), findsOneWidget);
   });
 
   testWidgets('whole-path mode: shows "whole path" label instead of segment tabs, and edits globalEasing', (tester) async {
     spatialTrack.globalEasing = const Easing(0.42, 0, 0.58, 1);
     await pump(tester, GraphEditorView(app: app, track: spatialTrack, componentCount: 2, wholePath: true));
 
-    expect(find.text('Ease - whole path'), findsOneWidget);
+    expect(find.text('Ease · whole path'), findsOneWidget);
     expect(find.text('0→30'), findsNothing);
   });
 
@@ -98,8 +97,10 @@ void main() {
   testWidgets('switching segment tabs edits a DIFFERENT keyframe\'s temporal', (tester) async {
     await pump(tester, GraphEditorView(app: app, track: spatialTrack, componentCount: 2));
 
-    await tester.tap(find.text('0→30'));
-    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('ease-segment')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('keys 0→30').last);
+    await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField).first, '0.9');
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -121,10 +122,10 @@ void main() {
     expect(find.text('Y'), findsNothing);
   });
 
-  testWidgets('vec2 track shows X/Y component tabs', (tester) async {
+  testWidgets('no X / Y tabs: the result shows the ease itself, not one coordinate', (tester) async {
     await pump(tester, GraphEditorView(app: app, track: spatialTrack, componentCount: 2));
-    expect(find.text('X'), findsOneWidget);
-    expect(find.text('Y'), findsOneWidget);
+    expect(find.text('X'), findsNothing);
+    expect(find.byKey(const ValueKey('ease-result')), findsOneWidget);
   });
 
   testWidgets('Reset button restores the active easing back to the easeInOut default', (tester) async {

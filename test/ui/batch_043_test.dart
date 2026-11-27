@@ -83,12 +83,19 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('picked-keys-repeat')));
     await tester.pump();
     expect(findLayer(app.project, 'top')!.transform.rotation.keyframes.length, 6);
-    await tester.tap(find.byKey(const ValueKey('picked-keys-to-layer')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Into a new key layer'));
+    expect(findLayer(app.project, 'top')!.durationFrames, 100, reason: 'repeat keeps the length');
+    expect(tester.widget<ChoiceChip>(find.byKey(const ValueKey('picked-keys-in-0'))).selected, isTrue);
+    await tester.tap(find.byKey(const ValueKey('picked-keys-in-new')));
     await tester.pumpAndSettle();
     final lay = findLayer(app.project, 'top')!.transform.rotation;
     expect(lay.animLayers.single.track.keyframes.map((k) => k.frame), [0, 10]);
+    expect(tester.widget<ChoiceChip>(find.byKey(const ValueKey('picked-keys-in-1'))).selected, isTrue);
+    // and back into the base.
+    await tester.tap(find.byKey(const ValueKey('picked-keys-in-0')));
+    await tester.pumpAndSettle();
+    final back = findLayer(app.project, 'top')!.transform.rotation;
+    expect(back.keyframes.map((k) => k.frame), containsAll([0, 10]));
+    expect(back.animLayers.every((a) => a.track.keyframes.isEmpty), isTrue, reason: 'the emptied key layer goes');
   });
 
   testWidgets('Timeline: take params and keys from the layer below', (tester) async {

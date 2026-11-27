@@ -52,11 +52,39 @@ bool loopPickedKeys(Layer layer, Set<int> frames, {String mode = 'repeat'}) {
   return true;
 }
 
+/// Loop of the picked keys in the middle of the animation: their passes
+/// (as keys, each from the first picked key's values again) fill the
+/// time up to each parameter's next key - or to the layer's end where
+/// they are its last keys; nothing moves. How many passes went in (the
+/// most of any parameter; 0: no room for one).
+int fillLoopPickedKeys(Layer layer, Set<int> frames) {
+  if (frames.length < 2) return 0;
+  final lo = frames.reduce(math.min), hi = frames.reduce(math.max);
+  final period = hi - lo + 1;
+  var most = 0;
+  for (final t in tracksKeyedOn(layer, frames).values) {
+    final after = [for (final k in t.keyframes) if (k.frame > hi) k.frame];
+    final until = after.isEmpty ? layer.durationFrames : after.reduce(math.min) - 1;
+    final passes = (until - hi) ~/ period;
+    if (passes < 1) continue;
+    final pass = [for (final k in t.keyframes) if (k.frame >= lo && k.frame <= hi && !k.passive) k];
+    for (var n = 1; n <= passes; n++) {
+      for (final k in pass) {
+        t.keyframes.add(_cloneKey(k, k.frame + n * period));
+      }
+    }
+    t.keyframes.sort((a, b) => a.frame.compareTo(b.frame));
+    if (t.spatial) autoComputeTangents(t);
+    most = math.max(most, passes);
+  }
+  return most;
+}
+
 /// The picked keys (local frames, first to last) played `times` more
 /// times right after themselves, as keys: each pass starts from the
 /// first picked key's values again (one frame after the last), the keys
-/// after them (every parameter's) moved later by as much, the layer
-/// longer by as much. Returns how many frames were added (0: nothing to
+/// after them (every parameter's) moved later by as much; the layer keeps
+/// its length. Returns how many frames the passes take (0: nothing to
 /// repeat).
 int repeatPickedKeys(Layer layer, Set<int> frames, int times) {
   if (times < 1 || frames.length < 2) return 0;
@@ -81,8 +109,71 @@ int repeatPickedKeys(Layer layer, Set<int> frames, int times) {
     t.keyframes.sort((a, b) => a.frame.compareTo(b.frame));
     if (t.spatial) autoComputeTangents(t);
   }
-  layer.durationFrames += add;
+  // (the layer keeps its length: what goes past its end is cut off)
   return add;
+}
+
+/// Where the picked keys (local frames) of the move / turn / size /
+/// opacity are: 0 the base, n key layer n (-1: none there).
+int pickedKeysLayer(Layer layer, Set<int> frames) {
+  final t = layer.transform;
+  for (final trk in [t.anchor, t.rotation, t.scale, t.opacity]) {
+    if (trk.keyframes.any((k) => frames.contains(k.frame))) return 0;
+  }
+  for (var n = 1; n <= t.anchor.animLayers.length; n++) {
+    for (final trk in [t.anchor, t.rotation, t.scale, t.opacity]) {
+      if (trk.animLayers.length >= n && trk.animLayers[n - 1].track.keyframes.any((k) => frames.contains(k.frame))) return n;
+    }
+  }
+  return -1;
+}
+
+/// Moves the picked keys (local frames) of the move / turn / size /
+/// opacity from where they are (`from`: 0 the base, n key layer n) to
+/// `to` (0 the base, n a key layer, null a new one): the object stays
+/// where it was on each of those frames. Returns where they went (null:
+/// nothing to move).
+int? movePickedKeysBetween(Project project, Layer layer, Set<int> frames, int from, int? to) {
+  if (from == 0 && to != 0) return movePickedKeysToAnimLayer(project, layer, frames, to);
+  final t = layer.transform;
+  final tracks = [t.anchor, t.rotation, t.scale, t.opacity];
+  Track? src(Track trk) => from == 0 ? trk : (trk.animLayers.length >= from ? trk.animLayers[from - 1].track : null);
+  if (!tracks.any((trk) => src(trk)?.keyframes.any((k) => frames.contains(k.frame)) ?? false)) return null;
+  var into = to;
+  if (into == null || into > t.anchor.animLayers.length) into = addTransformAnimLayer(layer);
+  if (into == from) return from;
+  for (final trk in tracks) {
+    final s = src(trk);
+    if (s == null) continue;
+    final moving = [for (final k in s.keyframes) if (frames.contains(k.frame)) k];
+    if (moving.isEmpty) continue;
+    final total = {for (final k in moving) k.frame: _copy(evaluateTrack(project, trk, k.frame.toDouble(), layer))};
+    s.keyframes.removeWhere((k) => frames.contains(k.frame));
+    if (s.spatial) autoComputeTangents(s);
+    for (final k in moving) {
+      final f = k.frame.toDouble();
+      final Track dst;
+      final dynamic v;
+      if (into == 0) {
+        // into the base: what, with every key layer over it, shows the same.
+        dst = trk;
+        final mul = trk.animLayers.isNotEmpty && trk.animLayers.first.multiply;
+        final layersOnly = combineAnimLayers(project, trk, mul ? (trk.defaultValue is List ? [1.0, 1.0] : 1.0) : (trk.defaultValue is List ? [0.0, 0.0] : 0.0), f, layer);
+        v = residualValue(total[k.frame], layersOnly, mul);
+      } else {
+        final al = trk.animLayers[into - 1];
+        dst = al.track;
+        final others = combineAnimLayers(project, trk, evaluateTrackOwn(project, trk, f, layer), f, layer, al);
+        v = residualValue(total[k.frame], others, al.multiply);
+      }
+      dst.keyframes
+        ..removeWhere((x) => x.frame == k.frame)
+        ..add(Keyframe(frame: k.frame, value: _copy(v), temporal: k.temporal))
+        ..sort((a, b) => a.frame.compareTo(b.frame));
+      if (dst.spatial) autoComputeTangents(dst);
+    }
+  }
+  return into;
 }
 
 /// Moves the picked keys (local frames) of the layer's own move, turn,

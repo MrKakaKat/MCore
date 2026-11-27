@@ -26,7 +26,7 @@ void main() {
     expect(l.transform.rotation.keyframes.map((k) => k.frame), [0, 10, 11, 21, 22, 32, 62]);
     expect(l.transform.rotation.keyframes.map((k) => k.value), [0.0, 90.0, 0.0, 90.0, 0.0, 90.0, 0.0]);
     expect(evaluateTrack(p, l.transform.anchor, 16, l), [closeTo(0.5, 1e-9), closeTo(0.5, 1e-9)]);
-    expect(l.durationFrames, 122);
+    expect(l.durationFrames, 100, reason: 'the layer keeps its length');
   });
 
   test('picked last keys loop for real, from the first of them', () {
@@ -38,6 +38,32 @@ void main() {
     final r = l.transform.rotation;
     expect([r.loop, r.loopFrom], [true, 10]);
     expect(evaluateTrack(Project(layers: [l]), r, 70, l), closeTo(90, 1e-6), reason: 'past its last key: from the first picked again');
+  });
+
+  test('picked keys in the middle loop up to the next key, nothing moves', () {
+    final l = moving();
+    // rotation 0 -> 90 over 0..10, then the key at 40: passes fill 11..39.
+    final passes = fillLoopPickedKeys(l, {0, 10});
+    expect(passes, 8, reason: 'the most of any parameter: the move to the layer end');
+    expect(l.transform.rotation.keyframes.map((k) => k.frame), [0, 10, 11, 21, 22, 32, 40]);
+    expect(l.transform.rotation.keyframes.last.value, 0.0, reason: 'the next key stays');
+    // the move had no key after: its passes go on to the layer's end.
+    expect(l.transform.anchor.keyframes.length, 2 + 2 * 8);
+  });
+
+  test('keys between the base and a key layer, back and forth: the object stays', () {
+    final l = moving();
+    final p = Project(layers: [l]);
+    double rot(int f) => evaluateTrack(p, l.transform.rotation, f.toDouble(), l) as double;
+    final r10 = rot(10);
+    expect(pickedKeysLayer(l, {10}), 0);
+    expect(movePickedKeysBetween(p, l, {10}, 0, null), 1);
+    expect(pickedKeysLayer(l, {10}), 1);
+    expect(rot(10), closeTo(r10, 1e-9));
+    expect(movePickedKeysBetween(p, l, {10}, 1, 0), 0);
+    expect(pickedKeysLayer(l, {10}), 0);
+    expect(rot(10), closeTo(r10, 1e-9));
+    expect(l.transform.rotation.keyframes.map((k) => k.frame), [0, 10, 40]);
   });
 
   test('base keys into an animation layer: the object stays where it was', () {
