@@ -83,8 +83,8 @@ class DrawingView extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               secondary: const Icon(Icons.brush),
               title: const Text('Brush', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: hint('Draw on the stage with a finger: each stroke becomes a vector line of its own '
-                  '(the Brush folder) - its points and curves editable in the Line tab'),
+              subtitle: hint('Draw on the stage with a finger: each stroke a layer of its own (the Brush folder), '
+                  'drawn just as it went - its smoothing can be changed afterwards'),
               value: app.drawTool == 'brush',
               onChanged: (v) => app.setDrawTool(v ? 'brush' : 'none'),
             ),
@@ -93,8 +93,6 @@ class DrawingView extends StatelessWidget {
               ('brush-size', 'Width', app.brushSize, 1.0, 80.0, (double v) => app.setBrushOptions(size: v), '${app.brushSize.round()} px'),
               ('brush-smooth', 'Smooth', app.brushSmooth, 0.0, 1.0, (double v) => app.setBrushOptions(smooth: v),
                   '${(app.brushSmooth * 100).round()}%'),
-              ('brush-taper', 'Thin ends', app.brushTaper, 0.0, 1.0, (double v) => app.setBrushOptions(taper: v),
-                  '${(app.brushTaper * 100).round()}%'),
               ('brush-opacity', 'Opacity', app.brushOpacity, 0.05, 1.0, (double v) => app.setBrushOptions(opacity: v),
                   '${(app.brushOpacity * 100).round()}%'),
             ])
@@ -105,8 +103,28 @@ class DrawingView extends StatelessWidget {
                 ),
                 SizedBox(width: 48, child: Text(shown, style: const TextStyle(fontSize: 12), textAlign: TextAlign.right)),
               ]),
-            const Hint('Smooth: how much the hand\'s wobble is evened out into round curves (0: as drawn). '
-                'Thin ends: how much of each end narrows to a point.'),
+            const Hint('Smooth: how much the hand\'s wobble is evened out (0: as drawn) - it can be changed after '
+                'drawing too. A sample of the brush shows in the middle of the screen while you set it.'),
+            // the picked stroke: its smoothing, changed after drawing.
+            if (findLayer(app.project, app.selection.selectedLayer) case final l? when l.content.brushRaw != null) ...[
+              const SizedBox(height: 6),
+              Text('This stroke (${l.name})', style: const TextStyle(fontWeight: FontWeight.w600)),
+              Row(children: [
+                const SizedBox(width: 78, child: Text('Smooth', style: TextStyle(fontSize: 13))),
+                Expanded(
+                  child: Slider(
+                    key: const ValueKey('stroke-smooth'),
+                    value: l.content.brushSmooth.clamp(0.0, 1.0),
+                    onChangeStart: (_) => app.pushUndo(),
+                    onChanged: (v) => app.setStrokeSmooth(l.id, v),
+                  ),
+                ),
+                SizedBox(
+                    width: 48,
+                    child: Text('${(l.content.brushSmooth * 100).round()}%',
+                        style: const TextStyle(fontSize: 12), textAlign: TextAlign.right)),
+              ]),
+            ],
           ],
         );
       },

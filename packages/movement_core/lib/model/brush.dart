@@ -6,7 +6,7 @@ library;
 import 'dart:math' as math;
 
 import '../core/stage_size.dart' show stageSize;
-import 'line_path.dart' show LineNode, syncLineBox;
+import 'line_path.dart' show LineNode, syncLineBox, sampleLine;
 import 'project.dart';
 
 double _segDist(List<double> p, List<double> a, List<double> b) {
@@ -49,32 +49,19 @@ List<List<double>> simplifyStroke(List<List<double>> pts, double tol) {
   ];
 }
 
-/// A brush stroke (frame px points, as drawn) as a new line layer:
-/// `width` px wide, `smooth` 0..1 (how much the hand's wobble is
-/// smoothed out - and the curves made round), `taper` 0..1 (how much of
-/// each end narrows to a point), `opacity`.
-Layer brushStrokeLayer(List<List<double>> drawn,
-    {required String id,
-    required String color,
-    double width = 6,
-    double smooth = 0.5,
-    double taper = 0,
-    double opacity = 1,
-    int startFrame = 0,
-    int durationFrames = 180}) {
-  var pts = [
-    for (final p in drawn)
-      if (p.length >= 2) [p[0], p[1]]
-  ];
-  if (pts.isEmpty) pts = [
-    [0.0, 0.0]
-  ];
-  // a dot: a tiny line (round ends make it a dot).
-  if (pts.length == 1 || pts.every((p) => (p[0] - pts.first[0]).abs() < 0.5 && (p[1] - pts.first[1]).abs() < 0.5)) {
-    pts = [pts.first, [pts.first[0] + 0.5, pts.first[1]]];
+List<List<double>> _thin(List<List<double>> drawn, double minStep) {
+  final out = <List<double>>[];
+  for (final p in drawn) {
+    if (p.length < 2) continue;
+    if (out.isEmpty || (p[0] - out.last[0]).abs() + (p[1] - out.last[1]).abs() >= minStep) out.add([p[0], p[1]]);
   }
-  final s = smooth.clamp(0.0, 1.0);
-  pts = simplifyStroke(pts, 0.4 + s * 3.6);
+  if (out.isEmpty) return out;
+  // a dot: a tiny line (round ends make it a dot).
+  if (out.length == 1) out.add([out.first[0] + 0.5, out.first[1]]);
+  return out;
+}
+
+({double cx, double cy}) _middle(List<List<double>> pts) {
   var x0 = double.infinity, y0 = double.infinity, x1 = -double.infinity, y1 = -double.infinity;
   for (final p in pts) {
     x0 = math.min(x0, p[0]);
@@ -82,45 +69,140 @@ Layer brushStrokeLayer(List<List<double>> drawn,
     x1 = math.max(x1, p[0]);
     y1 = math.max(y1, p[1]);
   }
-  final cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-  // lengths along it (for the taper).
-  final along = <double>[0];
-  for (var i = 1; i < pts.length; i++) {
-    along.add(along.last + math.sqrt(math.pow(pts[i][0] - pts[i - 1][0], 2) + math.pow(pts[i][1] - pts[i - 1][1], 2)));
-  }
-  final total = along.last;
-  final t = taper.clamp(0.0, 1.0) * total / 2;
-  final nodes = <LineNode>[];
-  for (var i = 0; i < pts.length; i++) {
-    final p = pts[i];
-    // smooth curves through the points (Catmull-Rom), as round as asked.
-    final prev = pts[math.max(0, i - 1)], next = pts[math.min(pts.length - 1, i + 1)];
-    // (at the middle setting the usual Catmull-Rom sixth, rounder above)
-    final k = s / 3;
-    final hx = (next[0] - prev[0]) * k, hy = (next[1] - prev[1]) * k;
-    final n = LineNode(p[0] - cx, p[1] - cy,
-        kind: i == 0 || s <= 0 ? 'line' : 'bezier',
-        hIn: i == 0 || s <= 0 ? [0, 0] : [-hx, -hy],
-        hOut: i == pts.length - 1 || s <= 0 ? [0, 0] : [hx, hy]);
-    if (t > 0) {
-      final f = math.min(1.0, math.min(along[i], total - along[i]) / t);
-      n.w = width * (0.08 + 0.92 * f);
+  return (cx: (x0 + x1) / 2, cy: (y0 + y1) / 2);
+}
+
+/// `pts` smoothed by `smooth` 0..1: the hand's wobble averaged out (its
+/// ends where they were), then the corners rounded (Chaikin).
+List<List<double>> smoothStroke(List<List<double>> pts, double smooth) {
+  final s = smooth.clamp(0.0, 1.0);
+  if (pts.length < 3 || s <= 0) return [for (final p in pts) [...p]];
+  var cur = [for (final p in pts) [...p]];
+  final r = (s * 6).round();
+  for (var pass = 0; pass < 2 && r > 0; pass++) {
+    final next = <List<double>>[];
+    for (var i = 0; i < cur.length; i++) {
+      if (i == 0 || i == cur.length - 1) {
+        next.add([...cur[i]]);
+        continue;
+      }
+      final k = math.min(r, math.min(i, cur.length - 1 - i));
+      var x = 0.0, y = 0.0;
+      for (var j = i - k; j <= i + k; j++) {
+        x += cur[j][0];
+        y += cur[j][1];
+      }
+      next.add([x / (2 * k + 1), y / (2 * k + 1)]);
     }
-    nodes.add(n);
+    cur = next;
   }
-  // the next point's curve needs this one's out handle (kind is the
-  // segment arriving at a point).
+  for (var it = 0; it < (s * 3).round(); it++) {
+    final next = <List<double>>[cur.first];
+    for (var i = 0; i + 1 < cur.length; i++) {
+      final a = cur[i], b = cur[i + 1];
+      next.add([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+      next.add([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+    }
+    next.add(cur.last);
+    cur = next;
+  }
+  return cur;
+}
+
+/// A brush stroke's line points made again from what was drawn
+/// (`brushRaw`) at its smoothing (`brushSmooth`): straight pieces between
+/// close points - drawn as one plain stroke (light, like a trail).
+void rebuildBrushLine(Content c) {
+  final raw = c.brushRaw;
+  if (raw == null || raw.isEmpty) return;
+  final pts = simplifyStroke(smoothStroke(raw, c.brushSmooth), 0.35);
+  c.lineNodes = [for (final p in pts) LineNode(p[0], p[1])];
+  syncLineBox(c);
+}
+
+/// A brush stroke (frame px points, as drawn) as a new layer: a plain
+/// line `width` px wide through the points (smoothed by `smooth`, which
+/// can be changed afterwards - see rebuildBrushLine), `opacity`.
+Layer brushStrokeLayer(List<List<double>> drawn,
+    {required String id,
+    required String color,
+    double width = 6,
+    double smooth = 0.5,
+    double opacity = 1,
+    int startFrame = 0,
+    int durationFrames = 180}) {
+  var pts = _thin(drawn, 1.0);
+  if (pts.isEmpty) pts = [[0.0, 0.0], [0.5, 0.0]];
+  final m = _middle(pts);
   final layer = createLayer('line')
     ..id = id
     ..color = color
     ..startFrame = startFrame
     ..durationFrames = durationFrames;
   layer.content
-    ..lineNodes = nodes
+    ..brushRaw = [for (final p in pts) [p[0] - m.cx, p[1] - m.cy]]
+    ..brushSmooth = smooth.clamp(0.0, 1.0)
     ..lineWidth = width
     ..lineCap = 'round';
-  syncLineBox(layer.content);
-  layer.transform.anchor.defaultValue = [cx / stageSize.width, cy / stageSize.height];
+  rebuildBrushLine(layer.content);
+  layer.transform.anchor.defaultValue = [m.cx / stageSize.width, m.cy / stageSize.height];
   layer.transform.opacity.defaultValue = opacity.clamp(0.0, 1.0);
   return layer;
+}
+
+/// Line drawn with a finger (the Shapes window's line placed on the
+/// stage): a vector line of smooth curves through the stroke - at most
+/// `maxPoints` points, each editable afterwards.
+Layer freehandLineLayer(List<List<double>> drawn,
+    {required String id, double width = 4, double smooth = 0.6, int maxPoints = 40, int startFrame = 0, int durationFrames = 180}) {
+  var pts = _thin(drawn, 1.0);
+  if (pts.isEmpty) pts = [[0.0, 0.0], [0.5, 0.0]];
+  pts = smoothStroke(pts, smooth * 0.5);
+  // few points: the tolerance grows until they are few enough.
+  var tol = 1.5;
+  var kept = simplifyStroke(pts, tol);
+  while (kept.length > maxPoints && tol < 500) {
+    tol *= 1.4;
+    kept = simplifyStroke(pts, tol);
+  }
+  final m = _middle(kept);
+  final nodes = <LineNode>[];
+  for (var i = 0; i < kept.length; i++) {
+    final p = kept[i];
+    final prev = kept[math.max(0, i - 1)], next = kept[math.min(kept.length - 1, i + 1)];
+    final hx = (next[0] - prev[0]) / 6, hy = (next[1] - prev[1]) / 6;
+    nodes.add(LineNode(p[0] - m.cx, p[1] - m.cy,
+        kind: i == 0 ? 'line' : 'bezier',
+        hIn: i == 0 ? [0, 0] : [-hx, -hy],
+        hOut: i == kept.length - 1 ? [0, 0] : [hx, hy]));
+  }
+  final layer = createLayer('line')
+    ..id = id
+    ..startFrame = startFrame
+    ..durationFrames = durationFrames;
+  layer.content
+    ..lineNodes = nodes
+    ..lineWidth = width;
+  syncLineBox(layer.content);
+  layer.transform.anchor.defaultValue = [m.cx / stageSize.width, m.cy / stageSize.height];
+  return layer;
+}
+
+/// Brush strokes made before strokes were light (a Brush-folder line of
+/// curves with tapered ends - heavy to draw): made light the same way,
+/// from the points along their curve. How many changed.
+int lightenOldBrushStrokes(Project project) {
+  var n = 0;
+  for (final l in project.layers) {
+    final c = l.content;
+    final nodes = c.lineNodes;
+    if (l.folder != 'Brush' || c.brushRaw != null || nodes == null || nodes.length < 2) continue;
+    if (!nodes.any((p) => p.w != null)) continue;
+    final pts = sampleLine(nodes, closed: c.lineClosed, perCurve: 6);
+    c.brushRaw = _thin(pts, 1.0);
+    c.brushSmooth = 0.2;
+    rebuildBrushLine(c);
+    n++;
+  }
+  return n;
 }

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -15,23 +16,35 @@ import 'package:movement_mobile/ui/stage/stage_gesture_controller.dart';
 void main() {
   setUpAll(registerBuiltinEffects);
 
-  test('a stroke is thinned out, smooth, its ends thin; a vector line', () {
+  test('a stroke: straight pieces through the points, even width; smoothing made again after', () {
     setStageSize(480, 480);
-    final drawn = [for (var i = 0; i <= 100; i++) [100.0 + i * 2, 200.0 + 30 * (i / 100) * (i / 100)]];
-    final l = brushStrokeLayer(drawn, id: 'b', color: '#ff0000', width: 10, smooth: 0.6, taper: 0.5);
+    final drawn = [for (var i = 0; i <= 100; i++) [100.0 + i * 2, 200.0 + 30 * (i / 100) * (i / 100) + (i.isEven ? 3 : -3)]];
+    final l = brushStrokeLayer(drawn, id: 'b', color: '#ff0000', width: 10, smooth: 0);
     final nodes = l.content.lineNodes!;
-    expect(nodes.length, lessThan(20), reason: 'points thinned out');
-    expect(nodes.length, greaterThanOrEqualTo(2));
-    expect(nodes.skip(1).every((n) => n.kind == 'bezier'), isTrue, reason: 'smooth curves');
-    expect(nodes.first.w! < 3 && nodes.last.w! < 3, isTrue, reason: 'thin ends');
-    expect(nodes[nodes.length ~/ 2].w, closeTo(10, 1e-6));
+    expect(nodes.every((n) => n.kind == 'line' && n.w == null), isTrue, reason: 'plain pieces, one width: a light stroke');
+    expect(lineNeedsShapedStroke(l.content), isFalse);
     expect([l.content.shape, l.color, l.content.lineWidth], ['line', '#ff0000', 10]);
-    // drawn where it was: its middle where the stroke's box is.
     final a = l.transform.anchor.defaultValue as List;
     expect(a[0] * 480, closeTo(200, 1));
+    final rough = nodes.length;
+    // smoother afterwards: the wobble gone, fewer points.
+    l.content.brushSmooth = 1;
+    rebuildBrushLine(l.content);
+    expect(l.content.lineNodes!.length, lessThan(rough));
+    final back = layerFromJson(layerToJson(l));
+    expect([back.content.brushRaw!.length, back.content.brushSmooth], [l.content.brushRaw!.length, 1]);
     // a dot (no move) still makes a mark.
     final dot = brushStrokeLayer([[50.0, 50.0]], id: 'd', color: '#fff', width: 6);
     expect(dot.content.lineNodes!.length, 2);
+  });
+
+  test('Line drawn with a finger: smooth curves, at most 40 points', () {
+    setStageSize(480, 480);
+    final drawn = [for (var i = 0; i <= 400; i++) [40.0 + i, 240.0 + 80 * math.sin(i / 25)]];
+    final l = freehandLineLayer(drawn, id: 'f');
+    expect(l.content.lineNodes!.length, lessThanOrEqualTo(40));
+    expect(l.content.lineNodes!.skip(1).every((n) => n.kind == 'bezier'), isTrue);
+    expect(l.content.brushRaw, isNull, reason: 'a line of its own, not a brush stroke');
   });
 
   test('on the stage: the finger draws; a stroke is one layer, one undo step', () {
@@ -55,6 +68,48 @@ void main() {
     expect(app.project.layers, isEmpty);
   });
 
+  test('placing a line: a drag draws it with the finger; a tap still puts a point', () {
+    setStageSize(480, 480);
+    final app = AppState()..setFrameSize(480, 480);
+    app.project.layers.clear();
+    final camera = StageCamera();
+    final c = StageGestureController(app: app, camera: camera, onNeedsRepaint: () {});
+    app.startPlacing('line');
+    final pts = [for (var i = 0; i <= 30; i++) camera.frameToScreen(Offset(60.0 + i * 10, 240.0 + 40 * math.sin(i / 5)))];
+    c.onPointerDown(PointerDownEvent(pointer: 1, position: pts.first));
+    for (final p in pts.skip(1)) {
+      c.onPointerMove(PointerMoveEvent(pointer: 1, position: p));
+    }
+    c.onPointerUp(PointerUpEvent(pointer: 1, position: pts.last));
+    final l = app.project.layers.single;
+    expect([l.content.shape, app.pendingPlaceShape], ['line', null]);
+    expect(l.content.lineNodes!.length, inInclusiveRange(3, 40));
+    // a tap: the first point of a line put by taps.
+    app.startPlacing('line');
+    final t = camera.frameToScreen(const Offset(100, 100));
+    c.onPointerDown(PointerDownEvent(pointer: 2, position: t));
+    c.onPointerUp(PointerUpEvent(pointer: 2, position: t));
+    expect(app.pendingLinePoint, isNotNull);
+    expect(app.project.layers.length, 1);
+  });
+
+  test('old heavy strokes (curves with thin ends) are made light on opening', () {
+    setStageSize(480, 480);
+    final old = createLayer('line')
+      ..folder = 'Brush'
+      ..content.lineNodes = [
+        LineNode(-50, 0)..w = 1,
+        LineNode(0, 20, kind: 'bezier', hIn: [-10, 0], hOut: [10, 0])..w = 8,
+        LineNode(50, 0, kind: 'bezier', hIn: [-10, 0])..w = 1,
+      ];
+    final keep = createLayer('line')..folder = 'Mine';
+    final p = Project(layers: [old, keep]);
+    expect(lightenOldBrushStrokes(p), 1);
+    expect(old.content.lineNodes!.every((n) => n.w == null && n.kind == 'line'), isTrue);
+    expect(old.content.brushRaw, isNotNull);
+    expect(keep.content.brushRaw, isNull);
+  });
+
   testWidgets('the Brush switch and its settings in Drawing', (tester) async {
     final app = AppState();
     tester.view.physicalSize = const Size(800, 2400);
@@ -64,13 +119,14 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('draw-brush')));
     await tester.pump();
     expect(app.drawTool, 'brush');
-    expect(find.byKey(const ValueKey('brush-taper')), findsOneWidget);
+    expect(find.byKey(const ValueKey('brush-smooth')), findsOneWidget);
+    expect(find.byKey(const ValueKey('brush-taper')), findsNothing);
   });
 
   test('a stroke draws where it was drawn', () async {
     setStageSize(200, 200);
     final drawn = [for (var i = 0; i <= 60; i++) [40.0 + i * 2, 100.0 + 40 * ((i - 30) / 30) * ((i - 30) / 30) - 40]];
-    final l = brushStrokeLayer(drawn, id: 'b', color: '#ff0000', width: 16, smooth: 0.6, taper: 0.8);
+    final l = brushStrokeLayer(drawn, id: 'b', color: '#ff0000', width: 16, smooth: 0.6);
     final r = CanvasRenderer()..setSize(200, 200);
     r.backgroundColor = null;
     clearStateCaches();

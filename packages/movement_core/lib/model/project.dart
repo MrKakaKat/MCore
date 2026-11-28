@@ -920,6 +920,12 @@ class Content {
   /// the offset/size box.
   List<List<List<double>>>? contours;
 
+  /// A brush stroke (Drawing): the points as drawn (content-local) and how
+  /// much they are smoothed (0..1) - the line's points are made from them
+  /// again when that changes (see rebuildBrushLine).
+  List<List<double>>? brushRaw;
+  double brushSmooth = 0.5;
+
   /// Merged shapes: each contour's own colour (null: the layer's).
   List<String?>? contourColors;
 
@@ -3161,6 +3167,8 @@ Layer cloneLayer(Layer src) {
       contours: src.content.contours?.map((c) => c.map((p) => [...p]).toList()).toList(),
     )
       ..audioPitch = src.content.audioPitch
+      ..brushRaw = src.content.brushRaw?.map((p) => [...p]).toList()
+      ..brushSmooth = src.content.brushSmooth
       ..lineNodes = src.content.lineNodes?.map((n) => n.copy()).toList()
       ..lineWidth = src.content.lineWidth
       ..lineClosed = src.content.lineClosed

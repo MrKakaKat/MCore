@@ -254,6 +254,11 @@ Map<String, dynamic> contentToJson(Content c) => {
       if (c.volume != null) 'volume': trackToJson(c.volume!),
       if (c.audioMuted) 'audioMuted': true,
       if (c.audioPitch != 0) 'audioPitch': c.audioPitch,
+      if (c.brushRaw != null) ...{
+        // (rounded: a stroke has many points)
+        'brushRaw': [for (final p in c.brushRaw!) [(p[0] * 10).round() / 10, (p[1] * 10).round() / 10]],
+        'brushSmooth': c.brushSmooth,
+      },
       if (c.mediaHash != null) 'mediaHash': c.mediaHash,
       if (c.gridCols != null && c.gridRows != null) 'grid': [c.gridCols, c.gridRows],
       if (c.gridKinds != 3) 'gridKinds': c.gridKinds,
@@ -295,7 +300,12 @@ Map<String, dynamic> contentToJson(Content c) => {
       if (c.shape == 'textGroup') ...{'textGroup': c.textGroup, 'textGroupPivot': c.textGroupPivot},
     };
 Content contentFromJson(Map<String, dynamic> j) =>
-    _contentFromJson(j)..audioPitch = (j['audioPitch'] as num?)?.toDouble() ?? 0;
+    _contentFromJson(j)
+      ..audioPitch = (j['audioPitch'] as num?)?.toDouble() ?? 0
+      ..brushRaw = (j['brushRaw'] as List?)
+          ?.map((p) => [for (final v in p as List) (v as num).toDouble()])
+          .toList()
+      ..brushSmooth = (j['brushSmooth'] as num?)?.toDouble() ?? 0.5;
 
 Content _contentFromJson(Map<String, dynamic> j) => Content(
       shape: j['shape'] as String,

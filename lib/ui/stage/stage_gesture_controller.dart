@@ -68,6 +68,7 @@ class StageGestureController {
 
   /// Drawing, the brush: a stroke going on.
   bool _brushDrag = false;
+  bool _primaryMovedPastTapThresholdWas = false;
   bool get marqueeActive => marqueeA != null;
   bool get anyDragActive => _activeDrag != null;
 
@@ -124,6 +125,11 @@ class StageGestureController {
       // a new shape waits for its box: the drag draws it.
       if (app.pendingPlaceShape != null) {
         marqueeA = marqueeB = event.localPosition;
+        // a line: drawn with the finger (a tap still puts a point).
+        if (app.pendingPlaceShape == 'line') {
+          final fp = camera.screenToFrame(event.localPosition);
+          app.beginBrushStroke([fp.dx, fp.dy]);
+        }
         return;
       }
       _tryCaptureHandle(event.localPosition);
@@ -637,6 +643,10 @@ class StageGestureController {
 
     if (marqueeA != null && event.pointer == _primaryPointerId) {
       marqueeB = event.localPosition;
+      if (app.pendingPlaceShape == 'line') {
+        final fp = camera.screenToFrame(event.localPosition);
+        app.addBrushPoint([fp.dx, fp.dy]);
+      }
       // a new shape kept square: the box's longer side both ways.
       if (app.pendingPlaceShape != null && app.pendingPlaceShape != 'line' && app.placeSquare) {
         final d = event.localPosition - marqueeA!;
@@ -741,6 +751,7 @@ class StageGestureController {
     }
 
     if (marqueeA != null && event.pointer == _primaryPointerId && app.pendingPlaceShape != null) {
+      _primaryMovedPastTapThresholdWas = _primaryMovedPastTapThreshold;
       final a = camera.screenToFrame(marqueeA!), b = camera.screenToFrame(marqueeB ?? marqueeA!);
       marqueeA = marqueeB = null;
       _primaryPointerId = null;
@@ -748,7 +759,14 @@ class StageGestureController {
       _primaryMovedPastTapThreshold = false;
       // a line: each tap is one of its points.
       if (app.pendingPlaceShape == 'line') {
-        app.placeLinePoint([b.dx, b.dy]);
+        // drawn: a line along the finger's way; a tap: one more point.
+        final drawn = app.brushStroke;
+        app.brushStroke = null;
+        if (_primaryMovedPastTapThresholdWas && drawn != null && drawn.length >= 3) {
+          app.placeFreehandLine(drawn);
+        } else {
+          app.placeLinePoint([b.dx, b.dy]);
+        }
       } else {
         app.placeShapeIn([a.dx, a.dy], [b.dx, b.dy]);
       }

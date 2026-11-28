@@ -308,6 +308,35 @@ class _StageViewState extends State<StageView> {
             label: const Text('Fill'),
           ),
         ),
+      // the brush's settings being changed: a sample stroke in the middle
+      // of the screen, as wide (at this zoom), coloured and smooth as set.
+      if (widget.app.brushPreviewShown)
+        Positioned.fill(
+          child: IgnorePointer(
+            child: LayoutBuilder(builder: (context, box) {
+              final c = Offset(box.maxWidth / 2, box.maxHeight / 2);
+              final w = math.min(box.maxWidth, box.maxHeight) * 0.35;
+              final wobble = (1 - widget.app.brushSmooth) * 6;
+              final pts = [
+                for (var i = 0; i <= 60; i++)
+                  c + Offset(-w + 2 * w * i / 60, -w * 0.35 * math.sin(i / 60 * 2 * math.pi) + (i.isEven ? wobble : -wobble))
+              ];
+              return CustomPaint(
+                key: const ValueKey('brush-preview'),
+                painter: _BrushStrokePainter(
+                  pts,
+                  color: _hexColor(widget.app.brushColor).withOpacity(widget.app.brushOpacity.clamp(0.05, 1.0)),
+                  width: math.max(
+                      1.0,
+                      widget.app.brushSize *
+                          math.min(widget.app.frameWidth, widget.app.frameHeight) /
+                          480 *
+                          (_camera.frameToScreen(const Offset(1, 0)) - _camera.frameToScreen(Offset.zero)).distance),
+                ),
+              );
+            }),
+          ),
+        ),
       // the brush: the stroke being drawn, as it will look.
       if (widget.app.brushStroke != null)
         Positioned.fill(
@@ -316,9 +345,16 @@ class _StageViewState extends State<StageView> {
               key: const ValueKey('brush-stroke'),
               painter: _BrushStrokePainter(
                 [for (final p in widget.app.brushStroke!) _camera.frameToScreen(Offset(p[0], p[1]))],
-                color: _hexColor(widget.app.brushColor).withOpacity(widget.app.brushOpacity.clamp(0.05, 1.0)),
-                width: math.max(1.0, widget.app.brushSize * math.min(widget.app.frameWidth, widget.app.frameHeight) / 480 *
-                    (_camera.frameToScreen(const Offset(1, 0)) - _camera.frameToScreen(Offset.zero)).distance),
+                // (a line being placed: as the new line will be)
+                color: widget.app.pendingPlaceShape == 'line'
+                    ? Colors.white
+                    : _hexColor(widget.app.brushColor).withOpacity(widget.app.brushOpacity.clamp(0.05, 1.0)),
+                width: math.max(
+                    1.0,
+                    (widget.app.pendingPlaceShape == 'line' ? 4.0 : widget.app.brushSize) *
+                        math.min(widget.app.frameWidth, widget.app.frameHeight) /
+                        480 *
+                        (_camera.frameToScreen(const Offset(1, 0)) - _camera.frameToScreen(Offset.zero)).distance),
               ),
             ),
           ),
@@ -387,7 +423,7 @@ class _StageViewState extends State<StageView> {
           ),
         ),
       // the selection rectangle while it is dragged.
-      if (_controller.marqueeA != null && _controller.marqueeB != null)
+      if (_controller.marqueeA != null && _controller.marqueeB != null && widget.app.pendingPlaceShape != 'line')
         Positioned.fromRect(
           rect: Rect.fromPoints(_controller.marqueeA!, _controller.marqueeB!),
           child: IgnorePointer(

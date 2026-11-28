@@ -3958,23 +3958,58 @@ class AppState extends ChangeNotifier {
   }
 
   /// Drawing, the brush: its colour, width (frame px), smoothing (0..1),
-  /// tapered ends (0..1), opacity.
+  /// opacity.
   String brushColor = '#ffffff';
   double brushSize = 8;
   double brushSmooth = 0.5;
-  double brushTaper = 0.3;
   double brushOpacity = 1;
 
   /// The stroke being drawn now (frame px), or null.
   List<List<double>>? brushStroke;
 
-  void setBrushOptions({String? color, double? size, double? smooth, double? taper, double? opacity}) {
+  /// The brush's settings being changed: a sample stroke shows in the
+  /// middle of the screen until then.
+  DateTime? brushPreviewUntil;
+  Timer? _brushPreviewTimer;
+  bool get brushPreviewShown => brushPreviewUntil != null && DateTime.now().isBefore(brushPreviewUntil!);
+
+  void setBrushOptions({String? color, double? size, double? smooth, double? opacity}) {
     if (color != null) brushColor = color;
     if (size != null) brushSize = size;
     if (smooth != null) brushSmooth = smooth;
-    if (taper != null) brushTaper = taper;
     if (opacity != null) brushOpacity = opacity;
+    brushPreviewUntil = DateTime.now().add(const Duration(milliseconds: 1500));
+    _brushPreviewTimer?.cancel();
+    _brushPreviewTimer = Timer(const Duration(milliseconds: 1600), notifyListeners);
     notifyListeners();
+  }
+
+  /// A brush stroke's smoothing changed after it was drawn: its line made
+  /// again from what was drawn. One undo step per change started.
+  void setStrokeSmooth(String layerId, double v) {
+    final l = findLayer(project, layerId);
+    if (l == null || l.content.brushRaw == null) return;
+    l.content.brushSmooth = v.clamp(0.0, 1.0);
+    rebuildBrushLine(l.content);
+    clearStateCaches();
+    commitEdit();
+  }
+
+  /// Shapes window, a line placed on the stage and drawn with the finger:
+  /// a vector line of smooth curves along the way (its points editable).
+  void placeFreehandLine(List<List<double>> drawn) {
+    pendingPlaceShape = null;
+    _pendingLinePoint = null;
+    pushUndo();
+    final l = freehandLineLayer(drawn, id: _newLayerId(), width: 4 * _resolutionScale);
+    l.name = nextFreeLayerName(project, 'line');
+    _fitNewLayerToLength(l);
+    project.layers.add(l);
+    normalizeTimelineRows(project);
+    clearStateCaches();
+    focusNewLayer(l.id);
+    _fitTimeline();
+    commitEdit();
   }
 
   void beginBrushStroke(List<double> p) {
@@ -4002,7 +4037,6 @@ class AppState extends ChangeNotifier {
         color: brushColor,
         width: brushSize * _resolutionScale,
         smooth: brushSmooth,
-        taper: brushTaper,
         opacity: brushOpacity,
         durationFrames: end);
     l.name = nextFreeLayerName(project, 'stroke');
@@ -5759,6 +5793,8 @@ class AppState extends ChangeNotifier {
         projectRevision = data.revision;
         project = data.project;
         bindingProject = project;
+        // brush strokes from before they were light: made light.
+        lightenOldBrushStrokes(project);
         fps = data.fps > 0 ? data.fps : 60;
         project.fps = fps;
         // (a length under two frames is no length: everything added got
