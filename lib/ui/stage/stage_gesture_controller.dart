@@ -139,6 +139,12 @@ class StageGestureController {
       // a 2nd finger joining means whatever the 1st finger was doing
       // was never a tap - pinch/pan is only recognized when no handle
       // is captured (checked above), matching the addendum exactly.
+      // a brush stroke (or a line being drawn) just begun: it was a
+      // pinch - nothing drawn.
+      if (_brushDrag || app.brushStroke != null) {
+        _brushDrag = false;
+        app.brushStroke = null;
+      }
       _primaryPointerId = null;
       _primaryDownScreen = null;
       marqueeA = marqueeB = null;

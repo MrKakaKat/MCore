@@ -4,6 +4,7 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import '../common/color_row.dart';
 import '../common/hint.dart';
+import '../filters/filters_view.dart' show FilterTrackRow;
 import '../../io/freeze_watch.dart';
 
 /// Drawing: tools that paint new layers on the stage. Fill: a tap fills
@@ -105,6 +106,28 @@ class DrawingView extends StatelessWidget {
               ]),
             const Hint('Smooth: how much the hand\'s wobble is evened out (0: as drawn) - it can be changed after '
                 'drawing too. A sample of the brush shows in the middle of the screen while you set it.'),
+            // the picked layer: its opacity over all and its edges fading
+            // out (within its own bounds).
+            if (findLayer(app.project, app.selection.selectedLayer) case final l?
+                when !isAudioShape(l.content.shape) && !isCameraShape(l.content.shape)) ...[
+              const Divider(height: 24),
+              Text('Fade (${l.name})', style: const TextStyle(fontWeight: FontWeight.bold)),
+              FilterTrackRow(
+                  app: app,
+                  layer: l,
+                  track: l.transform.opacity,
+                  keyName: 'draw-opacity',
+                  label: 'Opacity',
+                  min: 0,
+                  max: 100,
+                  factor: 100,
+                  suffix: ' %',
+                  resetTo: 1),
+              FilterTrackRow(
+                  app: app, layer: l, track: l.filters.edgeFade, keyName: 'draw-edge-fade', label: 'Edge fade', min: 0, max: 200, suffix: ' px'),
+              const Hint('Edge fade: the layer turns see-through toward its own edges over this many px (keyable) - '
+                  'the same as in Filters.'),
+            ],
             // the picked stroke: its smoothing, changed after drawing.
             if (findLayer(app.project, app.selection.selectedLayer) case final l? when l.content.brushRaw != null) ...[
               const SizedBox(height: 6),

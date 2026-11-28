@@ -110,6 +110,25 @@ void main() {
     expect(keep.content.brushRaw, isNull);
   });
 
+  test('a second finger (zooming) drops the stroke just begun: nothing drawn', () {
+    setStageSize(480, 480);
+    final app = AppState()..setFrameSize(480, 480);
+    app.project.layers.clear();
+    app.setDrawTool('brush');
+    final camera = StageCamera();
+    final c = StageGestureController(app: app, camera: camera, onNeedsRepaint: () {});
+    final a = camera.frameToScreen(const Offset(100, 100)), b = camera.frameToScreen(const Offset(300, 300));
+    c.onPointerDown(PointerDownEvent(pointer: 1, position: a));
+    expect(app.brushStroke, isNotNull);
+    c.onPointerDown(PointerDownEvent(pointer: 2, position: b));
+    expect(app.brushStroke, isNull, reason: 'it was a pinch');
+    c.onPointerMove(PointerMoveEvent(pointer: 2, position: b + const Offset(30, 30)));
+    c.onPointerUp(PointerUpEvent(pointer: 1, position: a));
+    c.onPointerUp(PointerUpEvent(pointer: 2, position: b + const Offset(30, 30)));
+    expect(app.project.layers, isEmpty);
+    expect(app.brushStroke, isNull);
+  });
+
   testWidgets('the Brush switch and its settings in Drawing', (tester) async {
     final app = AppState();
     tester.view.physicalSize = const Size(800, 2400);
@@ -121,6 +140,9 @@ void main() {
     expect(app.drawTool, 'brush');
     expect(find.byKey(const ValueKey('brush-smooth')), findsOneWidget);
     expect(find.byKey(const ValueKey('brush-taper')), findsNothing);
+    // the picked layer's fade: opacity and edge fade.
+    expect(find.byKey(const ValueKey('draw-edge-fade')), findsOneWidget);
+    expect(find.byKey(const ValueKey('draw-opacity')), findsOneWidget);
   });
 
   test('a stroke draws where it was drawn', () async {

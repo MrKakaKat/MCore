@@ -325,6 +325,7 @@ class _StageViewState extends State<StageView> {
                 key: const ValueKey('brush-preview'),
                 painter: _BrushStrokePainter(
                   pts,
+                  backdrop: true,
                   color: _hexColor(widget.app.brushColor).withOpacity(widget.app.brushOpacity.clamp(0.05, 1.0)),
                   width: math.max(
                       1.0,
@@ -828,11 +829,22 @@ class _BrushStrokePainter extends CustomPainter {
   final List<Offset> points;
   final Color color;
   final double width;
-  _BrushStrokePainter(this.points, {required this.color, required this.width});
+
+  /// A half-see-through dark block behind it (like the stage's icons).
+  final bool backdrop;
+  _BrushStrokePainter(this.points, {required this.color, required this.width, this.backdrop = false});
 
   @override
   void paint(Canvas canvas, Size size) {
     if (points.isEmpty) return;
+    if (backdrop) {
+      var r = Rect.fromPoints(points.first, points.first);
+      for (final p in points) {
+        r = r.expandToInclude(Rect.fromPoints(p, p));
+      }
+      canvas.drawRRect(RRect.fromRectAndRadius(r.inflate(width / 2 + 14), const Radius.circular(12)),
+          Paint()..color = const Color(0x99000000));
+    }
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
