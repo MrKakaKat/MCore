@@ -2928,7 +2928,7 @@ class _LaneLinePainter extends CustomPainter {
       }
       // a border: a bar across the line (the values jump there).
       if (i < keyframeBorder.length && keyframeBorder[i]) {
-        canvas.drawRect(Rect.fromCenter(center: Offset(x, y), width: 3.5, height: 2 * r + 6), paint);
+        canvas.drawRect(Rect.fromCenter(center: Offset(x, y), width: 3, height: 2 * r), paint);
         continue;
       }
       final path = Path()

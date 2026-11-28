@@ -1724,9 +1724,9 @@ class AppState extends ChangeNotifier {
       final want = parentPicked.contains(l.id);
       if (want && l.parentId != p) {
         newParentLinkDefaults(l);
-        reparentPreservingWorldPosition(project, l, p, currentFrame);
+        linkParent(l, p);
       }
-      if (!want && l.parentId == p) reparentPreservingWorldPosition(project, l, null, currentFrame);
+      if (!want && l.parentId == p) linkParent(l, null);
     }
     parentPicked = {};
     commitEdit();
@@ -2041,6 +2041,11 @@ class AppState extends ChangeNotifier {
   void setFrame(int frame, {bool quiet = false}) {
     // an empty project has nothing to move through: the head stays put.
     currentFrame = project.layers.isEmpty ? 0 : frame.clamp(0, maxFrame);
+    // scrubbing (not playing): drawn as fast as the finger allows.
+    if (quiet && !playing && adaptiveScrubbing) {
+      _scrubTo();
+      return;
+    }
     // lines with keyed points: their points move to this frame.
     for (final l in project.layers) {
       if (l.content.lineNodes != null) syncLineToFrame(l, currentFrame);
@@ -2058,7 +2063,95 @@ class AppState extends ChangeNotifier {
   /// A scrub ended (finger lifted, scroll stopped): the panels catch up
   /// with the frame it left.
   void frameSettled() {
+    _scrubRest();
     if (_frameUnannounced && !playing) notifyListeners();
+  }
+
+  // ===== fast scrubbing =====
+  // Moving quickly through the project: the frames in between are only
+  // glimpsed, so they are drawn lighter (motion blur in two passes) and
+  // fewer of them (no more often than the last frame took to draw, with
+  // room to spare) - the app keeps up and nothing piles up. Once the
+  // finger slows down or stops, every frame is drawn in full again.
+
+  /// Settings switch (tests drive frames directly: always drawn in full).
+  static bool adaptiveScrubbing = !Platform.environment.containsKey('FLUTTER_TEST');
+
+  int _scrubLastAt = 0, _scrubLastFrame = 0, _scrubDrawnAt = 0;
+  double _scrubSpeed = 0, _scrubFrameMs = 0;
+  bool _scrubDraft = false;
+  Timer? _scrubLater, _scrubIdle;
+
+  /// Frames per millisecond above which a scrub counts as fast (about
+  /// 40 frames a second).
+  static const _fastScrub = 0.04;
+
+  void _scrubTo() {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final dtMs = math.max(1, now - _scrubLastAt) / 1000;
+    final speed = dtMs > 250 ? 0.0 : (currentFrame - _scrubLastFrame).abs() / dtMs;
+    _scrubSpeed = _scrubSpeed * 0.5 + speed * 0.5;
+    _scrubLastAt = now;
+    _scrubLastFrame = currentFrame;
+    // stopped without lifting the finger: the frame in full shortly.
+    _scrubIdle?.cancel();
+    _scrubIdle = Timer(const Duration(milliseconds: 180), _scrubRest);
+    final fast = _scrubSpeed > _fastScrub;
+    _setScrubDraft(fast);
+    if (!fast) {
+      _scrubLater?.cancel();
+      _scrubLater = null;
+      _showScrubFrame();
+      return;
+    }
+    // the faster and the heavier the frames, the fewer are drawn.
+    final gapMs = (_scrubFrameMs * 1.5).clamp(33.0, 150.0);
+    final waited = (now - _scrubDrawnAt) / 1000;
+    if (waited >= gapMs) {
+      _scrubLater?.cancel();
+      _scrubLater = null;
+      _showScrubFrame();
+    } else {
+      _scrubLater ??= Timer(Duration(microseconds: ((gapMs - waited) * 1000).round()), () {
+        _scrubLater = null;
+        _showScrubFrame();
+      });
+    }
+  }
+
+  void _setScrubDraft(bool on) {
+    if (_scrubDraft == on) return;
+    _scrubDraft = on;
+    renderer.maxBlurSamples = on ? 2 : (playing ? 4 : null);
+  }
+
+  void _showScrubFrame() {
+    final sw = Stopwatch()..start();
+    for (final l in project.layers) {
+      if (l.content.lineNodes != null) syncLineToFrame(l, currentFrame);
+    }
+    _render();
+    _scrubFrameMs = _scrubFrameMs * 0.6 + sw.elapsedMicroseconds / 1000 * 0.4;
+    _scrubDrawnAt = DateTime.now().microsecondsSinceEpoch;
+    _frameUnannounced = true;
+    frameNotifier.value = currentFrame;
+    if (perfInstrumentation) PerfMonitor.instance.markActive();
+  }
+
+  /// The scrub slowed to a stop: the frame it is on, in full.
+  void _scrubRest() {
+    _scrubIdle?.cancel();
+    _scrubIdle = null;
+    _scrubSpeed = 0;
+    final pending = _scrubLater != null;
+    _scrubLater?.cancel();
+    _scrubLater = null;
+    if (!_scrubDraft && !pending) return;
+    _setScrubDraft(false);
+    if (playing) return;
+    _showScrubFrame();
+    // the same frame drawn again: the stage hears of it this way.
+    notifyListeners();
   }
 
   /// Fits the timeline to the layers after the layer list changes (add,
@@ -2141,6 +2234,12 @@ class AppState extends ChangeNotifier {
     playing = !playing;
     // playing: motion blur in fewer passes, so frames keep up.
     renderer.maxBlurSamples = playing ? 4 : null;
+    // a scrub left lighter frames on: playback sets its own.
+    _scrubDraft = false;
+    _scrubLater?.cancel();
+    _scrubLater = null;
+    _scrubIdle?.cancel();
+    _scrubIdle = null;
     // before playing: the project on disk as it is now (should anything
     // go wrong while it plays, nothing since the last edit is lost).
     if (playing && _autosaveFile != null) unawaited(saveNow());
@@ -2543,6 +2642,21 @@ class AppState extends ChangeNotifier {
 
   /// Parenting for a time only: sets (or with null clears) where the
   /// link starts / ends. One undo step.
+  /// Parent field, "keep its place": a layer linked to (or unlinked
+  /// from) a parent stays where it is on the stage. Off: its own numbers
+  /// stay as they are - they now count from the parent, so it moves.
+  bool parentKeepsPlace = true;
+
+  /// Links `l` to parent `p` (null: unlinks it), as parentKeepsPlace says.
+  void linkParent(Layer l, String? p) {
+    if (parentKeepsPlace) {
+      reparentPreservingWorldPosition(project, l, p, currentFrame);
+    } else {
+      l.parentId = p;
+      clearStateCaches();
+    }
+  }
+
   void setParentWindow(String layerId, {int? from, int? until, bool clearFrom = false, bool clearUntil = false}) {
     final l = findLayer(project, layerId);
     if (l == null || l.parentId == null) return;
@@ -3192,7 +3306,9 @@ class AppState extends ChangeNotifier {
       undo.discardLastUndoState();
       return null;
     }
-    selectLayer(piece.id);
+    // the layer that was picked stays picked (and is what Delete takes):
+    // the new piece is just added next to it.
+    if (selection.selectedLayer != layerId) selectLayer(layerId);
     _fitTimeline();
     _render();
     notifyListeners();
@@ -3933,6 +4049,8 @@ class AppState extends ChangeNotifier {
   void setDrawTool(String t) {
     drawTool = t;
     cropLine = null;
+    if (t != 'none') chromaTool = 'none'; // the eyedroppers step aside
+
     notifyListeners();
   }
 
@@ -4034,7 +4152,6 @@ class AppState extends ChangeNotifier {
         opacity: brushOpacity,
         durationFrames: end);
     l.name = nextFreeLayerName(project, 'stroke');
-    l.folder = 'Brush';
     project.layers.add(l);
     normalizeTimelineRows(project);
     clearStateCaches();
@@ -5421,16 +5538,33 @@ class AppState extends ChangeNotifier {
   /// The key selection moving from layer `from` to layer `to`: kept on
   /// `from` (keepKeysAcrossLayers) and `to`'s own kept keys picked up.
   void switchKeySelection(String? from, String? to, {bool notify = true}) {
-    if (from == to) return;
+    // the picked keys belong to the layer they were picked on: picking a
+    // layer switches once even when two places report it (the layer
+    // picked, the timeline's focus) - a second switch took the keys just
+    // brought back for the old layer and left the new one with none.
+    if (from == to || (to != null && _keysOwner == to)) return;
+    _keysOwner = to;
     if (keepKeysAcrossLayers) {
       if (from != null && kfSelectedFrames.isNotEmpty) heldKeys[from] = {...kfSelectedFrames};
       kfSelectedFrames = to == null ? {} : (heldKeys.remove(to) ?? {});
     } else {
       heldKeys = {};
-      kfSelectedFrames = {};
+      // each layer's picked keys are remembered (not moved along): picked
+      // again, its keys are picked again.
+      if (from != null) {
+        kfSelectedFrames.isEmpty ? _keysOfLayer.remove(from) : _keysOfLayer[from] = {...kfSelectedFrames};
+      }
+      kfSelectedFrames = to == null ? {} : (_keysOfLayer.remove(to) ?? {});
     }
     if (notify) notifyListeners();
   }
+
+  /// The layer the picked keys (kfSelectedFrames) are on.
+  String? _keysOwner;
+
+  /// The picked keys a layer had when another was picked (keys kept
+  /// across layers off).
+  final Map<String, Set<int>> _keysOfLayer = {};
 
   /// Drops every kept key selection (and the active one).
   void clearAllKeySelections() {
@@ -6058,6 +6192,7 @@ class AppState extends ChangeNotifier {
     'defaultKeyEase': (() => defaultKeyEasingName, (v) => defaultKeyEasingName = v as String, 'easeInOut'),
     'masterKeysShareEase': (() => masterKeysShareEase, (v) => masterKeysShareEase = v as bool, true),
     'keysJoinOnDrop': (() => keysJoinOnDrop, (v) => keysJoinOnDrop = v as bool, true),
+    'parentKeepsPlace': (() => parentKeepsPlace, (v) => parentKeepsPlace = v as bool, true),
     'stageZoomLock': (() => stageZoomLock, (v) => stageZoomLock = v as bool, false),
     'timelineHandlesLocked': (() => timelineHandlesLocked, (v) => timelineHandlesLocked = v as bool, false),
     'loopPlayback': (() => loopPlayback, (v) => loopPlayback = v as bool, false),
@@ -6913,6 +7048,8 @@ class AppState extends ChangeNotifier {
     _playback?.dispose();
     _audioPrepTimer?.cancel();
     _autosaveTimer?.cancel();
+    _scrubLater?.cancel();
+    _scrubIdle?.cancel();
     renderer.dispose();
     super.dispose();
   }

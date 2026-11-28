@@ -18,6 +18,7 @@ import '../geometry/shapes.dart';
 import '../ui_geometry/handles.dart' show toFrameMatrix;
 import '../ui_geometry/drag_ops.dart' show DragOp;
 import '../ui_geometry/snapping.dart' show SnapGuideLine;
+import 'layer_edit.dart' show joinPieceToGroup;
 import 'layer_names.dart';
 import 'line_path.dart' show flipLineNodes, isNodeLine;
 import 'project.dart';
@@ -63,6 +64,7 @@ Layer? detachPiece(Project project, Layer layer, List<List<double>> region, Stri
   // the piece shares the original's place and time: its own timeline row,
   // drawn over the original.
   project.layers.insert(project.layers.indexOf(layer) + 1, piece);
+  joinPieceToGroup(project, layer, piece);
   // its motion path, pendulum and handles follow its own centre.
   if (recenterDetachedPieces) recenterPiece(project, piece);
   normalizeTimelineRows(project);

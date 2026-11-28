@@ -1036,17 +1036,28 @@ class _Wheel extends StatelessWidget {
           child: CustomPaint(size: const Size(_size, _size), painter: _WheelPainter(dot)),
         ),
       )),
-      const SizedBox(height: 6),
-      eager(Listener(
-        key: ValueKey('${keyName ?? 'wheel-${label.toLowerCase()}'}-master'),
-        onPointerDown: (e) {
-          app.pushUndo();
-          setFrom(dot.dx, -dot.dy, ((e.localPosition.dx / _size) * 2 - 1).clamp(-1.0, 1.0) * span);
-        },
-        onPointerMove: (e) =>
-            setFrom(dot.dx, -dot.dy, ((e.localPosition.dx / _size) * 2 - 1).clamp(-1.0, 1.0) * span),
-        child: CustomPaint(size: const Size(_size, 14), painter: _MasterPainter((w[2] / span).clamp(-1.0, 1.0))),
-      )),
+      const SizedBox(height: 8),
+      // the brightness bar: wide and tall enough for a finger; a double
+      // tap puts it back to the middle.
+      LayoutBuilder(builder: (context, box) {
+        final bw = box.maxWidth.isFinite ? box.maxWidth.clamp(_size, 320.0) : 240.0;
+        double at(Offset p) => (((p.dx - 13) / (bw - 26)) * 2 - 1).clamp(-1.0, 1.0) * span;
+        return eager(Listener(
+          key: ValueKey('${keyName ?? 'wheel-${label.toLowerCase()}'}-master'),
+          onPointerDown: (e) {
+            app.pushUndo();
+            setFrom(dot.dx, -dot.dy, at(e.localPosition));
+          },
+          onPointerMove: (e) => setFrom(dot.dx, -dot.dy, at(e.localPosition)),
+          child: GestureDetector(
+            onDoubleTap: () {
+              app.pushUndo();
+              setFrom(dot.dx, -dot.dy, 0);
+            },
+            child: CustomPaint(size: Size(bw, 36), painter: _MasterPainter((w[2] / span).clamp(-1.0, 1.0))),
+          ),
+        ));
+      }),
     ]);
   }
 }
@@ -1097,12 +1108,26 @@ class _MasterPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = Rect.fromLTWH(0, size.height / 2 - 3, size.width, 6);
+    const knob = 13.0;
+    final rect = Rect.fromLTWH(knob, size.height / 2 - 6, size.width - 2 * knob, 12);
     canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(3)),
+        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
         Paint()..shader = const LinearGradient(colors: [Colors.black, Colors.white]).createShader(rect));
-    final x = (v + 1) / 2 * size.width;
-    canvas.drawCircle(Offset(x, size.height / 2), math.min(6, size.height / 2), Paint()..color = Colors.orange);
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..color = Colors.white24);
+    // the middle mark.
+    canvas.drawLine(Offset(size.width / 2, rect.top - 3), Offset(size.width / 2, rect.bottom + 3),
+        Paint()..color = Colors.white54..strokeWidth = 1.5);
+    final x = knob + (v + 1) / 2 * (size.width - 2 * knob);
+    final c = Offset(x, size.height / 2);
+    canvas.drawCircle(c, math.min(knob, size.height / 2), Paint()..color = Colors.orange);
+    canvas.drawCircle(c, math.min(knob, size.height / 2), Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = Colors.black54);
   }
 
   @override

@@ -43,7 +43,7 @@ void main() {
 
   test('after detaching nothing changes on screen; moving the piece leaves its hole in the original', () async {
     final piece = app.detachPieceRect('sq', [40, 40], [100, 160])!;
-    expect(app.selection.selectedLayer, piece.id);
+    expect(app.selection.selectedLayer, 'sq', reason: 'the picked layer stays picked');
     var a = await alphaOf();
     expect([a(70, 100), a(130, 100)], [255, 255], reason: 'same picture as before');
     piece.transform.anchor.defaultValue = [0.5, 0.1]; // move the piece up out of the way

@@ -1160,6 +1160,35 @@ List<List<List<double>>> lineCollisionRings(Content c, {num? frame, int cap = 32
 /// shape; an open one, the band its width covers around it; a loop, the
 /// band's two edges (outer and inner).
 List<List<List<double>>> lineOutlineRings(Content c, {num? frame}) {
+  // the union below costs tens of ms for a long line (a brush stroke)
+  // and the same line is asked for every frame (as a mask, a cutter, its
+  // contour): kept per line until its points or look change.
+  final nodes = c.lineNodes;
+  if (nodes == null) return _lineOutlineRings(c, frame: frame);
+  final animated = nodes.any((n) =>
+      (n.posT?.keyframes.isNotEmpty ?? false) ||
+      n.ampT.keyframes.isNotEmpty ||
+      n.wavesT.keyframes.isNotEmpty ||
+      n.keys.values.any((t) => t.keyframes.isNotEmpty));
+  final sig = [
+    c.lineWidth, c.lineClosed, c.lineCap, c.lineJoin, c.lineFilled, isFilledLine(c),
+    if (animated) frame,
+    for (final n in nodes) n.toJson(),
+  ].join('|');
+  final memo = _outlineMemo[c];
+  if (memo != null && memo.$1 == sig) return _copyRings(memo.$2);
+  final rings = _lineOutlineRings(c, frame: frame);
+  _outlineMemo[c] = (sig, rings);
+  return _copyRings(rings);
+}
+
+final _outlineMemo = Expando<(String, List<List<List<double>>>)>('lineOutline');
+
+List<List<List<double>>> _copyRings(List<List<List<double>>> rings) => [
+      for (final r in rings) [for (final p in r) [...p]]
+    ];
+
+List<List<List<double>>> _lineOutlineRings(Content c, {num? frame}) {
   if (isFilledLine(c)) return filledLineRings(c, frame: frame);
   // the stroke as it is drawn - its stretches, turns and ends (and the
   // shapes on its points) - united into one outline: never a band folding

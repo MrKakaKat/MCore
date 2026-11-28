@@ -290,7 +290,7 @@ class ParamsPanelView extends StatelessWidget {
                 // the anchor's existing numbers meaning something
                 // completely different once relative to a new parent.
                 if (newParentId != null && layer.parentId == null) newParentLinkDefaults(layer);
-                reparentPreservingWorldPosition(app.project, layer, newParentId, app.currentFrame);
+                app.linkParent(layer, newParentId);
                 app.commitEdit();
               },
             ),
@@ -321,7 +321,21 @@ class ParamsPanelView extends StatelessWidget {
         ],
       ),
     );
-    if (!hasMore || !parentOpen) return selector;
+    // right under the field: whether linking keeps the layer where it is.
+    final keepPlace = Padding(
+      padding: const EdgeInsets.only(left: 56),
+      child: Row(children: [
+        const Expanded(
+            child: Text('Keep its place when linked', style: TextStyle(fontSize: 12))),
+        Switch(
+          key: const ValueKey('parent-keep-place'),
+          value: app.parentKeepsPlace,
+          onChanged: (v) => app.setAppPreference('parentKeepsPlace', v),
+        ),
+      ]),
+    );
+    final head = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [selector, keepPlace]);
+    if (!hasMore || !parentOpen) return head;
     // the layers linked to this one, at the top of the fold.
     final linked = children.isEmpty
         ? const SizedBox.shrink()
@@ -338,7 +352,7 @@ class ParamsPanelView extends StatelessWidget {
                 ),
             ]),
           );
-    if (layer.parentId == null) return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [selector, linked]);
+    if (layer.parentId == null) return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [head, linked]);
     // selective parenting: which parts of the parent this layer follows;
     // a part switched off stays as the parent had it on this layer's
     // first frame.
@@ -351,7 +365,7 @@ class ParamsPanelView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        selector,
+        head,
         linked,
         Padding(
           padding: const EdgeInsets.only(left: 56),

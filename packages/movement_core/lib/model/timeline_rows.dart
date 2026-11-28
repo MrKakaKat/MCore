@@ -6,7 +6,7 @@ library;
 
 import 'dart:math' as math;
 
-import 'layer_edit.dart' show splitLayer;
+import 'layer_edit.dart' show splitLayer, swapLayerRefs;
 import 'layer_ops.dart' show Selection, deleteLayer;
 import 'project.dart';
 
@@ -249,14 +249,21 @@ List<Layer>? _keepOnly(Project project, Selection selection, Layer layer, List<(
     final right = splitLayer(project, segments.last, f, newLayerId());
     if (right != null) segments.add(right);
   }
-  final kept = <Layer>[];
+  final kept = <Layer>[
+    for (final seg in segments)
+      if (pieces.any((p) => p.$1 == seg.startFrame && p.$2 == _ownEnd(seg))) seg
+  ];
   for (final seg in segments) {
-    final keep = pieces.any((p) => p.$1 == seg.startFrame && p.$2 == _ownEnd(seg));
-    if (keep) {
-      kept.add(seg);
-    } else {
-      deleteLayer(project, selection, seg.id, globalFrame);
+    if (kept.contains(seg)) continue;
+    // what was tied to a cut-away part (its children, sources ...) goes
+    // to the nearest kept part - not to the layer's own parent.
+    final near = kept.reduce((a, b) =>
+        (a.startFrame - seg.startFrame).abs() <= (b.startFrame - seg.startFrame).abs() ? a : b);
+    for (final l in project.layers) {
+      if (!segments.contains(l)) swapLayerRefs(l, seg.id, near.id);
     }
+    if (selection.selectedLayer == seg.id) selection.selectedLayer = near.id;
+    deleteLayer(project, selection, seg.id, globalFrame);
   }
   return kept;
 }

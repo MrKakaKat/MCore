@@ -63,7 +63,7 @@ void main() {
     c.onPointerUp(PointerUpEvent(pointer: 1, position: pts.last));
     expect(app.brushStroke, isNull);
     final l = app.project.layers.single;
-    expect([l.content.shape, l.folder, app.selection.selectedLayer], ['line', 'Brush', l.id]);
+    expect([l.content.shape, l.folder, app.selection.selectedLayer], ['line', null, l.id]);
     app.performUndo();
     expect(app.project.layers, isEmpty);
   });

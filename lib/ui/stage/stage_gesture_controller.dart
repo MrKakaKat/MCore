@@ -108,7 +108,9 @@ class StageGestureController {
       _primaryDownTime = event.timeStamp;
       _primaryMovedPastTapThreshold = false;
       // the brush: the finger draws a stroke.
-      if (app.drawTool == 'brush') {
+      // (an eyedropper that is on takes the finger first - the brush
+      // goes on once it has picked.)
+      if (app.drawTool == 'brush' && chromaTool == 'none') {
         final fp = camera.screenToFrame(event.localPosition);
         _brushDrag = true;
         app.beginBrushStroke([fp.dx, fp.dy]);
@@ -927,7 +929,7 @@ class StageGestureController {
   void _handleTap(ui.Offset screenPos) {
     final fp = camera.screenToFrame(screenPos);
     // Drawing, Fill: the region under the tap becomes a layer.
-    if (app.drawTool == 'fill') {
+    if (app.drawTool == 'fill' && chromaTool == 'none') {
       app.fillAt([fp.dx, fp.dy]);
       onNeedsRepaint();
       return;

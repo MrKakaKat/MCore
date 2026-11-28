@@ -65,6 +65,7 @@ Layer? splitLayer(Project project, Layer layer, int globalFrame, String newId) {
   // a loop belongs to the end of the clip: the right part keeps it.
   layer.loopEnabled = false;
   project.layers.insert(project.layers.indexOf(layer) + 1, right);
+  joinPieceToGroup(project, layer, right);
   _retargetToPiece(project, layer, right);
   return right;
 }
@@ -160,6 +161,15 @@ bool joinLayers(Project project, Layer a, Layer b) {
 /// Every tie of `l` to layer `from` (parent, masks, cuts, mattes, links,
 /// matches, effects tied to its time...) moved to layer `to`.
 void swapLayerRefs(Layer l, String from, String to) => _swapRefs(l, from, to);
+
+/// `piece` (cut out of `layer`) joins the group `layer` is in, right
+/// after it - a group lists its members.
+void joinPieceToGroup(Project project, Layer layer, Layer piece) {
+  final g = findLayer(project, layer.parentId)?.groupedChildren;
+  if (g == null || g.contains(piece.id)) return;
+  final i = g.indexOf(layer.id);
+  g.insert(i < 0 ? g.length : i + 1, piece.id);
+}
 
 void _swapRefs(Layer l, String from, String to) {
   String? swap(String? id) => id == from ? to : id;

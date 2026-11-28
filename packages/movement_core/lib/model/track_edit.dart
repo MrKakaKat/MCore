@@ -167,6 +167,13 @@ Keyframe? keyframeToEdit(Track trk, int localFrame) {
   if (kfs.isEmpty) return null;
   if (localFrame < kfs.first.frame) return kfs.first;
   if (localFrame > kfs.last.frame) return kfs.last;
+  // a border (hold) key owns its whole range up to the next key: the
+  // value shown there is its value, so an edit there is an edit of it.
+  Keyframe? before;
+  for (final k in kfs) {
+    if (k.frame < localFrame && (before == null || k.frame > before.frame)) before = k;
+  }
+  if (before != null && before.temporal.hold) return before;
   return null;
 }
 

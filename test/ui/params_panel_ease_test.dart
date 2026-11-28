@@ -93,6 +93,8 @@ void main() {
     // build order (parent selector has no TextField) - find it via the
     // 'tension' label's Row.
     final tensionRow = find.ancestor(of: find.text('Tension'), matching: find.byType(ParamEditor)).first;
+    await tester.ensureVisible(find.descendant(of: tensionRow, matching: find.byTooltip('show number fields')));
+    await tester.pump();
     await tester.tap(find.descendant(of: tensionRow, matching: find.byTooltip('show number fields')));
     await tester.pump();
     final tensionField = find.descendant(of: tensionRow, matching: find.byType(TextField));
