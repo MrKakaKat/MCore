@@ -4,7 +4,6 @@ import 'package:movement_core/movement_core.dart';
 import '../../app_state.dart';
 import '../common/color_row.dart';
 import '../common/hint.dart';
-import '../filters/filters_view.dart' show FilterTrackRow;
 import '../../io/freeze_watch.dart';
 
 /// Drawing: tools that paint new layers on the stage. Fill: a tap fills
@@ -77,35 +76,37 @@ class DrawingView extends StatelessWidget {
             if (findLayer(app.project, app.selection.selectedLayer) case final t? when isTrailShape(t.content.shape))
               ..._trailRows(context, t),
             const Divider(height: 24),
-            // a card: how see-through it is and how its edges fade -
-            // the selected layer itself, or a new layer of its own.
-            Row(children: [
-              const Expanded(child: Text('Card', style: TextStyle(fontWeight: FontWeight.bold))),
-              OutlinedButton.icon(
-                key: const ValueKey('draw-add-card'),
-                onPressed: app.addCard,
-                icon: const Icon(Icons.crop_portrait, size: 18),
-                label: const Text('As its own layer'),
-              ),
-            ]),
-            const Hint('Opacity over all and edges fading out - for the selected layer within its own bounds, or '
-                'as a layer of its own (the fill colour, over the whole frame).'),
-            if (findLayer(app.project, app.selection.selectedLayer) case final l?
-                when !isAudioShape(l.content.shape) && !isCameraShape(l.content.shape)) ...[
-              FilterTrackRow(
-                  app: app,
-                  layer: l,
-                  track: l.transform.opacity,
-                  keyName: 'card-opacity',
-                  label: 'Opacity',
-                  min: 0,
-                  max: 100,
-                  factor: 100,
-                  suffix: ' %',
-                  resetTo: 1),
-              FilterTrackRow(
-                  app: app, layer: l, track: l.filters.edgeFade, keyName: 'card-edge-fade', label: 'Edge fade', min: 0, max: 200, suffix: ' px'),
-            ],
+            // the brush: the finger draws vector strokes on the stage.
+            SwitchListTile(
+              key: const ValueKey('draw-brush'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.brush),
+              title: const Text('Brush', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: hint('Draw on the stage with a finger: each stroke becomes a vector line of its own '
+                  '(the Brush folder) - its points and curves editable in the Line tab'),
+              value: app.drawTool == 'brush',
+              onChanged: (v) => app.setDrawTool(v ? 'brush' : 'none'),
+            ),
+            ColorRow(label: 'Colour', hex: app.brushColor, onPick: (c) => app.setBrushOptions(color: c)),
+            for (final (key, label, value, min, max, set, shown) in [
+              ('brush-size', 'Width', app.brushSize, 1.0, 80.0, (double v) => app.setBrushOptions(size: v), '${app.brushSize.round()} px'),
+              ('brush-smooth', 'Smooth', app.brushSmooth, 0.0, 1.0, (double v) => app.setBrushOptions(smooth: v),
+                  '${(app.brushSmooth * 100).round()}%'),
+              ('brush-taper', 'Thin ends', app.brushTaper, 0.0, 1.0, (double v) => app.setBrushOptions(taper: v),
+                  '${(app.brushTaper * 100).round()}%'),
+              ('brush-opacity', 'Opacity', app.brushOpacity, 0.05, 1.0, (double v) => app.setBrushOptions(opacity: v),
+                  '${(app.brushOpacity * 100).round()}%'),
+            ])
+              Row(children: [
+                SizedBox(width: 78, child: Text(label, style: const TextStyle(fontSize: 13))),
+                Expanded(
+                  child: Slider(key: ValueKey(key), value: value.clamp(min, max), min: min, max: max, onChanged: set),
+                ),
+                SizedBox(width: 48, child: Text(shown, style: const TextStyle(fontSize: 12), textAlign: TextAlign.right)),
+              ]),
+            const Hint('Smooth: how much the hand\'s wobble is evened out into round curves (0: as drawn). '
+                'Thin ends: how much of each end narrows to a point.'),
           ],
         );
       },

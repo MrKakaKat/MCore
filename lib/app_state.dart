@@ -3957,6 +3957,64 @@ class AppState extends ChangeNotifier {
     return l;
   }
 
+  /// Drawing, the brush: its colour, width (frame px), smoothing (0..1),
+  /// tapered ends (0..1), opacity.
+  String brushColor = '#ffffff';
+  double brushSize = 8;
+  double brushSmooth = 0.5;
+  double brushTaper = 0.3;
+  double brushOpacity = 1;
+
+  /// The stroke being drawn now (frame px), or null.
+  List<List<double>>? brushStroke;
+
+  void setBrushOptions({String? color, double? size, double? smooth, double? taper, double? opacity}) {
+    if (color != null) brushColor = color;
+    if (size != null) brushSize = size;
+    if (smooth != null) brushSmooth = smooth;
+    if (taper != null) brushTaper = taper;
+    if (opacity != null) brushOpacity = opacity;
+    notifyListeners();
+  }
+
+  void beginBrushStroke(List<double> p) {
+    brushStroke = [p];
+  }
+
+  void addBrushPoint(List<double> p) {
+    final s = brushStroke;
+    if (s == null) return;
+    final last = s.last;
+    if ((last[0] - p[0]).abs() + (last[1] - p[1]).abs() < 0.75) return;
+    s.add(p);
+  }
+
+  /// The stroke done: a vector line layer of its own (in the Brush folder),
+  /// picked. One undo step.
+  Layer? endBrushStroke() {
+    final s = brushStroke;
+    brushStroke = null;
+    if (s == null || s.isEmpty) return null;
+    pushUndo();
+    final end = project.layers.fold<int>(math.max(1, maxFrame), (m, l) => math.max(m, l.startFrame + l.durationFrames));
+    final l = brushStrokeLayer(s,
+        id: _newLayerId(),
+        color: brushColor,
+        width: brushSize * _resolutionScale,
+        smooth: brushSmooth,
+        taper: brushTaper,
+        opacity: brushOpacity,
+        durationFrames: end);
+    l.name = nextFreeLayerName(project, 'stroke');
+    l.folder = 'Brush';
+    project.layers.add(l);
+    normalizeTimelineRows(project);
+    clearStateCaches();
+    selection.selectedLayer = l.id;
+    commitEdit();
+    return l;
+  }
+
   void setFillOptions({bool? onlySelected, String? color, bool? dig}) {
     if (onlySelected != null) fillOnlySelected = onlySelected;
     if (color != null) fillColor = color;
@@ -5387,11 +5445,12 @@ class AppState extends ChangeNotifier {
     final op = _kfDragOp;
     _kfDragOp = null;
     if (op == null) return;
-    op.finish();
-    for (final o in _heldDragOps.values) {
-      o.finish();
-    }
+    op.finish(findLayer(project, selection.selectedLayer));
+    _heldDragOps.forEach((l, o) => o.finish(l));
     _heldDragOps = {};
+    // (keys that stepped aside: the picked marks follow them)
+    final l = findLayer(project, selection.selectedLayer);
+    if (l != null && !keysJoinOnDrop) kfSelectedFrames = op.frames(l);
     _render();
     notifyListeners();
   }
@@ -5968,6 +6027,7 @@ class AppState extends ChangeNotifier {
     'timelineFrameCounts': (() => timelineFrameCounts, (v) => timelineFrameCounts = v as bool, false),
     'defaultKeyEase': (() => defaultKeyEasingName, (v) => defaultKeyEasingName = v as String, 'easeInOut'),
     'masterKeysShareEase': (() => masterKeysShareEase, (v) => masterKeysShareEase = v as bool, true),
+    'keysJoinOnDrop': (() => keysJoinOnDrop, (v) => keysJoinOnDrop = v as bool, true),
     'stageZoomLock': (() => stageZoomLock, (v) => stageZoomLock = v as bool, false),
     'timelineHandlesLocked': (() => timelineHandlesLocked, (v) => timelineHandlesLocked = v as bool, false),
     'loopPlayback': (() => loopPlayback, (v) => loopPlayback = v as bool, false),

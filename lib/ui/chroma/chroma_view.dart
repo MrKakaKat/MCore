@@ -98,6 +98,37 @@ class _ChromaViewState extends State<ChromaView> {
             ),
             if (ck.contiguous && ck.seed == null)
               const Hint('Pick the colour on the stage to set where it starts.'),
+            // the edge band: how deep into what stays, from the edge the
+            // connected key made, a key of its own takes the fringe.
+            if (ck.contiguous) ...[
+              Row(children: [
+                const SizedBox(width: 72, child: Text('edge depth', style: TextStyle(fontSize: 12))),
+                Expanded(
+                  child: Slider(
+                    key: const ValueKey('chroma-edge-depth'),
+                    value: ck.edgeDepth.clamp(0.0, 60.0),
+                    max: 60,
+                    divisions: 60,
+                    onChangeStart: (_) => app.pushUndo(),
+                    onChanged: (v) {
+                      layer.chromaKey.edgeDepth = v.roundToDouble();
+                      app.commitEdit();
+                    },
+                  ),
+                ),
+                SizedBox(width: 44, child: Text('${ck.edgeDepth.round()} px', style: const TextStyle(fontSize: 12))),
+              ]),
+              if (ck.edgeDepth > 0) ...[
+                _slider(layer, 'edge strength', ck.edgeStrength, ChromaKey().edgeStrength, (c, v) => c.edgeStrength = v),
+                _slider(layer, 'edge softness', ck.edgeSoftness, ChromaKey().edgeSoftness, (c, v) => c.edgeSoftness = v),
+              ],
+              Hint(ck.edgeDepth > 0
+                  ? 'Only in a band this deep along the edge of what was cut: the edge strength and softness '
+                      'take the leftover fringe of the colour - the rest of the picture is not touched. '
+                      'Nothing happens until the connected key has cut something.'
+                  : 'Edge depth: a band along the edge of what was cut, with its own strength and softness '
+                      '(for the fringe left round the object).'),
+            ],
             SwitchListTile(
               key: const ValueKey('chroma-invert'),
               dense: true,

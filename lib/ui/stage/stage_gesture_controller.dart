@@ -65,6 +65,9 @@ class StageGestureController {
 
   // free move: a drag is recording the way.
   bool _freeMoveDrag = false;
+
+  /// Drawing, the brush: a stroke going on.
+  bool _brushDrag = false;
   bool get marqueeActive => marqueeA != null;
   bool get anyDragActive => _activeDrag != null;
 
@@ -103,6 +106,14 @@ class StageGestureController {
       _primaryDownScreen = event.localPosition;
       _primaryDownTime = event.timeStamp;
       _primaryMovedPastTapThreshold = false;
+      // the brush: the finger draws a stroke.
+      if (app.drawTool == 'brush') {
+        final fp = camera.screenToFrame(event.localPosition);
+        _brushDrag = true;
+        app.beginBrushStroke([fp.dx, fp.dy]);
+        onNeedsRepaint();
+        return;
+      }
       // free move: the drag records the object's way.
       if (app.freeMoveRecording) {
         final fp = camera.screenToFrame(event.localPosition);
@@ -607,6 +618,13 @@ class StageGestureController {
       return;
     }
 
+    if (_brushDrag && event.pointer == _primaryPointerId) {
+      final fp = camera.screenToFrame(event.localPosition);
+      app.addBrushPoint([fp.dx, fp.dy]);
+      onNeedsRepaint();
+      return;
+    }
+
     if (_freeMoveDrag && event.pointer == _primaryPointerId) {
       final fp = camera.screenToFrame(event.localPosition);
       app.addFreeMovePoint([fp.dx, fp.dy], at: event.timeStamp);
@@ -699,6 +717,17 @@ class StageGestureController {
       return;
     }
 
+    if (_brushDrag && event.pointer == _primaryPointerId) {
+      _brushDrag = false;
+      _primaryPointerId = null;
+      _primaryDownScreen = null;
+      _primaryMovedPastTapThreshold = false;
+      _pointers.remove(event.pointer);
+      app.endBrushStroke();
+      onNeedsRepaint();
+      return;
+    }
+
     if (_freeMoveDrag && event.pointer == _primaryPointerId) {
       _freeMoveDrag = false;
       _primaryPointerId = null;
@@ -768,6 +797,10 @@ class StageGestureController {
 
   void _onPointerCancel(PointerCancelEvent event) {
     _pointers.remove(event.pointer);
+    if (_brushDrag && event.pointer == _primaryPointerId) {
+      _brushDrag = false;
+      app.brushStroke = null;
+    }
     if (event.pointer == _primaryPointerId) {
       chromaPickScreen = null;
       marqueeA = marqueeB = null;

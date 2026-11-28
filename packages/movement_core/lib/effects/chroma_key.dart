@@ -170,6 +170,47 @@ Float32List chromaKeepMap(Uint8List rgba, int width, int height, ChromaKey k) {
     for (var i = 0; i < n; i++) {
       if (reached[i] == 0) keep[i] = 1;
     }
+    // the edge band: up to `edgeDepth` px into what stays from what the
+    // connected key took - there a key of its own takes the fringe. No
+    // edge (nothing taken): nothing.
+    final depth = k.edgeDepth.round();
+    if (depth > 0 && reached.contains(1)) {
+      final dist = Int32List(n)..fillRange(0, n, -1);
+      var front = <int>[];
+      for (var i = 0; i < n; i++) {
+        if (reached[i] == 1) {
+          dist[i] = 0;
+          final x = i % width, y = i ~/ width;
+          // only the edge of what was taken starts the band.
+          if ((x > 0 && reached[i - 1] == 0) ||
+              (x < width - 1 && reached[i + 1] == 0) ||
+              (y > 0 && reached[i - width] == 0) ||
+              (y < height - 1 && reached[i + width] == 0)) {
+            front.add(i);
+          }
+        }
+      }
+      final bandInner = k.edgeStrength.clamp(0.0, 1.0) * 0.5;
+      final bandOuter = bandInner + k.edgeSoftness.clamp(0.0, 1.0) * 0.4 + 1e-4;
+      for (var step = 1; step <= depth && front.isNotEmpty; step++) {
+        final next = <int>[];
+        for (final i in front) {
+          final x = i % width, y = i ~/ width;
+          for (final j in [if (x > 0) i - 1, if (x < width - 1) i + 1, if (y > 0) i - width, if (y < height - 1) i + width]) {
+            if (dist[j] != -1) continue;
+            dist[j] = step;
+            next.add(j);
+            final o = j * 4;
+            if (rgba[o + 3] == 0) continue;
+            final c = _ycc(rgba[o] / 255, rgba[o + 1] / 255, rgba[o + 2] / 255);
+            final dy = (c[0] - kc[0]) * 0.5, dcb = c[1] - kc[1], dcr = c[2] - kc[2];
+            final d = math.sqrt(dy * dy + dcb * dcb + dcr * dcr) / 0.72;
+            if (d < bandOuter) keep[j] = math.min(keep[j], _smoothstep(bandInner, bandOuter, d));
+          }
+        }
+        front = next;
+      }
+    }
   }
   if (k.expand > 0) _minFilter(keep, width, height, k.expand.round());
   if (k.invert) {

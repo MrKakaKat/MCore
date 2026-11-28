@@ -384,6 +384,10 @@ Set<int>? pasteKeyframes(Layer layer, int globalFrame) {
 /// freely either way.
 bool keysMayLeaveLayer = false;
 
+/// Keys let go on a frame where the layer has other keys: join them into
+/// one mark there (true), or step aside to the nearest free frame.
+bool keysJoinOnDrop = true;
+
 class KeyframeGroupDragOp {
   final List<({Track track, Keyframe keyframe, int startFrame})> items;
   final int originGlobalFrame;
@@ -399,6 +403,9 @@ class KeyframeGroupDragOp {
     ];
     return KeyframeGroupDragOp._(items, originGlobalFrame);
   }
+
+  /// Where the moved keys are now (global frames).
+  Set<int> frames(Layer layer) => {for (final item in items) item.keyframe.frame + layer.startFrame};
 
   /// returns the new selection (global frames) after moving every
   /// captured keyframe to reflect `currentGlobalFrame`'s delta from
@@ -431,10 +438,43 @@ class KeyframeGroupDragOp {
     return {for (final item in items) item.keyframe.frame + layer.startFrame};
   }
 
-  /// On release: a moved key that landed on another key of the same track
-  /// replaces it (a track never keeps two keys on one frame).
-  void finish() {
+  /// On release: with keysJoinOnDrop off, keys let go on a frame where the
+  /// layer has other keys step aside to the nearest free frame (they are
+  /// not joined into one mark); else a moved key that landed on another
+  /// key of the same track replaces it (a track never keeps two keys on
+  /// one frame).
+  void finish([Layer? layer]) {
     final moved = {for (final item in items) item.keyframe};
+    if (!keysJoinOnDrop && layer != null && items.isNotEmpty) {
+      final taken = <int>{};
+      visitLayerTracks(layer, (t) {
+        for (final k in t.keyframes) {
+          if (!moved.contains(k)) taken.add(k.frame);
+        }
+      });
+      final at = {for (final item in items) item.keyframe.frame};
+      if (at.any(taken.contains)) {
+        // the nearest shift (either way) with no key landing on another.
+        for (var d = 1; d < 10000; d++) {
+          int? pick;
+          for (final s in [d, -d]) {
+            if (at.every((f) => !taken.contains(f + s) && f + s >= 0)) {
+              pick = s;
+              break;
+            }
+          }
+          if (pick != null) {
+            for (final item in items) {
+              item.keyframe.frame += pick;
+            }
+            break;
+          }
+        }
+        for (final trk in {for (final item in items) item.track}) {
+          trk.keyframes.sort((a, b) => a.frame.compareTo(b.frame));
+        }
+      }
+    }
     final touched = {for (final item in items) item.track};
     for (final trk in touched) {
       final movedFrames = {

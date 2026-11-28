@@ -279,14 +279,14 @@ class _StageViewState extends State<StageView> {
           ),
         ),
       // Drawing, Fill on: its mark in the corner - a tap switches it off.
-      if (widget.app.drawTool == 'fill')
+      if (widget.app.drawTool == 'fill' || widget.app.drawTool == 'brush')
         Positioned(
           right: 8,
           bottom: 8,
           child: IconButton.filledTonal(
-            key: const ValueKey('stage-fill-mark'),
-            tooltip: 'Fill is on - tap to switch it off',
-            icon: const Icon(Icons.format_color_fill, size: 20),
+            key: ValueKey(widget.app.drawTool == 'fill' ? 'stage-fill-mark' : 'stage-brush-mark'),
+            tooltip: '${widget.app.drawTool == 'fill' ? 'Fill' : 'Brush'} is on - tap to switch it off',
+            icon: Icon(widget.app.drawTool == 'fill' ? Icons.format_color_fill : Icons.brush, size: 20),
             onPressed: () => widget.app.setDrawTool('none'),
           ),
         ),
@@ -295,7 +295,7 @@ class _StageViewState extends State<StageView> {
       if (selectedLayer != null && widget.app.freshFillLayerId == selectedLayer.id && pieceInsets == null && !cropEditing)
         Positioned(
           right: 8,
-          bottom: widget.app.drawTool == 'fill' ? 56 : 8,
+          bottom: widget.app.drawTool == 'fill' || widget.app.drawTool == 'brush' ? 56 : 8,
           child: FilledButton.tonalIcon(
             key: const ValueKey('stage-fresh-fill'),
             // a text fills the frame across (all of it seen), the rest cover it.
@@ -306,6 +306,21 @@ class _StageViewState extends State<StageView> {
             },
             icon: const Icon(Icons.crop_square, size: 18),
             label: const Text('Fill'),
+          ),
+        ),
+      // the brush: the stroke being drawn, as it will look.
+      if (widget.app.brushStroke != null)
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              key: const ValueKey('brush-stroke'),
+              painter: _BrushStrokePainter(
+                [for (final p in widget.app.brushStroke!) _camera.frameToScreen(Offset(p[0], p[1]))],
+                color: _hexColor(widget.app.brushColor).withOpacity(widget.app.brushOpacity.clamp(0.05, 1.0)),
+                width: math.max(1.0, widget.app.brushSize * math.min(widget.app.frameWidth, widget.app.frameHeight) / 480 *
+                    (_camera.frameToScreen(const Offset(1, 0)) - _camera.frameToScreen(Offset.zero)).distance),
+              ),
+            ),
           ),
         ),
       // free move: the recorded way, and confirm / cancel.
@@ -769,6 +784,36 @@ class _StageCustomPainter extends CustomPainter {
 }
 
 /// Free move: the way recorded so far, its start and its end.
+Color _hexColor(String hex) => Color(0xFF000000 | (int.tryParse(hex.replaceFirst('#', ''), radix: 16) ?? 0xFFFFFF));
+
+/// The brush stroke being drawn (screen points), round and as wide as it
+/// will be.
+class _BrushStrokePainter extends CustomPainter {
+  final List<Offset> points;
+  final Color color;
+  final double width;
+  _BrushStrokePainter(this.points, {required this.color, required this.width});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) return;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    if (points.length == 1) {
+      canvas.drawCircle(points.first, width / 2, Paint()..color = color);
+      return;
+    }
+    canvas.drawPath(Path()..addPolygon(points, false), paint);
+  }
+
+  @override
+  bool shouldRepaint(_BrushStrokePainter old) => true;
+}
+
 class _FreeMovePathPainter extends CustomPainter {
   final List<Offset> points;
 

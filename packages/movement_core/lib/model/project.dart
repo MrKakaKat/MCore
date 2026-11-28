@@ -1400,6 +1400,15 @@ class ChromaKey {
   bool contiguous = false;
   List<double>? seed;
 
+  /// Connected only: a band this many pixels deep into what stays, along
+  /// the edge of what the connected key took (0: none) - only there a key
+  /// of its own (`edgeStrength`, `edgeSoftness`) takes the colour's fringe
+  /// too. Nothing happens without that edge (the connected key took
+  /// nothing).
+  double edgeDepth = 0;
+  double edgeStrength = 0.6;
+  double edgeSoftness = 0.3;
+
   /// Grows the keyed area by this many pixels before the edge (eats a
   /// fringe left around the cut-out).
   double expand = 0;
@@ -1437,6 +1446,9 @@ class ChromaKey {
       applied: [for (final k in applied) k.copy()])
     ..contiguous = contiguous
     ..seed = seed == null ? null : [...seed!]
+    ..edgeDepth = edgeDepth
+    ..edgeStrength = edgeStrength
+    ..edgeSoftness = edgeSoftness
     ..expand = expand
     ..invert = invert
     ..feather = feather;

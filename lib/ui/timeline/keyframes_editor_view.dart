@@ -62,6 +62,21 @@ class KeyframesEditorView extends StatelessWidget {
             _marksRow(),
             const Divider(height: 16),
             KeyModePanel(app: app, layer: layer),
+            // a key let go on another key's frame: one mark, or apart.
+            SwitchListTile(
+              key: const ValueKey('keys-join-on-drop'),
+              dense: true,
+              visualDensity: VisualDensity.compact,
+              contentPadding: const EdgeInsets.only(left: 4),
+              title: const Text('Join keys dropped on each other', style: TextStyle(fontSize: 13)),
+              subtitle: Text(
+                  keysJoinOnDrop
+                      ? 'a key let go right on another key\'s frame becomes one mark with it - they move together after'
+                      : 'a key let go on another key\'s frame steps aside to the nearest free frame - they stay apart',
+                  style: const TextStyle(fontSize: 11)),
+              value: keysJoinOnDrop,
+              onChanged: (v) => app.setAppPreference('keysJoinOnDrop', v),
+            ),
             const Divider(height: 16),
             // the parameters with keys, folded away until opened (the
             // header's list button).

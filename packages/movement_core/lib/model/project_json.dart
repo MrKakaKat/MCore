@@ -627,6 +627,7 @@ Map<String, dynamic> chromaKeyToJson(ChromaKey c) => {
       if (c.region.isNotEmpty) 'region': c.region,
       if (c.applied.isNotEmpty) 'applied': [for (final k in c.applied) chromaKeyToJson(k)],
       if (c.contiguous) 'contiguous': true,
+      if (c.edgeDepth > 0) ...{'edgeDepth': c.edgeDepth, 'edgeStrength': c.edgeStrength, 'edgeSoftness': c.edgeSoftness},
       if (c.seed != null) 'seed': c.seed,
       if (c.expand != 0) 'expand': c.expand,
       if (c.invert) 'invert': true,
@@ -644,6 +645,9 @@ ChromaKey chromaKeyFromJson(Map<String, dynamic> j) => ChromaKey(
       applied: (j['applied'] as List?)?.map((k) => chromaKeyFromJson(k as Map<String, dynamic>)).toList(),
     )
       ..contiguous = j['contiguous'] == true
+      ..edgeDepth = (j['edgeDepth'] as num?)?.toDouble() ?? 0
+      ..edgeStrength = (j['edgeStrength'] as num?)?.toDouble() ?? 0.6
+      ..edgeSoftness = (j['edgeSoftness'] as num?)?.toDouble() ?? 0.3
       ..seed = (j['seed'] as List?)?.map((v) => (v as num).toDouble()).toList()
       ..expand = (j['expand'] as num?)?.toDouble() ?? 0
       ..invert = j['invert'] == true
