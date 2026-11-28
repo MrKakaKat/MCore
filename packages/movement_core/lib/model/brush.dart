@@ -118,7 +118,13 @@ void rebuildBrushLine(Content c) {
   final pts = simplifyStroke(smoothStroke(raw, c.brushSmooth), 0.35);
   c.lineNodes = [for (final p in pts) LineNode(p[0], p[1])];
   syncLineBox(c);
+  // a soft edge reaches past the stroke: room for it.
+  final m = brushSoftSigma(c) * 3;
+  if (m > 0) c.size = [c.size[0] + 2 * m, c.size[1] + 2 * m];
 }
+
+/// How far a soft brush stroke's edge melts (the blur's sigma, px).
+double brushSoftSigma(Content c) => c.brushSoft.clamp(0.0, 1.0) * c.lineWidth * 0.3;
 
 /// A brush stroke (frame px points, as drawn) as a new layer: a plain
 /// line `width` px wide through the points (smoothed by `smooth`, which
@@ -128,6 +134,7 @@ Layer brushStrokeLayer(List<List<double>> drawn,
     required String color,
     double width = 6,
     double smooth = 0.5,
+    double soft = 0,
     double opacity = 1,
     int startFrame = 0,
     int durationFrames = 180}) {
@@ -142,6 +149,7 @@ Layer brushStrokeLayer(List<List<double>> drawn,
   layer.content
     ..brushRaw = [for (final p in pts) [p[0] - m.cx, p[1] - m.cy]]
     ..brushSmooth = smooth.clamp(0.0, 1.0)
+    ..brushSoft = soft.clamp(0.0, 1.0)
     ..lineWidth = width
     ..lineCap = 'round';
   rebuildBrushLine(layer.content);

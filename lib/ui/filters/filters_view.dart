@@ -186,9 +186,6 @@ class FiltersView extends StatelessWidget {
             FilterTrackRow(app: app, layer: layer, track: f.choke, keyName: 'filter-choke', label: 'Simple Choker',
                 min: -50, max: 50, suffix: ' px'),
             const Hint('Simple Choker: the layer\'s edge pulled in (or, below 0, spread out) - keyable.'),
-            FilterTrackRow(app: app, layer: layer, track: f.edgeFade, keyName: 'filter-edge-fade', label: 'Edge fade',
-                min: 0, max: 200, suffix: ' px'),
-            const Hint('Edge fade: the layer fades out toward its own edge - keyable.'),
             const SizedBox(height: 4),
             SegmentedButton<String>(
               key: const ValueKey('filter-dissolve'),

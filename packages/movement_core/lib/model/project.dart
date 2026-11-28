@@ -926,6 +926,9 @@ class Content {
   List<List<double>>? brushRaw;
   double brushSmooth = 0.5;
 
+  /// A brush stroke's soft edges (0: hard .. 1: very soft).
+  double brushSoft = 0;
+
   /// Merged shapes: each contour's own colour (null: the layer's).
   List<String?>? contourColors;
 
@@ -2317,8 +2320,8 @@ class LayerFilters {
   /// spread out).
   Track choke = Track(0.0, false);
 
-  /// Edge fade: the layer fades out toward its own edge over this many
-  /// px (keyable; 0: a sharp edge).
+  /// (No longer drawn: the edge fade was taken out - kept only so files
+  /// that have it still read.)
   Track edgeFade = Track(0.0, false);
 
   /// Dissolve: the layer's opacity as a share of its pixels shown whole
@@ -2356,7 +2359,7 @@ class LayerFilters {
   bool get pixelated => _on(mosaic) || dither;
 
   /// Settings that differ from a fresh one (saved even with nothing on).
-  bool get changed => any || _on(choke) || _on(edgeFade) || dissolve != 'none' || matteLayerId != null || scope != 'self' || blurKind != 'gaussian' || blurAngle != 0 ||
+  bool get changed => any || _on(choke) || dissolve != 'none' || matteLayerId != null || scope != 'self' || blurKind != 'gaussian' || blurAngle != 0 ||
       !blurCentered || blurFocus != 'none' ||
       warpScale != 60 || warpSpeed != 0.5 || lightWrapWidth != 12 ||
       vignetteSize != 0.5 || vignetteSoft != 0.5 || vignetteColor != '#000000';
@@ -3169,6 +3172,7 @@ Layer cloneLayer(Layer src) {
       ..audioPitch = src.content.audioPitch
       ..brushRaw = src.content.brushRaw?.map((p) => [...p]).toList()
       ..brushSmooth = src.content.brushSmooth
+      ..brushSoft = src.content.brushSoft
       ..lineNodes = src.content.lineNodes?.map((n) => n.copy()).toList()
       ..lineWidth = src.content.lineWidth
       ..lineClosed = src.content.lineClosed

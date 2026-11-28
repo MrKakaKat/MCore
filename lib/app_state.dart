@@ -3936,33 +3936,15 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Drawing, Card: a new layer of its own - a card over the whole frame
-  /// in the fill colour, its edges fading out (`fade` px). Picked; one
-  /// undo step.
-  Layer addCard({double fade = 24}) {
-    pushUndo();
-    final l = createLayer('rect', size: 46 * _resolutionScale)
-      ..id = _newLayerId()
-      ..color = fillColor
-      ..content.size = [frameWidth, frameHeight];
-    l.name = 'card';
-    l.filters.edgeFade = Track(fade * _resolutionScale, false);
-    _fitNewLayerToLength(l);
-    project.layers.add(l);
-    ensureUniqueLayerNames(project);
-    focusNewLayer(l.id);
-    _fitTimeline();
-    _render();
-    notifyListeners();
-    return l;
-  }
-
   /// Drawing, the brush: its colour, width (frame px), smoothing (0..1),
   /// opacity.
   String brushColor = '#ffffff';
   double brushSize = 8;
   double brushSmooth = 0.5;
   double brushOpacity = 1;
+
+  /// Soft edges (0 hard .. 1 very soft).
+  double brushSoft = 0;
 
   /// The stroke being drawn now (frame px), or null.
   List<List<double>>? brushStroke;
@@ -3973,7 +3955,8 @@ class AppState extends ChangeNotifier {
   Timer? _brushPreviewTimer;
   bool get brushPreviewShown => brushPreviewUntil != null && DateTime.now().isBefore(brushPreviewUntil!);
 
-  void setBrushOptions({String? color, double? size, double? smooth, double? opacity}) {
+  void setBrushOptions({String? color, double? size, double? smooth, double? opacity, double? soft}) {
+    if (soft != null) brushSoft = soft;
     if (color != null) brushColor = color;
     if (size != null) brushSize = size;
     if (smooth != null) brushSmooth = smooth;
@@ -3986,6 +3969,16 @@ class AppState extends ChangeNotifier {
 
   /// A brush stroke's smoothing changed after it was drawn: its line made
   /// again from what was drawn. One undo step per change started.
+  /// A brush stroke's soft edges changed after it was drawn.
+  void setStrokeSoft(String layerId, double v) {
+    final l = findLayer(project, layerId);
+    if (l == null || l.content.brushRaw == null) return;
+    l.content.brushSoft = v.clamp(0.0, 1.0);
+    rebuildBrushLine(l.content);
+    clearStateCaches();
+    commitEdit();
+  }
+
   void setStrokeSmooth(String layerId, double v) {
     final l = findLayer(project, layerId);
     if (l == null || l.content.brushRaw == null) return;
@@ -4037,6 +4030,7 @@ class AppState extends ChangeNotifier {
         color: brushColor,
         width: brushSize * _resolutionScale,
         smooth: brushSmooth,
+        soft: brushSoft,
         opacity: brushOpacity,
         durationFrames: end);
     l.name = nextFreeLayerName(project, 'stroke');

@@ -93,35 +93,6 @@ void main() {
     expect(findLayer(app.project, 'top')!.filters.any, isTrue);
   });
 
-  test('edge fade: solid in the middle, fading toward its own edge', () async {
-    final l = createLayer('rect')
-      ..id = 'c'
-      ..color = '#ffffff'
-      ..transform.anchor.defaultValue = [0.5, 0.5]
-      ..content = Content(shape: 'rect', offset: [0, 0], size: [120, 120]);
-    l.filters.edgeFade = Track(40.0, false);
-    final at = await render(Project(layers: [l]), 0);
-    expect(at(100, 75)[3], 255, reason: 'the middle stays');
-    final near = at(42, 75)[3], mid = at(60, 75)[3];
-    expect(near, lessThan(60), reason: 'at the edge: almost gone');
-    expect(mid, greaterThan(near));
-    expect(mid, lessThan(255));
-    expect(LayerFilters.fromJson(l.filters.toJson()).edgeFade.defaultValue, 40.0);
-  });
-
-  test('a card of its own: the whole frame, fill colour, edges fading', () {
-    final app = AppState();
-    app.setFrameSize(w, h);
-    app.project.layers.clear();
-    final c = app.addCard();
-    expect([c.content.size, c.color, app.selection.selectedLayer], [
-      [w, h],
-      app.fillColor,
-      c.id
-    ]);
-    expect((c.filters.edgeFade.defaultValue as num) > 0, isTrue);
-  });
-
   test('detached motion blur: the layer stops blurring, the new layer does', () {
     final app = AppState();
     app.project.layers.clear();

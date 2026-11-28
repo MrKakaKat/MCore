@@ -79,7 +79,6 @@ void visitLayerTracksNamed(Layer layer, void Function(String name, Track track) 
     fn('match ${i + 1} colour', layer.filters.matches[i].coeffs);
     fn('match ${i + 1} strength', layer.filters.matches[i].strength);
   }
-  fn('edge fade', layer.filters.edgeFade);
   fn('shadow echo fade', layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
   if (ts != null) fn('text shadow echo fade', ts.echoFade);
@@ -161,7 +160,6 @@ void visitLayerTracks(Layer layer, void Function(Track track) fn) {
     fn(m.coeffs);
     fn(m.strength);
   }
-  fn(layer.filters.edgeFade);
   fn(layer.fill.shadow.echoFade);
   final ts = layer.content.text?.shadow;
   if (ts != null) fn(ts.echoFade);

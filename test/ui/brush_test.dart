@@ -140,9 +140,10 @@ void main() {
     expect(app.drawTool, 'brush');
     expect(find.byKey(const ValueKey('brush-smooth')), findsOneWidget);
     expect(find.byKey(const ValueKey('brush-taper')), findsNothing);
-    // the picked layer's fade: opacity and edge fade.
-    expect(find.byKey(const ValueKey('draw-edge-fade')), findsOneWidget);
+    // the picked layer's opacity; the old edge fade is gone.
+    expect(find.byKey(const ValueKey('draw-edge-fade')), findsNothing);
     expect(find.byKey(const ValueKey('draw-opacity')), findsOneWidget);
+    expect(find.byKey(const ValueKey('brush-soft')), findsOneWidget);
   });
 
   test('a stroke draws where it was drawn', () async {
@@ -163,5 +164,29 @@ void main() {
     int alpha(int x, int y) => b.getUint8((y * 200 + x) * 4 + 3);
     expect(alpha(100, 60), greaterThan(200), reason: 'the bottom of the curve (i = 30): x 100, y 60');
     expect(alpha(100, 90), 0);
+  });
+
+  test('soft edges: the stroke melts away at its edge (as a soft brush)', () async {
+    setStageSize(200, 200);
+    final drawn = [for (var i = 0; i <= 60; i++) [40.0 + i * 2, 100.0]];
+    final l = brushStrokeLayer(drawn, id: 's', color: '#000000', width: 30, smooth: 0.3, soft: 1);
+    final r = CanvasRenderer()..setSize(200, 200);
+    r.backgroundColor = null;
+    clearStateCaches();
+    r.renderFrame(Project(layers: [l]), 0);
+    final img = await r.captureFrame();
+    final b = (await img.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+    const dir = '/tmp/claude-0/-home-user-shiny/46cb87ef-9190-5dfc-8660-82b98c9b2e24/scratchpad/shots';
+    if (Directory(dir).existsSync()) {
+      final png = await img.toByteData(format: ui.ImageByteFormat.png);
+      File('$dir/soft.png').writeAsBytesSync(png!.buffer.asUint8List());
+    }
+    int alpha(int x, int y) => b.getUint8((y * 200 + x) * 4 + 3);
+    expect(alpha(100, 100), greaterThan(230), reason: 'solid in the middle');
+    final edge = alpha(100, 115);
+    expect(edge, inInclusiveRange(40, 200), reason: 'half-way at its edge: soft, not cut');
+    expect(alpha(100, 125), greaterThan(0), reason: 'melting on past it');
+    expect(alpha(100, 125), lessThan(edge));
+    expect(layerFromJson(layerToJson(l)).content.brushSoft, 1);
   });
 }

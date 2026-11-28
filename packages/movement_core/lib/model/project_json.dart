@@ -258,6 +258,7 @@ Map<String, dynamic> contentToJson(Content c) => {
         // (rounded: a stroke has many points)
         'brushRaw': [for (final p in c.brushRaw!) [(p[0] * 10).round() / 10, (p[1] * 10).round() / 10]],
         'brushSmooth': c.brushSmooth,
+        if (c.brushSoft > 0) 'brushSoft': c.brushSoft,
       },
       if (c.mediaHash != null) 'mediaHash': c.mediaHash,
       if (c.gridCols != null && c.gridRows != null) 'grid': [c.gridCols, c.gridRows],
@@ -305,7 +306,8 @@ Content contentFromJson(Map<String, dynamic> j) =>
       ..brushRaw = (j['brushRaw'] as List?)
           ?.map((p) => [for (final v in p as List) (v as num).toDouble()])
           .toList()
-      ..brushSmooth = (j['brushSmooth'] as num?)?.toDouble() ?? 0.5;
+      ..brushSmooth = (j['brushSmooth'] as num?)?.toDouble() ?? 0.5
+      ..brushSoft = (j['brushSoft'] as num?)?.toDouble() ?? 0;
 
 Content _contentFromJson(Map<String, dynamic> j) => Content(
       shape: j['shape'] as String,

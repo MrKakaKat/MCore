@@ -19,7 +19,6 @@ const filterUnitNames = {
   'dither': 'dither',
   'lightWrap': 'light wrap',
   'choke': 'choker',
-  'edgeFade': 'edge fade',
   'dissolve': 'dissolve',
 };
 
@@ -34,7 +33,6 @@ bool filterUnitOn(LayerFilters f, String unit) => switch (unit) {
       'dither' => f.dither,
       'lightWrap' => f.lightWrap > 0,
       'choke' => _on(f.choke),
-      'edgeFade' => _on(f.edgeFade),
       'dissolve' => f.dissolve != 'none',
       _ => false,
     };
@@ -62,8 +60,6 @@ void _offUnit(LayerFilters f, String unit) {
       f.lightWrap = 0;
     case 'choke':
       f.choke = Track(0.0, false);
-    case 'edgeFade':
-      f.edgeFade = Track(0.0, false);
     case 'dissolve':
       f.dissolve = 'none';
   }

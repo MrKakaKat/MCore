@@ -85,7 +85,7 @@ class DrawingView extends StatelessWidget {
               secondary: const Icon(Icons.brush),
               title: const Text('Brush', style: TextStyle(fontWeight: FontWeight.bold)),
               subtitle: hint('Draw on the stage with a finger: each stroke a layer of its own (the Brush folder), '
-                  'drawn just as it went - its smoothing can be changed afterwards'),
+                  'drawn just as it went - its smoothing and soft edges can be changed afterwards'),
               value: app.drawTool == 'brush',
               onChanged: (v) => app.setDrawTool(v ? 'brush' : 'none'),
             ),
@@ -94,6 +94,8 @@ class DrawingView extends StatelessWidget {
               ('brush-size', 'Width', app.brushSize, 1.0, 80.0, (double v) => app.setBrushOptions(size: v), '${app.brushSize.round()} px'),
               ('brush-smooth', 'Smooth', app.brushSmooth, 0.0, 1.0, (double v) => app.setBrushOptions(smooth: v),
                   '${(app.brushSmooth * 100).round()}%'),
+              ('brush-soft', 'Soft edges', app.brushSoft, 0.0, 1.0, (double v) => app.setBrushOptions(soft: v),
+                  '${(app.brushSoft * 100).round()}%'),
               ('brush-opacity', 'Opacity', app.brushOpacity, 0.05, 1.0, (double v) => app.setBrushOptions(opacity: v),
                   '${(app.brushOpacity * 100).round()}%'),
             ])
@@ -111,7 +113,7 @@ class DrawingView extends StatelessWidget {
             if (findLayer(app.project, app.selection.selectedLayer) case final l?
                 when !isAudioShape(l.content.shape) && !isCameraShape(l.content.shape)) ...[
               const Divider(height: 24),
-              Text('Fade (${l.name})', style: const TextStyle(fontWeight: FontWeight.bold)),
+              Text('Opacity (${l.name})', style: const TextStyle(fontWeight: FontWeight.bold)),
               FilterTrackRow(
                   app: app,
                   layer: l,
@@ -123,10 +125,6 @@ class DrawingView extends StatelessWidget {
                   factor: 100,
                   suffix: ' %',
                   resetTo: 1),
-              FilterTrackRow(
-                  app: app, layer: l, track: l.filters.edgeFade, keyName: 'draw-edge-fade', label: 'Edge fade', min: 0, max: 200, suffix: ' px'),
-              const Hint('Edge fade: the layer turns see-through toward its own edges over this many px (keyable) - '
-                  'the same as in Filters.'),
             ],
             // the picked stroke: its smoothing, changed after drawing.
             if (findLayer(app.project, app.selection.selectedLayer) case final l? when l.content.brushRaw != null) ...[
@@ -145,6 +143,21 @@ class DrawingView extends StatelessWidget {
                 SizedBox(
                     width: 48,
                     child: Text('${(l.content.brushSmooth * 100).round()}%',
+                        style: const TextStyle(fontSize: 12), textAlign: TextAlign.right)),
+              ]),
+              Row(children: [
+                const SizedBox(width: 78, child: Text('Soft edges', style: TextStyle(fontSize: 13))),
+                Expanded(
+                  child: Slider(
+                    key: const ValueKey('stroke-soft'),
+                    value: l.content.brushSoft.clamp(0.0, 1.0),
+                    onChangeStart: (_) => app.pushUndo(),
+                    onChanged: (v) => app.setStrokeSoft(l.id, v),
+                  ),
+                ),
+                SizedBox(
+                    width: 48,
+                    child: Text('${(l.content.brushSoft * 100).round()}%',
                         style: const TextStyle(fontSize: 12), textAlign: TextAlign.right)),
               ]),
             ],

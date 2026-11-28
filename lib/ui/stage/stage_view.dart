@@ -326,6 +326,7 @@ class _StageViewState extends State<StageView> {
                 painter: _BrushStrokePainter(
                   pts,
                   backdrop: true,
+                  soft: widget.app.brushSoft,
                   color: _hexColor(widget.app.brushColor).withOpacity(widget.app.brushOpacity.clamp(0.05, 1.0)),
                   width: math.max(
                       1.0,
@@ -346,6 +347,7 @@ class _StageViewState extends State<StageView> {
               key: const ValueKey('brush-stroke'),
               painter: _BrushStrokePainter(
                 [for (final p in widget.app.brushStroke!) _camera.frameToScreen(Offset(p[0], p[1]))],
+                soft: widget.app.pendingPlaceShape == 'line' ? 0 : widget.app.brushSoft,
                 // (a line being placed: as the new line will be)
                 color: widget.app.pendingPlaceShape == 'line'
                     ? Colors.white
@@ -832,7 +834,10 @@ class _BrushStrokePainter extends CustomPainter {
 
   /// A half-see-through dark block behind it (like the stage's icons).
   final bool backdrop;
-  _BrushStrokePainter(this.points, {required this.color, required this.width, this.backdrop = false});
+
+  /// Soft edges (0..1, as the brush's).
+  final double soft;
+  _BrushStrokePainter(this.points, {required this.color, required this.width, this.backdrop = false, this.soft = 0});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -850,7 +855,8 @@ class _BrushStrokePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = width
       ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
+      ..strokeJoin = StrokeJoin.round
+      ..maskFilter = soft > 0 ? MaskFilter.blur(BlurStyle.normal, soft.clamp(0.0, 1.0) * width * 0.3) : null;
     if (points.length == 1) {
       canvas.drawCircle(points.first, width / 2, Paint()..color = color);
       return;

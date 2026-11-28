@@ -1408,7 +1408,11 @@ class CanvasRenderer implements Renderer {
               ..style = ui.PaintingStyle.stroke
               ..strokeWidth = outline ? 1.5 : c.lineWidth
               ..strokeCap = ui.StrokeCap.round
-              ..strokeJoin = ui.StrokeJoin.round);
+              ..strokeJoin = ui.StrokeJoin.round
+              // a soft brush: its edge melting away.
+              ..maskFilter = !outline && c.brushRaw != null && c.brushSoft > 0
+                  ? ui.MaskFilter.blur(ui.BlurStyle.normal, brushSoftSigma(c))
+                  : null);
         });
       }
     } else if (isTextured && !backTexture && _warpsAsVector(layer)) {
@@ -1734,8 +1738,7 @@ class CanvasRenderer implements Renderer {
     final choke = (evaluateTrack(project, layer.filters.choke, localFrameOp, layer) as num).toDouble() * _width / stageSize.width;
     if (choke.abs() > 0.05) contentPicture = _choked(contentPicture, choke);
     // Edge fade: soft toward its own edge.
-    final fade = (evaluateTrack(project, layer.filters.edgeFade, localFrameOp, layer) as num).toDouble() * _width / stageSize.width;
-    if (fade > 0.05) contentPicture = _edgeFaded(contentPicture, fade);
+
     // Dissolve: the opacity as a share of whole pixels, not a blend.
     if (layer.filters.dissolve != 'none' && opacity < 1) {
       final keep = opacity.clamp(0.0, 1.0).toDouble();
@@ -1812,25 +1815,6 @@ class CanvasRenderer implements Renderer {
       _lightWrap(destCanvas, project, layer, contentPicture, globalFrame);
     }
     destCanvas.restore();
-  }
-
-  /// `pic` fading out toward its edge over `px` (canvas px): its alpha
-  /// worn in by half of it, then blurred back out to the edge.
-  ui.Picture _edgeFaded(ui.Picture pic, double px) {
-    final rec = ui.PictureRecorder();
-    final c = ui.Canvas(rec);
-    c.drawPicture(pic);
-    final sigma = px / 4;
-    c.saveLayer(
-        null,
-        ui.Paint()
-          ..blendMode = ui.BlendMode.dstIn
-          ..imageFilter = ui.ImageFilter.compose(
-              outer: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma, tileMode: ui.TileMode.decal),
-              inner: ui.ImageFilter.erode(radiusX: px / 2, radiusY: px / 2)));
-    c.drawPicture(pic);
-    c.restore();
-    return rec.endRecording();
   }
 
   /// `pic` with its edge pulled in by `px` (canvas px; below 0: spread).
