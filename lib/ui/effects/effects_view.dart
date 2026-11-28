@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' hide Easing;
 import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
+import '../stage/stage_painter.dart' show effectVisualsVisible;
 import '../common/color_row.dart';
 import '../common/hint.dart';
 import '../common/param_editor.dart';
@@ -55,6 +56,11 @@ class EffectsView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     FreezeWatch.at('building $runtimeType');
+    // the effects' guides and handles show on the stage while this is open.
+    return _EffectVisualsShown(app: app, child: _body(context));
+  }
+
+  Widget _body(BuildContext context) {
     return AnimatedBuilder(
       animation: app,
       builder: (context, _) {
@@ -641,6 +647,29 @@ class EffectsView extends StatelessWidget {
         icon: const Icon(Icons.link, size: 16),
         label: const Text('Attach shapes (they fold with it)'),
       ),
+      // Submit: the paper as folded now becomes the shape itself.
+      Builder(builder: (context) {
+        final l = findLayer(app.project, app.selection.selectedLayer);
+        if (l == null || const {'image', 'video', 'gif', 'projectRef', 'placeholder', 'text'}.contains(l.content.shape)) {
+          return const SizedBox.shrink();
+        }
+        return OutlinedButton.icon(
+          key: ValueKey('origami-submit-${inst.id}'),
+          icon: const Icon(Icons.check, size: 16),
+          label: const Text('Submit the folded shape'),
+          onPressed: () {
+            app.pushUndo();
+            if (submitOrigami(app.project, l, inst.id, app.currentFrame)) {
+              app.commitEdit();
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nothing folded to submit')));
+            }
+          },
+        );
+      }),
+      hint('Submit: the paper as it is folded now becomes the shape (the fold effect goes; it is kept in the '
+              'shape history to pick up again).') ??
+          const SizedBox.shrink(),
       SwitchListTile(
         key: ValueKey('origami-stage-${inst.id}'),
         dense: true,
@@ -2372,4 +2401,35 @@ class _AddEffectRowState extends State<_AddEffectRow> {
       ),
     );
   }
+}
+
+
+/// Shows the effects' guides and handles on the stage while it is in the
+/// tree (the Effects tab open), hides them again when it goes.
+class _EffectVisualsShown extends StatefulWidget {
+  final AppState app;
+  final Widget child;
+  const _EffectVisualsShown({required this.app, required this.child});
+
+  @override
+  State<_EffectVisualsShown> createState() => _EffectVisualsShownState();
+}
+
+class _EffectVisualsShownState extends State<_EffectVisualsShown> {
+  @override
+  void initState() {
+    super.initState();
+    effectVisualsVisible = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => widget.app.rerender());
+  }
+
+  @override
+  void dispose() {
+    effectVisualsVisible = false;
+    widget.app.rerender();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

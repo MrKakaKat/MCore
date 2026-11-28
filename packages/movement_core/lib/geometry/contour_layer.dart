@@ -21,6 +21,7 @@ import '../text/text_animators.dart' show animatedTextPath, textPartCmds;
 import 'shapes.dart';
 import '../effects/geometry_effect_registry.dart' show isDeformingEffect;
 import '../ui_geometry/crop.dart' show croppedBox;
+import '../model/project_json.dart' show recordConfirm;
 
 /// The layer's vector outline rings (content-local), or null for raster
 /// content (and for content with nothing to outline: null points, sound,
@@ -615,3 +616,35 @@ List<double> _ringsBox(List<List<List<double>>> r) {
 }
 
 bool _boxesMeet(List<double> a, List<double> b) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+
+/// Origami, Submit: the paper as folded now becomes the layer's shape (its
+/// outline, the pieces joined) and the fold effect `instId` goes - what it
+/// was is kept in the layer's confirm history (editing can pick up from
+/// it). False: nothing folded to take.
+bool submitOrigami(Project project, Layer layer, String instId, int globalFrame) {
+  final inst = layer.effectStack.where((i) => i.id == instId).firstOrNull;
+  if (inst == null || inst.effectId != 'origami_fold') return false;
+  final pieces = origamiRingPieces(layer, layerFlatOutline(layer, globalFrame: globalFrame, project: project), globalFrame,
+      project: project);
+  if (pieces == null || pieces.isEmpty) return false;
+  var joined = <List<List<double>>>[pieces.first];
+  for (final p in pieces.skip(1)) {
+    if (p.length >= 3) joined = polygonBoolean(joined, [p], BoolOp.union);
+  }
+  joined = [for (final r in joined) if (r.length >= 3) r];
+  if (joined.isEmpty) return false;
+  recordConfirm(layer, inst, 'Origami', globalFrame);
+  var x0 = double.infinity, y0 = double.infinity, x1 = -double.infinity, y1 = -double.infinity;
+  for (final r in joined) {
+    for (final q in r) {
+      x0 = math.min(x0, q[0]);
+      y0 = math.min(y0, q[1]);
+      x1 = math.max(x1, q[0]);
+      y1 = math.max(y1, q[1]);
+    }
+  }
+  layer.content = Content(shape: 'compound', offset: [(x0 + x1) / 2, (y0 + y1) / 2], size: [x1 - x0, y1 - y0], contours: joined);
+  layer.effectStack.removeWhere((i) => i.id == instId);
+  layer.effectRanges.remove(instId);
+  return true;
+}

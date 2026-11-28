@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:movement_core/movement_core.dart';
 
 import 'json_repair.dart';
+import 'project_history.dart';
 import 'save_load.dart';
 import 'audio_asset_store.dart';
 import 'video_asset_store.dart';
@@ -203,7 +204,14 @@ class ProjectStore {
   /// A copy as a new project ("<name> copy"): a new id, revision 0.
   Future<File> duplicate(File file) async {
     final data = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    final from = data['id'] as String?;
     data['id'] = newProjectId();
+    // its versions go with it.
+    if (from != null) {
+      try {
+        await (await ProjectHistory.of(root, from)).copyTo(root, data['id'] as String);
+      } catch (_) {}
+    }
     data['revision'] = 0;
     data['name'] = '${data['name'] ?? 'Untitled'} copy';
     final copy = File('${_dir.path}/${DateTime.now().microsecondsSinceEpoch}.json');
@@ -436,8 +444,19 @@ class ProjectStore {
 
   /// For good (no trash).
   Future<void> delete(File file) async {
+    await _dropHistory(file);
     if (await file.exists()) await file.delete();
     await _dropSideFiles(file);
+  }
+
+  /// A project gone for good: its kept versions too.
+  Future<void> _dropHistory(File file) async {
+    try {
+      final id = (jsonDecode(await file.readAsString()) as Map)['id'] as String?;
+      if (id == null) return;
+      final d = ProjectHistory.dirOf(root, id);
+      if (await d.exists()) await d.delete(recursive: true);
+    } catch (_) {}
   }
 
   /// Into the trash: it stays there a week (restorable), then goes.
@@ -466,6 +485,9 @@ class ProjectStore {
 
   /// Everything in the trash, for good.
   Future<void> emptyTrash() async {
+    for (final m in await _metasIn(_trash)) {
+      await _dropHistory(m.file);
+    }
     if (await _trash.exists()) await _trash.delete(recursive: true);
     await cleanupVideos();
   }
@@ -476,6 +498,7 @@ class ProjectStore {
     var gone = false;
     for (final m in await _metasIn(_trash)) {
       if (!m.purgeAt!.isAfter(t)) {
+        await _dropHistory(m.file);
         await m.file.delete();
         gone = true;
       }

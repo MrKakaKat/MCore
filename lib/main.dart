@@ -42,6 +42,7 @@ import 'ui/text/text_view.dart';
 import 'ui/line/line_view.dart';
 import 'ui/common/xy_pad.dart';
 import 'ui/common/color_row.dart' show startColorEyedropper, cancelColorEyedropper;
+import 'ui/stage/stage_painter.dart' show effectVisualsVisible;
 import 'ui/stage/grid_settings_dialog.dart';
 import 'ui/stage/snapping_settings_dialog.dart';
 import 'ui/stage/stage_settings_dialog.dart';
@@ -62,6 +63,8 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   // the app's own pictures (icons, thumbnails): a small share of memory.
   PaintingBinding.instance.imageCache.maximumSizeBytes = 32 << 20;
+  // the effects' guides on the stage: only with the Effects tab open.
+  effectVisualsVisible = false;
   // something on the screen at once (the system's splash goes): the
   // start's steps run under it, each named - a start that stops says
   // where, and an error is shown, never an endless splash.

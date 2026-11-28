@@ -6,7 +6,7 @@ import 'package:movement_core/movement_core.dart';
 
 import '../../app_state.dart';
 import 'stage_camera.dart';
-import 'stage_painter.dart' show regionsPanelOpen, showRegionTints;
+import 'stage_painter.dart' show regionsPanelOpen, showRegionTints, effectVisualsVisible;
 
 /// which magnet-drag family (if any) currently has a captured handle -
 /// the painter uses this to hide that family's OTHER handles while
@@ -325,61 +325,64 @@ class StageGestureController {
       return best;
     }
 
-    final cpInst = getCornerPinInstance(layer);
-    if (cpInst != null && cpInst.effectId == 'edges_pin') {
-      // edges pin: an edge's middle moves the edge.
-      for (final e in getEdgesPinHandles(project, layer, cpInst, globalFrame)) {
-        final d = _dist(fp, e.screen);
-        if (d < bestDist) {
-          bestDist = d;
-          best = ActiveDragInfo(family: 'cornerPin', activeKey: e.key, op: EdgeDragOp(layer: layer, inst: cpInst, a: e.a, b: e.b));
+    // the effects' own handles: only while the Effects tab is open.
+    if (effectVisualsVisible) {
+      final cpInst = getCornerPinInstance(layer);
+      if (cpInst != null && cpInst.effectId == 'edges_pin') {
+        // edges pin: an edge's middle moves the edge.
+        for (final e in getEdgesPinHandles(project, layer, cpInst, globalFrame)) {
+          final d = _dist(fp, e.screen);
+          if (d < bestDist) {
+            bestDist = d;
+            best = ActiveDragInfo(family: 'cornerPin', activeKey: e.key, op: EdgeDragOp(layer: layer, inst: cpInst, a: e.a, b: e.b));
+          }
+        }
+      } else if (cpInst != null) {
+        final h = getCornerPinHandles(project, layer, cpInst, globalFrame);
+        for (final k in h.keys) {
+          final d = _dist(fp, h.screen[k]!);
+          if (d < bestDist) {
+            bestDist = d;
+            best = ActiveDragInfo(family: 'cornerPin', activeKey: k, op: CornerDragOp(layer: layer, inst: cpInst, corner: k));
+          }
         }
       }
-    } else if (cpInst != null) {
-      final h = getCornerPinHandles(project, layer, cpInst, globalFrame);
-      for (final k in h.keys) {
-        final d = _dist(fp, h.screen[k]!);
-        if (d < bestDist) {
-          bestDist = d;
-          best = ActiveDragInfo(family: 'cornerPin', activeKey: k, op: CornerDragOp(layer: layer, inst: cpInst, corner: k));
+      final mwInst = getMeshWarpInstance(layer);
+      if (mwInst != null) {
+        final h = getMeshWarpHandles(project, layer, mwInst, globalFrame);
+        for (final entry in h.handles) {
+          final d = _dist(fp, entry.screen);
+          if (d < bestDist) {
+            bestDist = d;
+            best = ActiveDragInfo(
+              family: 'meshWarp',
+              activeKey: entry.key,
+              op: MeshDragOp(layer: layer, inst: mwInst, pinKey: entry.key, natural: entry.natural),
+            );
+          }
         }
       }
-    }
-    final mwInst = getMeshWarpInstance(layer);
-    if (mwInst != null) {
-      final h = getMeshWarpHandles(project, layer, mwInst, globalFrame);
-      for (final entry in h.handles) {
-        final d = _dist(fp, entry.screen);
+      final r3d = getRotate3dInstance(layer);
+      if (r3d != null) {
+        final h = getRotate3dPivotHandle(project, layer, r3d, globalFrame);
+        final d = _dist(fp, h.screen);
         if (d < bestDist) {
           bestDist = d;
           best = ActiveDragInfo(
-            family: 'meshWarp',
-            activeKey: entry.key,
-            op: MeshDragOp(layer: layer, inst: mwInst, pinKey: entry.key, natural: entry.natural),
-          );
+              family: 'rotate3dPivot', activeKey: null, op: Rotate3dPivotDragOp.grab(project, layer, r3d, globalFrame, fp));
         }
       }
-    }
-    final r3d = getRotate3dInstance(layer);
-    if (r3d != null) {
-      final h = getRotate3dPivotHandle(project, layer, r3d, globalFrame);
-      final d = _dist(fp, h.screen);
-      if (d < bestDist) {
-        bestDist = d;
-        best = ActiveDragInfo(
-            family: 'rotate3dPivot', activeKey: null, op: Rotate3dPivotDragOp.grab(project, layer, r3d, globalFrame, fp));
-      }
-    }
-    // bend v2: start / end line handles and the angle knob.
-    final bends = getBendHandles(project, layer, globalFrame);
-    for (var i = 0; i < bends.length; i++) {
-      final h = bends[i];
-      for (final (key, p) in [('start', h.startHandle), ('end', h.endHandle), ('angle', h.angleHandle)]) {
-        final d = _dist(fp, p);
-        if (d < bestDist) {
-          bestDist = d;
-          best = ActiveDragInfo(
-              family: 'bendLine', activeKey: '$i:$key', op: BendHandleDragOp.grab(project, layer, h, key, globalFrame, fp));
+      // bend v2: start / end line handles and the angle knob.
+      final bends = getBendHandles(project, layer, globalFrame);
+      for (var i = 0; i < bends.length; i++) {
+        final h = bends[i];
+        for (final (key, p) in [('start', h.startHandle), ('end', h.endHandle), ('angle', h.angleHandle)]) {
+          final d = _dist(fp, p);
+          if (d < bestDist) {
+            bestDist = d;
+            best = ActiveDragInfo(
+                family: 'bendLine', activeKey: '$i:$key', op: BendHandleDragOp.grab(project, layer, h, key, globalFrame, fp));
+          }
         }
       }
     }
@@ -402,7 +405,7 @@ class StageGestureController {
       }
     }
     // Origami: its fold lines' middle dots.
-    if (origamiFoldsOnStage) {
+    if (origamiFoldsOnStage && effectVisualsVisible) {
       for (final f in origamiFoldLinesFrame(project, layer, globalFrame)) {
         final d = _dist(fp, f.mid);
         if (d < bestDist) {
@@ -431,7 +434,7 @@ class StageGestureController {
         }
       }
     }
-    if (layer.pendulum.enabled) {
+    if (layer.pendulum.enabled && effectVisualsVisible) {
       final h = getPendulumPivotHandleScreen(project, layer, globalFrame);
       final d = _dist(fp, h.screen);
       if (d < bestDist) {

@@ -53,6 +53,17 @@ class AppSettings {
   /// When the projects were last written there (ms; 0: never).
   int get projectsFolderSaved => (_data['projectsFolderSaved'] as num?)?.toInt() ?? 0;
 
+  /// The last try at writing them there failed: why (null: it went well).
+  String? get projectsFolderError {
+    final v = _data['projectsFolderError'];
+    return v is String && v.isNotEmpty ? v : null;
+  }
+
+  /// Previous versions kept per project (each time it is left after
+  /// editing), and new versions kept in a branch started from an old one.
+  int get versionsKept => ((_data['versionsKept'] as num?)?.toInt() ?? 10).clamp(1, 100);
+  int get branchVersionsKept => ((_data['branchVersionsKept'] as num?)?.toInt() ?? 5).clamp(1, 50);
+
   /// Home screen: projects by 'modified' (default) or 'created' date.
   String get projectSort => _data['projectSort'] == 'created' ? 'created' : 'modified';
 

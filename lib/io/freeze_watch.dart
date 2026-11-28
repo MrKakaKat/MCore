@@ -62,6 +62,11 @@ class FreezeWatch {
   /// What the open project is (written with a freeze).
   static void context(String text) => _port?.send(['ctx', text]);
 
+  /// The app put away (its thread held still by the system): no freezes
+  /// counted until it is back.
+  static void pause() => _port?.send(['pause']);
+  static void resume() => _port?.send(['resume']);
+
   /// Reads (and clears) the freezes written down since the last start.
   static List<String> takeRecorded(File file) {
     try {
@@ -108,10 +113,21 @@ void _watch(List<Object?> args) {
   final before = <String>[];
   var ctx = '';
   var memory = 0;
+  var paused = false;
   DateTime? frozeAt;
   inbox.listen((m) {
     final msg = m as List;
     final now = DateTime.now();
+    if (msg[0] == 'pause') {
+      paused = true;
+      frozeAt = null;
+      return;
+    }
+    if (msg[0] == 'resume') {
+      paused = false;
+      lastHeard = now;
+      return;
+    }
     if (frozeAt != null) {
       // back: how long it was gone.
       final ms = now.difference(frozeAt!).inMilliseconds + limitMs;
@@ -133,7 +149,7 @@ void _watch(List<Object?> args) {
     }
   });
   Timer.periodic(const Duration(milliseconds: 500), (_) {
-    if (frozeAt != null) return;
+    if (frozeAt != null || paused) return;
     if (DateTime.now().difference(lastHeard).inMilliseconds > limitMs) {
       frozeAt = DateTime.now();
       // written at once: the app may never come back.

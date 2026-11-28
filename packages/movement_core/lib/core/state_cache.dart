@@ -256,7 +256,7 @@ LayerBaseState getLayerBaseStateAt(Project project, String layerId, num globalFr
   }
   final baseLocalMatrix = mm.matFromTRS(anchor, baseRot, scale);
   final baseMatrix = layer.parentId != null
-      ? mm.matMul(parentMatrixFor(project, layer, globalFrame), baseLocalMatrix)
+      ? unskewed(mm.matMul(parentMatrixFor(project, layer, globalFrame), baseLocalMatrix))
       : baseLocalMatrix;
 
   final result = LayerBaseState(
@@ -458,6 +458,18 @@ List<double> inheritedBlurMatrix(Project project, Layer layer, num sampleFrame, 
 
 /// Position, rotation (degrees) and scale of a [a,b,c,d,tx,ty] matrix
 /// built like matFromTRS (skew is dropped).
+/// A child under a parent of uneven size (wider than tall) and turned
+/// against it came out slanted (a rectangle as a parallelogram): its
+/// sides kept at right angles - the turn along its first side, the size
+/// as much area as before. As it was when it has no slant.
+List<double> unskewed(List<double> m) {
+  final dot = m[0] * m[2] + m[1] * m[3];
+  final n1 = m[0] * m[0] + m[1] * m[1], n2 = m[2] * m[2] + m[3] * m[3];
+  if (dot.abs() <= 1e-9 * math.max(1e-12, math.sqrt(n1 * n2))) return m;
+  final d = decomposeAffine(m);
+  return mm.matFromTRS(d.pos, d.rot, d.scale);
+}
+
 ({List<double> pos, double rot, List<double> scale}) decomposeAffine(List<double> m) {
   final sx = math.sqrt(m[0] * m[0] + m[1] * m[1]);
   final rot = math.atan2(m[1], m[0]) * 180 / math.pi;

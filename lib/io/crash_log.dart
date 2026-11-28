@@ -40,6 +40,8 @@ class CrashLog with WidgetsBindingObserver {
         final last = jsonDecode(await log._file.readAsString());
         if (last is Map<String, dynamic> && last['state'] == 'running' && last['project'] != null) log.lastCrash = last;
         // errors from a session that went on afterwards still count.
+        // (notes - memory let go, the system short of it - are no errors:
+        // a session closed normally with only those is no report.)
         if (last is Map<String, dynamic> && last['state'] != 'running' && (last['errors'] as List?)?.isNotEmpty == true) {
           log.lastCrash = last;
         }
@@ -77,6 +79,19 @@ class CrashLog with WidgetsBindingObserver {
     return log;
   }
 
+  final List<String> _notes = [];
+
+  /// Something worth knowing if it goes wrong later (memory let go, the
+  /// system short of it, a frame over its time) - not an error: alone it
+  /// never makes a report.
+  void note(String text) {
+    _notes.add('${DateTime.now().toIso8601String()} ${text.length > 1000 ? text.substring(0, 1000) : text}');
+    while (_notes.length > 5) {
+      _notes.removeAt(0);
+    }
+    _write();
+  }
+
   void error(String text) {
     _errors.add('${DateTime.now().toIso8601String()} ${text.length > 4000 ? text.substring(0, 4000) : text}');
     while (_errors.length > 5) {
@@ -90,7 +105,7 @@ class CrashLog with WidgetsBindingObserver {
 
   @override
   void didHaveMemoryPressure() {
-    error('the system said memory is short');
+    note('the system said memory is short');
     onMemoryPressure?.call();
   }
 
@@ -98,6 +113,8 @@ class CrashLog with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // put away by the user (or the system): not a crash if it ends there.
     _state = state == AppLifecycleState.resumed ? 'running' : 'background';
+    // put away, the app's thread is held still: no freeze to see then.
+    state == AppLifecycleState.resumed ? FreezeWatch.resume() : FreezeWatch.pause();
     _write();
   }
 
@@ -112,6 +129,7 @@ class CrashLog with WidgetsBindingObserver {
       'time': DateTime.now().toIso8601String(),
       ...s,
       if (_errors.isNotEmpty) 'errors': _errors,
+      if (_notes.isNotEmpty) 'notes': _notes,
     };
     try {
       _file.writeAsStringSync(jsonEncode(data), flush: false);
@@ -131,6 +149,10 @@ class CrashLog with WidgetsBindingObserver {
     for (final e in (c['errors'] as List? ?? const [])) {
       b.writeln('---');
       b.writeln(e);
+    }
+    for (final e in (c['notes'] as List? ?? const [])) {
+      b.writeln('---');
+      b.writeln('(note) $e');
     }
     return b.toString();
   }

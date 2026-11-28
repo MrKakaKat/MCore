@@ -338,13 +338,14 @@ void paintStage({
       // already draw their OWN, more detailed (and draggable) grid in
       // the physical/handles layer below, and drawing both would just
       // double up on the same shape's outline.
-      if (getCornerPinInstance(selectedLayer) == null &&
+      if (effectVisualsVisible &&
+          getCornerPinInstance(selectedLayer) == null &&
           getMeshWarpInstance(selectedLayer) == null) {
         _paintEffectDeformationGrid(
             canvas, project, selectedLayer, globalFrame, inv);
       }
       // bend v2: tinted static / carried zones and the two lines.
-      _paintBendZones(canvas, project, selectedLayer, globalFrame, inv);
+      if (effectVisualsVisible) _paintBendZones(canvas, project, selectedLayer, globalFrame, inv);
     }
   }
 
@@ -487,6 +488,11 @@ void paintChromaLoupe(ui.Canvas canvas, ChromaLoupe loupe) {
   // the picked colour's code shows in the corner, after the layer's name
   // (stage_view).
 }
+
+/// The effects' guides and handles on the stage (bend lines, pins, folds,
+/// pivots...): shown while the Effects tab is open (the app starts with
+/// them off; a test without the app sees them).
+bool effectVisualsVisible = true;
 
 /// Masks tab: how the selected layer's masks work, drawn on the stage.
 bool showMaskViz = false;
@@ -1128,19 +1134,19 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
   final cpInst = getCornerPinInstance(layer);
   final mwInst = getMeshWarpInstance(layer);
 
-  if (cpInst != null) {
+  if (cpInst != null && effectVisualsVisible) {
     _paintCornerPin(
         canvas, project, layer, cpInst, globalFrame, activeDrag, inv);
   }
-  if (mwInst != null) {
+  if (mwInst != null && effectVisualsVisible) {
     _paintMeshWarp(
         canvas, project, layer, mwInst, globalFrame, activeDrag, inv);
   }
   final r3d = getRotate3dInstance(layer);
-  if (r3d != null) _paintRotate3dPivot(canvas, project, layer, r3d, globalFrame, inv);
-  _paintBendHandles(canvas, project, layer, globalFrame, activeDrag, inv);
+  if (r3d != null && effectVisualsVisible) _paintRotate3dPivot(canvas, project, layer, r3d, globalFrame, inv);
+  if (effectVisualsVisible) _paintBendHandles(canvas, project, layer, globalFrame, activeDrag, inv);
   if (glowHandlesVisible && layer.fill.active) _paintGlowHandles(canvas, project, layer, globalFrame, activeDrag, inv);
-  if (layer.pendulum.enabled) {
+  if (layer.pendulum.enabled && effectVisualsVisible) {
     _paintPendulumPivot(canvas, project, layer, globalFrame, inv);
   }
   // a text part open in the Text tab: its box (drag it to move the part).
@@ -1174,7 +1180,7 @@ void _paintHandles(ui.Canvas canvas, Project project, Layer layer,
   }
   // Origami: the fold lines (where a fold is, even before it folds), a
   // dot in each one's middle to drag it.
-  if (origamiFoldsOnStage) {
+  if (origamiFoldsOnStage && effectVisualsVisible) {
     final line = ui.Paint()
       ..color = const ui.Color(0xCCFFD54F)
       ..strokeWidth = 1.5 * inv;

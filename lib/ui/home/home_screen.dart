@@ -11,10 +11,9 @@ import '../../app_state.dart';
 import '../common/hint.dart';
 import '../player/player_screen.dart';
 import '../../io/app_settings.dart';
-import '../../io/save_load.dart';
-import '../ai/ai_dialogs.dart';
 import '../../io/backup.dart';
 import '../../io/outside_folder.dart';
+import '../../io/project_history.dart';
 import '../../io/file_pick.dart';
 import '../../io/font_store.dart';
 import '../../io/preset_store.dart';
@@ -65,52 +64,22 @@ class _HomeScreenState extends State<HomeScreen> {
     return all;
   }
 
-  /// Home settings: the projects' order, then the language.
+  /// Home settings: a page of its own (the projects' order, the
+  /// language, the versions kept, where they are kept, the cache).
   Future<void> _settings() async {
-    final s = AppSettings.instance;
-    await showDialog<void>(
-      context: context,
-      builder: (c) => StatefulBuilder(
-        builder: (c, set) => AlertDialog(
-          title: Text(tr('Settings')),
-          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(tr('Sort projects by'), style: const TextStyle(fontWeight: FontWeight.bold)),
-            for (final (v, label) in const [('modified', 'Date modified'), ('created', 'Date created')])
-              RadioListTile<String>(
-                key: ValueKey('sort-$v'),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(tr(label)),
-                value: v,
-                groupValue: s?.projectSort ?? 'modified',
-                onChanged: (x) async {
-                  await s?.setValue('projectSort', x!);
-                  set(() {});
-                  _refresh();
-                },
-              ),
-            const SizedBox(height: 8),
-            Text(tr('Language'), style: const TextStyle(fontWeight: FontWeight.bold)),
-            for (final (v, label) in const [('en', 'English'), ('ru', 'Русский')])
-              RadioListTile<String>(
-                key: ValueKey('lang-$v'),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(label),
-                value: v,
-                groupValue: appLanguage,
-                onChanged: (x) async {
-                  appLanguage = x!;
-                  await s?.setValue('language', x);
-                  set(() {});
-                  setState(() {});
-                },
-              ),
-          ]),
-          actions: [TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('Close')))],
-        ),
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => HomeSettingsScreen(
+        onChanged: () {
+          if (mounted) setState(() {});
+          _refresh();
+        },
+        onProjectsFolder: _projectsFolder,
+        onBackup: _backup,
+        onRestore: _restore,
+        onCache: _cache,
       ),
-    );
+    ));
+    _refresh();
   }
 
   /// A project is being opened: further taps wait (a second tap opened
@@ -171,6 +140,12 @@ class _HomeScreenState extends State<HomeScreen> {
           'memory MB': FreezeWatch.memoryMb(),
           'version': appVersion,
         };
+    // left after editing: a version is kept (see ProjectHistory).
+    DateTime? before;
+    try {
+      before = await meta.file.lastModified();
+    } catch (_) {}
+    if (!mounted) return;
     final route = Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => player ? PlayerScreen(app: app) : EditorScreen(appState: app)),
     );
@@ -183,8 +158,22 @@ class _HomeScreenState extends State<HomeScreen> {
     // closed: drop videos no project uses any more (after the final save,
     // so a video imported in this session is still referenced).
     await app.saveNow();
+    if (!player) await _keepVersion(meta, before);
     await widget.store.cleanupVideos();
     _refresh();
+  }
+
+  /// The project left after editing (its file changed since it was
+  /// opened): this state kept as a version.
+  Future<void> _keepVersion(ProjectMeta meta, DateTime? before) async {
+    try {
+      final f = meta.file;
+      if (!await f.exists()) return;
+      if (before != null && !(await f.lastModified()).isAfter(before)) return;
+      final s = AppSettings.instance;
+      final h = await ProjectHistory.of(widget.store.root, meta.id);
+      await h.record(await f.readAsString(), keepMain: s?.versionsKept ?? 10, keepBranch: s?.branchVersionsKept ?? 5);
+    } catch (_) {}
   }
 
   /// A project file that doesn't read: what it is, a copy of it saved
@@ -296,38 +285,114 @@ class _HomeScreenState extends State<HomeScreen> {
   /// The project's earlier versions kept beside its file: one picked
   /// becomes the project again.
   Future<void> _versions(ProjectMeta meta) async {
-    final versions = await widget.store.versionsOf(meta.file);
+    final safety = await widget.store.versionsOf(meta.file);
+    final h = await ProjectHistory.of(widget.store.root, meta.id);
     var now = 0;
     try {
       now = projectFileLayerCount(await meta.file.readAsString());
     } catch (_) {}
     if (!mounted) return;
-    final picked = await showDialog<File>(
+    final open = <String>{};
+    // a kept version (in the history), or a safety copy beside the file.
+    final picked = await showDialog<Object>(
       context: context,
-      builder: (c) => AlertDialog(
-        key: const ValueKey('project-versions'),
-        title: Text('"${meta.name}"'),
-        content: SizedBox(
-          width: 360,
-          child: ListView(shrinkWrap: true, children: [
-            ListTile(dense: true, title: Text(tr('Now')), subtitle: Text('$now ${tr('layers')}')),
-            if (versions.isEmpty)
-              Padding(padding: const EdgeInsets.all(8), child: Text(tr('No earlier versions kept.'))),
-            for (final v in versions)
-              ListTile(
-                key: ValueKey('project-version-${v.file.path}'),
-                dense: true,
-                title: Text(tr(v.label)),
-                subtitle: Text('${v.layers} ${tr('layers')}  ·  ${_formatDate(v.modified)}'),
-                trailing: TextButton(onPressed: () => Navigator.pop(c, v.file), child: Text(tr('Restore'))),
+      builder: (c) => StatefulBuilder(builder: (c, set) {
+        Widget row(HistoryEntry e, {double indent = 0}) {
+          final branches = h.branchesFrom(e.id);
+          final shown = branches.any((b) => open.contains(b.id));
+          return Padding(
+            padding: EdgeInsets.only(left: indent),
+            child: ListTile(
+              key: ValueKey('history-${e.id}'),
+              dense: true,
+              contentPadding: const EdgeInsets.only(left: 4),
+              leading: branches.isEmpty
+                  ? const SizedBox(width: 24)
+                  : IconButton(
+                      key: ValueKey('history-branches-${e.id}'),
+                      tooltip: tr('The versions made after going back to this one'),
+                      icon: Icon(shown ? Icons.expand_less : Icons.call_split, size: 18),
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => set(() {
+                        for (final b in branches) {
+                          shown ? open.remove(b.id) : open.add(b.id);
+                        }
+                      }),
+                    ),
+              title: Text(_formatDate(e.time)),
+              subtitle: Text('${e.layers} ${tr('layers')}'),
+              trailing: TextButton(
+                  key: ValueKey('history-restore-${e.id}'),
+                  onPressed: () => Navigator.pop(c, e),
+                  child: Text(tr('Go back'))),
+            ),
+          );
+        }
+
+        List<Widget> branch(HistoryBranch b, double indent) => [
+              Padding(
+                padding: EdgeInsets.only(left: indent + 8, top: 2),
+                child: Text(
+                    '${tr('Branch')}${h.active == b.id ? ' · ${tr('new versions go here')}' : ''}',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey)),
               ),
-          ]),
-        ),
-        actions: [TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('Close')))],
-      ),
+              for (final e in h.inBranch(b.id)) ...[
+                row(e, indent: indent + 16),
+                for (final sub in h.branchesFrom(e.id))
+                  if (open.contains(sub.id)) ...branch(sub, indent + 16),
+              ],
+            ];
+        // branches whose first version is gone: shown on their own.
+        final orphans = [
+          for (final b in h.branches)
+            if (b.from == null || !h.entries.any((e) => e.id == b.from)) b
+        ];
+        return AlertDialog(
+          key: const ValueKey('project-versions'),
+          title: Text('"${meta.name}"'),
+          content: SizedBox(
+            width: 380,
+            child: ListView(shrinkWrap: true, children: [
+              ListTile(dense: true, title: Text(tr('Now')), subtitle: Text('$now ${tr('layers')}')),
+              Text(
+                  '${tr('Kept each time it is left after editing')} (${tr('up to')} ${AppSettings.instance?.versionsKept ?? 10}). '
+                  '${tr('Going back keeps what is there now and the later versions too - the new ones go into a branch.')}',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              if (h.main.isEmpty && h.branches.isEmpty)
+                Padding(padding: const EdgeInsets.all(8), child: Text(tr('No versions kept yet.'))),
+              if (h.active == null && h.main.isNotEmpty)
+                Text(tr('New versions go into the main line.'), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+              for (final e in h.main) ...[
+                row(e),
+                for (final b in h.branchesFrom(e.id))
+                  if (open.contains(b.id)) ...branch(b, 0),
+              ],
+              for (final b in orphans) ...branch(b, 0),
+              if (safety.isNotEmpty) ...[
+                const Divider(),
+                Text(tr('Safety copies'), style: const TextStyle(fontWeight: FontWeight.bold)),
+                for (final v in safety)
+                  ListTile(
+                    key: ValueKey('project-version-${v.file.path}'),
+                    dense: true,
+                    title: Text(tr(v.label)),
+                    subtitle: Text('${v.layers} ${tr('layers')}  ·  ${_formatDate(v.modified)}'),
+                    trailing: TextButton(onPressed: () => Navigator.pop(c, v.file), child: Text(tr('Restore'))),
+                  ),
+              ],
+            ]),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(c), child: Text(tr('Close')))],
+        );
+      }),
     );
     if (picked == null) return;
-    await widget.store.restoreVersion(meta.file, picked);
+    final s = AppSettings.instance;
+    if (picked is HistoryEntry) {
+      await h.restore(meta.file, picked, keepMain: s?.versionsKept ?? 10, keepBranch: s?.branchVersionsKept ?? 5);
+    } else if (picked is File) {
+      await widget.store.restoreVersion(meta.file, picked);
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(tr('Restored (what was there is kept too)'))));
     }
@@ -383,28 +448,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openTrash() async {
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => TrashScreen(store: widget.store)));
     _refresh();
-  }
-
-  /// A chatbot's reply (MCJ) as a new project, after its report.
-  Future<void> _importFromText() async {
-    final r = await showAiImportDialog(context);
-    if (r == null || !mounted) return;
-    final existing = await _projects;
-    final name = 'AI project ${existing.length + 1}';
-    final file = await widget.store.create(name, r.width, r.height, fps: r.fps);
-    await saveProjectToFile(file, r.project,
-        maxFrame: r.duration,
-        playbackSpeed: 1,
-        name: name,
-        frameWidth: r.width,
-        frameHeight: r.height,
-        backgroundRgb: r.background == null ? null : int.parse(r.background!.substring(1), radix: 16),
-        projectFps: r.fps,
-        projectId: newProjectId());
-    final metas = await widget.store.list();
-    _refresh();
-    if (!mounted) return;
-    await _open(metas.firstWhere((m) => m.file.path == file.path));
   }
 
   bool _keeping = false;
@@ -475,15 +518,20 @@ class _HomeScreenState extends State<HomeScreen> {
     final newest = all.map((m) => m.modified.millisecondsSinceEpoch).reduce((a, b) => a > b ? a : b);
     if (newest <= s.projectsFolderSaved) return;
     _keeping = true;
+    if (mounted) setState(() {});
     try {
       await backUpProjectsTo(folder, widget.store);
       await s.setValue('projectsFolderSaved', newest);
+      await s.setValue('projectsFolderError', '');
     } catch (e) {
+      await s.setValue('projectsFolderError', '$e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${tr('Could not keep the projects in the folder')}: $e')));
       }
     } finally {
       _keeping = false;
+      // (the marks on the list follow)
+      if (mounted) setState(() {});
     }
   }
 
@@ -645,10 +693,6 @@ class _HomeScreenState extends State<HomeScreen> {
         PopupMenuButton<String>(
           key: const ValueKey('home-menu'),
           onSelected: (v) async {
-            if (v == 'aiPrompt') {
-              await showAiPromptDialog(context);
-              return;
-            }
             if (v == 'perf') {
               await widget.store.addPerfScenes();
               _refresh();
@@ -656,12 +700,9 @@ class _HomeScreenState extends State<HomeScreen> {
             if (v == 'backup') await _backup();
             if (v == 'folder') await _projectsFolder();
             if (v == 'cache') await _cache();
-            if (v == 'aiImport') await _importFromText();
             if (v == 'restore') await _restore();
           },
           itemBuilder: (_) => [
-            PopupMenuItem(value: 'aiPrompt', child: Text(tr('Prompt for AI...'))),
-            PopupMenuItem(value: 'aiImport', child: Text(tr('Import from text...'))),
             PopupMenuItem(value: 'backup', child: Text(tr('Back up everything...'))),
             PopupMenuItem(value: 'restore', child: Text(tr('Restore a backup...'))),
             PopupMenuItem(value: 'folder', child: Text(tr('Projects outside the app...'))),
@@ -825,6 +866,26 @@ class _HomeScreenState extends State<HomeScreen> {
     _refresh();
   }
 
+  /// Projects kept outside the app: green - this project as it is now is
+  /// there; grey - changed since, going there now (or on the next look at
+  /// the list); yellow - the last try to put it there failed. No folder
+  /// set: no mark.
+  Widget? _outsideMark(ProjectMeta p) {
+    final s = AppSettings.instance;
+    if (s == null || s.projectsFolder == null) return null;
+    final kept = p.modified.millisecondsSinceEpoch <= s.projectsFolderSaved;
+    final err = s.projectsFolderError;
+    final (icon, color, tip) = kept
+        ? (Icons.cloud_done, Colors.green, tr('Kept in the folder outside the app'))
+        : err != null && !_keeping
+            ? (Icons.cloud_off, Colors.amber, '${tr('Not kept in the folder: the last try failed')} - $err')
+            : (Icons.cloud_upload_outlined, Colors.grey, tr('Changed - going into the folder outside the app'));
+    return Tooltip(
+      message: tip,
+      child: Icon(icon, key: ValueKey('outside-${kept ? 'kept' : err != null && !_keeping ? 'failed' : 'pending'}-${p.id}'), size: 14, color: color),
+    );
+  }
+
   Widget _projectTile(ProjectMeta p, int i) {
     final picked = _picked.contains(p.file.path);
     return ListTile(
@@ -834,7 +895,10 @@ class _HomeScreenState extends State<HomeScreen> {
       onLongPress: () => _togglePick(p),
       leading: _AspectThumb(width: p.frameWidth, height: p.frameHeight),
       title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: hint('${p.frameWidth.round()} × ${p.frameHeight.round()}  ·  ${_formatDate(p.modified)}'),
+      subtitle: Row(children: [
+        if (_outsideMark(p) case final m?) ...[m, const SizedBox(width: 6)],
+        Flexible(child: hint('${p.frameWidth.round()} × ${p.frameHeight.round()}  ·  ${_formatDate(p.modified)}') ?? const SizedBox()),
+      ]),
       onTap: () => _picked.isNotEmpty ? _togglePick(p) : _open(p),
       trailing: PopupMenuButton<String>(
         onSelected: (action) async {
@@ -1215,6 +1279,113 @@ class _NewProjectDialogState extends State<_NewProjectDialog> {
           child: const Text('Create'),
         ),
       ],
+    );
+  }
+}
+
+
+/// The project list's settings, as a page of its own.
+class HomeSettingsScreen extends StatefulWidget {
+  final VoidCallback onChanged;
+  final Future<void> Function() onProjectsFolder, onBackup, onRestore, onCache;
+  const HomeSettingsScreen(
+      {super.key,
+      required this.onChanged,
+      required this.onProjectsFolder,
+      required this.onBackup,
+      required this.onRestore,
+      required this.onCache});
+
+  @override
+  State<HomeSettingsScreen> createState() => _HomeSettingsScreenState();
+}
+
+class _HomeSettingsScreenState extends State<HomeSettingsScreen> {
+  Future<void> _set(String key, Object v) async {
+    await AppSettings.instance?.setValue(key, v);
+    setState(() {});
+    widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppSettings.instance;
+    Widget heading(String t) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
+          child: Text(tr(t).toUpperCase(),
+              style: TextStyle(fontSize: 12, letterSpacing: 0.8, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.primary)),
+        );
+    Widget count(String key, String title, String sub, int value, int min, int max) => ListTile(
+          key: ValueKey('settings-$key'),
+          title: Text(tr(title)),
+          subtitle: Text(tr(sub)),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+                key: ValueKey('settings-$key-minus'),
+                icon: const Icon(Icons.remove),
+                onPressed: value > min ? () => _set(key, value - 1) : null),
+            SizedBox(width: 28, child: Text('$value', textAlign: TextAlign.center, style: const TextStyle(fontSize: 16))),
+            IconButton(
+                key: ValueKey('settings-$key-plus'),
+                icon: const Icon(Icons.add),
+                onPressed: value < max ? () => _set(key, value + 1) : null),
+          ]),
+        );
+    return Scaffold(
+      key: const ValueKey('home-settings-page'),
+      appBar: AppBar(title: Text(tr('Settings'))),
+      body: ListView(children: [
+        heading('Sort projects by'),
+        for (final (v, label) in const [('modified', 'Date modified'), ('created', 'Date created')])
+          RadioListTile<String>(
+            key: ValueKey('sort-$v'),
+            title: Text(tr(label)),
+            value: v,
+            groupValue: s?.projectSort ?? 'modified',
+            onChanged: (x) => _set('projectSort', x!),
+          ),
+        heading('Language'),
+        for (final (v, label) in const [('en', 'English'), ('ru', 'Русский')])
+          RadioListTile<String>(
+            key: ValueKey('lang-$v'),
+            title: Text(label),
+            value: v,
+            groupValue: appLanguage,
+            onChanged: (x) async {
+              appLanguage = x!;
+              await _set('language', x);
+            },
+          ),
+        heading('Previous versions'),
+        count('versionsKept', 'Versions kept', 'One each time a project is left after editing', s?.versionsKept ?? 10, 1, 100),
+        count('branchVersionsKept', 'Versions in a branch', 'Made after going back to an older version', s?.branchVersionsKept ?? 5,
+            1, 50),
+        heading('Keeping projects safe'),
+        ListTile(
+          key: const ValueKey('settings-folder'),
+          leading: const Icon(Icons.cloud_outlined),
+          title: Text(tr('Projects outside the app...')),
+          subtitle: Text(s?.projectsFolder == null ? tr('Off') : '${tr('Kept in')} ${s?.projectsFolderName ?? ''}'),
+          onTap: () async {
+            await widget.onProjectsFolder();
+            setState(() {});
+            widget.onChanged();
+          },
+        ),
+        ListTile(
+            leading: const Icon(Icons.archive_outlined),
+            title: Text(tr('Back up everything...')),
+            onTap: widget.onBackup),
+        ListTile(
+            leading: const Icon(Icons.unarchive_outlined),
+            title: Text(tr('Restore a backup...')),
+            onTap: () async {
+              await widget.onRestore();
+              widget.onChanged();
+            }),
+        heading('Storage'),
+        ListTile(leading: const Icon(Icons.cleaning_services_outlined), title: Text(tr('Cache...')), onTap: widget.onCache),
+      ]),
     );
   }
 }

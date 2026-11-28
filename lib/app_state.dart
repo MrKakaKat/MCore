@@ -1329,7 +1329,7 @@ class AppState extends ChangeNotifier {
     renderer.trimMemory(usedSources: directRefs(project), low: true);
     _contextRenderer.trimMemory();
     clearStateCaches();
-    CrashLog.instance?.error('memory: caches let go ($why; held MB: $held)');
+    CrashLog.instance?.note('memory: caches let go ($why; held MB: $held)');
   }
 
   /// Renders the frame again (the stage's handle cuts changed size).
@@ -1368,7 +1368,7 @@ class AppState extends ChangeNotifier {
     _overBudgetSaid = o.frame;
     overBudgetNotice = 'Frame ${o.frame} took too long${o.at == null ? '' : ' (at "${o.at}")'} - '
         'playback stopped so the app does not freeze. Part of the frame may be missing.';
-    CrashLog.instance?.error('over budget: ${overBudgetNotice!}');
+    CrashLog.instance?.note('over budget: ${overBudgetNotice!}');
     _notice(overBudgetNotice!);
   }
 
